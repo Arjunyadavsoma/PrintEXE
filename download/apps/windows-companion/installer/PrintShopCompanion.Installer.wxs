@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WiX v5 installer definition for PrintShop Companion.
+
+  Installs the WPF app to %ProgramFiles%\PrintShop\Companion\, the worker
+  service to the same folder, the bundled PDFium.dll and SumatraPDF.exe
+  binaries, and registers the printshopcompanion:// URL scheme with Windows.
+  Adds a per-user shortcut to the Start Menu and (optionally) creates the
+  per-user Startup shortcut for auto-launch.
+
+  WiX v5 builds with: wix build PrintShopCompanion.Installer.wxs -o PrintShopCompanion.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="PrintShop Companion"
+    Manufacturer="PrintShop"
+    Version="0.1.0.0"
+    UpgradeCode="A6F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D2E"
+    Language="1033"
+    Codepage="1252">
+
+    <SummaryInformation
+      Description="PrintShop Companion installer"
+      Manufacturer="PrintShop" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of PrintShop Companion is already installed." />
+    <Media Id="1" Cabinet="PrintShopCompanion.cab" EmbedCab="yes" />
+
+    <!-- Per-machine install (ProgramFiles). Per-user auto-start is set up via a Startup shortcut, not a Run key, so no elevation is required for daily use. -->
+    <Property Id="ALLUSERS" Value="1" />
+
+    <Feature Id="Complete" Title="PrintShop Companion" Level="1">
+      <Feature Id="AppFeature" Title="PrintShop Companion app" Level="1">
+        <ComponentGroupRef Id="AppComponents" />
+        <ComponentGroupRef Id="RuntimeComponents" />
+        <ComponentGroupRef Id="ProtocolRegistration" />
+      </Feature>
+      <Feature Id="WorkerFeature" Title="Background worker service (optional)" Level="1">
+        <ComponentGroupRef Id="WorkerComponents" />
+      </Feature>
+      <Feature Id="MockBackendFeature" Title="Mock backend for testing (optional)" Level="2">
+        <ComponentGroupRef Id="MockBackendComponents" />
+      </Feature>
+    </Feature>
+
+    <UI>
+      <UIRef Id="WixUI_FeatureTree" />
+      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    </UI>
+
+    <Property Id="INSTALLDIR" Value="C:\Program Files\PrintShop\Companion" />
+    <Property Id="STARTMENUFOLDER" Value="PrintShop" />
+
+    <CustomAction Id="SetPerUserStartup" Directory="INSTALLDIR" ExeCommand='[INSTALLDIR]PrintShopCompanion.exe --register-autostart' Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="SetPerUserStartup" After="InstallFinalize" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="PrintShop">
+        <Directory Name="Companion" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="STARTMENUFOLDER" Name="PrintShop" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AppComponents" Directory="INSTALLDIR">
+      <Component Id="PrintShopCompanion.exe" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D31">
+        <File Id="PrintShopCompanion.exe"
+              Source="$(var.PublishDir)\PrintShopCompanion.exe"
+              KeyPath="yes" Checksum="yes" />
+        <Shortcut Id="StartMenuShortcut"
+                   Directory="STARTMENUFOLDER"
+                   Name="PrintShop Companion"
+                   WorkingDirectory="INSTALLDIR"
+                   Advertise="yes"
+                   Description="Open PrintShop Companion" />
+      </Component>
+      <Component Id="AppSettings" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D32">
+        <File Id="AppSettings.json" Source="$(var.PublishDir)\appsettings.json" />
+        <File Id="AppManifest" Source="$(var.PublishDir)\PrintShopCompanion.exe.manifest" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="RuntimeComponents" Directory="INSTALLDIR">
+      <!-- Bundled PDFium native binary -->
+      <Component Id="Pdfium" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D33">
+        <File Id="pdfium.dll"
+              Source="$(var.PublishDir)\runtimes\win-x64\native\pdfium.dll" />
+      </Component>
+      <!-- Bundled SumatraPDF.exe -->
+      <Component Id="SumatraPDF" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D34">
+        <File Id="SumatraPDF.exe"
+              Source="$(var.RepoRoot)\installer\redist\SumatraPDF.exe" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Register the printshopcompanion:// URL scheme. Per-user only (HKCU) so no admin needed. -->
+    <ComponentGroup Id="ProtocolRegistration" Directory="INSTALLDIR">
+      <Component Id="ProtocolRegistration" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D35" KeyPath="yes">
+        <RegistryKey Root="HKCU" Key="Software\Classes\printshopcompanion">
+          <RegistryValue Type="string" Value="URL:PrintShop Companion" />
+          <RegistryValue Type="string" Name="URL Protocol" Value="" />
+          <RegistryKey Key="DefaultIcon">
+            <RegistryValue Type="string" Value="[INSTALLDIR]PrintShopCompanion.exe,0" />
+          </RegistryKey>
+          <RegistryKey Key="shell\open\command">
+            <RegistryValue Type="string" Value='"[INSTALLDIR]PrintShopCompanion.exe" "%1"' />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="WorkerComponents" Directory="INSTALLDIR">
+      <Component Id="WorkerExe" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D40">
+        <File Id="PrintShopCompanion.Worker.exe"
+              Source="$(var.PublishDir)\PrintShopCompanion.Worker.exe"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="WorkerServiceInstall" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D41">
+        <!-- Service install / uninstall is done via a deferred custom action (omitted here). -->
+        <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\PrintShopCompanionWorker">
+          <RegistryValue Type="string" Name="ImagePath" Value="[INSTALLDIR]PrintShopCompanion.Worker.exe" />
+          <RegistryValue Type="integer" Name="Start" Value="2" />
+          <RegistryValue Type="string" Name="Description" Value="Background print-job processor for PrintShop Companion" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="MockBackendComponents" Directory="INSTALLDIR">
+      <Component Id="MockBackendExe" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D50">
+        <File Id="PrintShopCompanion.Backend.Mock.exe"
+              Source="$(var.PublishDir)\PrintShopCompanion.Backend.Mock.exe"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

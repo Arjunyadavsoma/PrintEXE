@@ -1,0 +1,109 @@
+name: build-windows
+
+on:
+  push:
+    branches: [ main, release/* ]
+    paths:
+      - 'apps/windows-companion/**'
+      - '.github/workflows/build-windows.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'apps/windows-companion/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build PrintShop Companion (.msi)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/windows-companion
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install WiX v5
+        shell: pwsh
+        run: dotnet tool install -g wix
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore PrintShopCompanion.sln
+
+      - name: Build (Release)
+        shell: pwsh
+        run: dotnet build PrintShopCompanion.sln -c Release --no-restore
+
+      - name: Test
+        shell: pwsh
+        run: dotnet test PrintShopCompanion.sln -c Release --no-build --logger "trx;LogFileName=tests.trx"
+
+      - name: Publish app
+        shell: pwsh
+        run: |
+          dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -p:PublishSingleFile=true -p:PublishReadyToRun=true `
+            -o ./artifacts/app
+
+      - name: Publish worker
+        shell: pwsh
+        run: |
+          dotnet publish src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -o ./artifacts/worker
+
+      - name: Download SumatraPDF
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer/redist | Out-Null
+          $zip = "$env:TEMP\sumatra.zip"
+          Invoke-WebRequest -Uri "https://www.sumatrapdfreader.org/download/sumatra-prerel-64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath "$env:TEMP\sumatra" -Force
+          Copy-Item "$env:TEMP\sumatra\SumatraPDF.exe" installer/redist/SumatraPDF.exe -Force
+
+      - name: Build .msi
+        shell: pwsh
+        env:
+          PUBLISH_DIR: ${{ github.workspace }}\apps\windows-companion\artifacts\app
+        run: |
+          $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
+          wix build installer/PrintShopCompanion.Installer.wxs `
+            -d PublishDir="$env:PUBLISH_DIR\\" `
+            -d RepoRoot="${{ github.workspace }}\apps\windows-companion" `
+            -o installer/build/PrintShopCompanion.msi
+
+      - name: Sign the MSI (if cert secret available)
+        if: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX != '' }}
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX }}
+          PFX_PWD: ${{ secrets.PRINTSHOP_CODE_SIGN_PWD }}
+        run: |
+          $pfx = "$env:TEMP\sign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+          & signtool sign /f $pfx /p $env:PFX_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+            installer/build/PrintShopCompanion.msi
+
+      - name: Upload .msi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintShopCompanion-msi
+          path: apps/windows-companion/installer/build/PrintShopCompanion.msi
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            apps/windows-companion/**/TestResults/*.trx

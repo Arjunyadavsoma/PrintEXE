@@ -1,0 +1,23 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Shared brand colors (PrintShop teal accent) -->
+    <Color x:Key="BrandPrimary">#0F7B6C</Color>
+    <Color x:Key="BrandAccent">#1AB8A4</Color>
+    <Color x:Key="BrandDanger">#D13438</Color>
+    <Color x:Key="BrandWarning">#FFA62D</Color>
+    <Color x:Key="BrandSuccess">#2E9C53</Color>
+
+    <SolidColorBrush x:Key="BrandPrimaryBrush"  Color="{StaticResource BrandPrimary}" />
+    <SolidColorBrush x:Key="BrandAccentBrush"   Color="{StaticResource BrandAccent}" />
+    <SolidColorBrush x:Key="BrandDangerBrush"   Color="{StaticResource BrandDanger}" />
+    <SolidColorBrush x:Key="BrandWarningBrush"  Color="{StaticResource BrandWarning}" />
+    <SolidColorBrush x:Key="BrandSuccessBrush"  Color="{StaticResource BrandSuccess}" />
+
+    <!-- Status pills -->
+    <SolidColorBrush x:Key="StatusPendingBrush"   Color="{StaticResource BrandWarning}" />
+    <SolidColorBrush x:Key="StatusPrintingBrush"  Color="{StaticResource BrandPrimary}" />
+    <SolidColorBrush x:Key="StatusCompletedBrush" Color="{StaticResource BrandSuccess}" />
+    <SolidColorBrush x:Key="StatusFailedBrush"    Color="{StaticResource BrandDanger}" />
+</ResourceDictionary>
