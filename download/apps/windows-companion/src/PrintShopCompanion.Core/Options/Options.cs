@@ -41,11 +41,11 @@ public sealed class PrinterOptions
     /// <summary>Last-selected printer FullName. Empty = use Windows default.</summary>
     public string? SelectedPrinter { get; set; }
 
-    /// <summary>PDF rendering engine. One of <c>pdfium</c>, <c>sumatra</c>, <c>gdi</c>.</summary>
-    public string Renderer { get; set; } = "pdfium";
+    /// <summary>PDF rendering engine. One of <c>sumatra</c>, <c>gdi</c>. Default <c>sumatra</c>.</summary>
+    public string Renderer { get; set; } = "sumatra";
 
     /// <summary>Fallback chain if the primary renderer fails. Empty = no fallback.</summary>
-    public string[] FallbackRenderers { get; set; } = new[] { "sumatra", "gdi" };
+    public string[] FallbackRenderers { get; set; } = new[] { "gdi" };
 
     /// <summary>Path to the bundled SumatraPDF.exe. Resolved relative to the app dir if not absolute.</summary>
     public string? SumatraExePath { get; set; }

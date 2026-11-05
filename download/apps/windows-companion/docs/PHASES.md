@@ -5,7 +5,7 @@
 | 1     | Windows app foundation, tray icon and installer   | Scaffold    | `PrintShopCompanion.App` + `TrayIconHost` + WiX `.wxs` |
 | 2     | Automatic website pairing and device registration | Scaffold    | `MagicLinkPairingService` + `printshopcompanion://` scheme registration in WiX |
 | 3     | Printer discovery and selection                    | Scaffold    | `WindowsPrinterService.DiscoverPrinters()` + Printers screen |
-| 4     | PDF rendering and real test printing               | Scaffold    | `PdfiumPdfRenderer` primary + `SumatraPdfPrinter` fallback + `RawGdiPrinter` for label printers + `CompositePdfRenderer` chain |
+| 4     | PDF rendering and real test printing               | Scaffold    | `SumatraPdfPrinter` primary (bundled SumatraPDF.exe) + `RawGdiPrinter` for ESC/POS label printers + `CompositePdfRenderer` chain. The previous PdfiumViewer in-process renderer was removed (NU1102/NU1701/NU1903 — see CHANGELOG). |
 | 5     | Background job processing and durable queue         | Scaffold    | `SqliteJobQueue` + `JobProcessor` + `SocketIoRealtimeClient` + `HttpFallbackPoller` + worker service |
 | 6     | Job acknowledgements and error recovery            | Partial     | `MarkFailedAsync` + `MarkPrintedAsync` + `MarkReportedPrintedAsync` implemented; retry-from-ack not yet wired |
 | 7     | Auto-start, reconnect and automatic updates        | Partial     | Auto-start via per-user Startup shortcut; reconnect is implicit in `SocketIOClient`; auto-update is stubbed |
@@ -33,10 +33,10 @@
 - Test-print button generates a 1-page PDF and submits it through the configured renderer.
 
 ### Phase 4 — PDF + real printing
-- `PdfiumPdfRenderer` uses bundled `pdfium.dll` to rasterise pages and submit via `PrintDocument`.
-- `SumatraPdfPrinter` falls back to bundled `SumatraPDF.exe -silent -print-to -print-stat`.
-- `RawGdiPrinter` covers raw ESC/POS / PCL printers via direct winspool.drv P/Invoke.
+- `SumatraPdfPrinter` is the **primary** renderer. It invokes the bundled `SumatraPDF.exe -silent -print-to <printer> -print-stat <pdf>` and parses `SPOOLER_JOB_ID=<int>` from stdout. SumatraPDF renders the PDF internally and submits to the Windows spooler — no in-process PDF rendering, no native dll loaded into the companion.
+- `RawGdiPrinter` is the **fallback** for ESC/POS / label / dot-matrix printers that don't accept PDFs directly. It uses `System.Drawing.Printing.PrintDocument` and winspool.drv P/Invoke for raw byte passthrough.
 - `CompositePdfRenderer` walks the configured chain so a single failure doesn't break the print.
+- **Removed:** the previous `PdfiumPdfRenderer` (in-process PdfiumViewer) was removed because PdfiumViewer targets .NET Framework (NU1701), the native binary package `PdfiumViewer.Native.x86_64.v8-xfa` 2018.4.12.1858 is not available on NuGet (NU1102), and it pulled vulnerable transitive deps (Microsoft.NETCore.App 1.1.0, Newtonsoft.Json 9.0.1, SQLitePCLRaw.lib.e_sqlite3 2.1.11 — NU1903). SumatraPDF provides the same PDF printing capability more robustly.
 - **Open:** Real-hardware validation against at least one inkjet, one laser, and one dot-matrix printer.
 
 ### Phase 5 — Queue + worker

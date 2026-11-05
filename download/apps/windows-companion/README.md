@@ -47,7 +47,7 @@ apps/windows-companion/
 ├── src/
 │   ├── PrintShopCompanion.Core/            # Domain models matching real Prisma schema, contracts, options
 │   ├── PrintShopCompanion.Shared/          # DTOs, protocol constants (companion + backend)
-│   ├── PrintShopCompanion.Infrastructure/  # Real implementations: SQLite queue, Windows printers, PDFium/SumatraPDF/GDI, Socket.IO + HTTP, magic-link pairing
+│   ├── PrintShopCompanion.Infrastructure/  # Real implementations: SQLite queue, Windows printers, SumatraPDF + raw GDI, Socket.IO + HTTP, magic-link pairing
 │   ├── PrintShopCompanion.App/             # WPF app: 5 screens, tray, Fluent theme, autostart
 │   ├── PrintShopCompanion.Worker/          # Headless Windows Service that runs the same job processor
 │   └── PrintShopCompanion.Backend/         # Mock ASP.NET Core backend for local testing

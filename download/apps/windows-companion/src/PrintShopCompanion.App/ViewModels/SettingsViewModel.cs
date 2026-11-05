@@ -28,7 +28,7 @@ public partial class SettingsViewModel : ObservableObject
     private string _theme = "system";
 
     [ObservableProperty]
-    private string _renderer = "pdfium";
+    private string _renderer = "sumatra";
 
     [ObservableProperty]
     private string _selectedPrinter = "";

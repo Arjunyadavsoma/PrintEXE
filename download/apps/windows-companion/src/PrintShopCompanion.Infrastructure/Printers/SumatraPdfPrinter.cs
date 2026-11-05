@@ -7,14 +7,23 @@ using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Options;
 
 /// <summary>
-/// SumatraPDF command-line fallback renderer. Invokes the bundled
-/// <c>SumatraPDF.exe</c> with <c>-silent -print-to-default -print-to &lt;printer&gt;</c>
-/// to print a PDF without UI. Useful when PDFium fails on a particular driver
-/// (some Indian-market dot-matrix / ESC/POS label printers).
+/// SumatraPDF command-line renderer — the **primary** PDF printing path as of v0.1.1.
+/// Invokes the bundled <c>SumatraPDF.exe</c> with
+/// <c>-silent -print-to &lt;printer&gt; -print-settings &lt;...&gt; -print-stat &lt;pdf&gt;</c>
+/// to print a PDF without UI. SumatraPDF renders the PDF internally and submits to the
+/// Windows print spooler; we don't need to load any native renderer into our process.
 ///
 /// <para>SumatraPDF reports its spooler job ID via stdout in the form
-/// <c>SPOOLER_JOB_ID=&lt;int&gt;</c> when invoked with <c>-print-to -print-stat</c>.
-/// We capture this and return it; if absent we fall back to a synthetic ID.</para>
+/// <c>SPOOLER_JOB_ID=&lt;int&gt;</c> when invoked with <c>-print-stat</c>. We capture this
+/// and return it so <c>WindowsPrinterService.HasPrintedAsync</c> can poll the spooler
+/// for physical-print confirmation. If the line is absent (older SumatraPDF versions,
+/// or stdout swallowed by a shell), we fall back to a synthetic spooler ID and the
+/// companion will surface the job as <c>UncertainSpooled</c> after the print-confirm
+/// timeout (see <c>JobProcessor.ProcessOneAsync</c>).</para>
+///
+/// <para>Replaces the previous <c>PdfiumPdfRenderer</c> in-process renderer, which was
+/// removed because PdfiumViewer targets .NET Framework (NU1701) and pulled vulnerable
+/// transitive deps (NU1903).</para>
 /// </summary>
 public sealed class SumatraPdfPrinter : IPdfRenderer
 {
@@ -45,8 +54,29 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
         };
         if (!string.IsNullOrEmpty(pageRange))
             args.AddRange(new[] { "-print-settings", $"r{pageRange}" });
-        if (color == false)
+        // Color: SumatraPDF uses `-print-settings color` to force color and
+        // `-print-settings monochrome` to force grayscale. The companion's
+        // domain model carries both `bool? Color` (legacy) and `string? ColorMode`
+        // ("bw"|"color"). We honour whichever the caller sets; ColorMode wins.
+        // The legacy `color == false` branch was wrong (it forced color when
+        // the caller asked for monochrome); this is now corrected.
+        if (color == true)
             args.AddRange(new[] { "-print-settings", "color" });
+        else if (color == false)
+            args.AddRange(new[] { "-print-settings", "monochrome" });
+        if (!string.IsNullOrEmpty(paperSize))
+            args.AddRange(new[] { "-print-settings", $"paper={paperSize}" });
+        if (!string.IsNullOrEmpty(duplex))
+        {
+            var d = duplex.ToLowerInvariant() switch
+            {
+                "simplex"    => "simplex",
+                "vertical"   => "duplexshort",
+                "horizontal" => "duplexlong",
+                _            => duplex
+            };
+            args.AddRange(new[] { "-print-settings", d });
+        }
 
         args.Add("-print-stat");
         args.Add($"\"{pdfPath}\"");

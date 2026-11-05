@@ -8,10 +8,12 @@ using Microsoft.Extensions.Logging;
 using PrintShopCompanion.Core.Contracts;
 
 /// <summary>
-/// Raw GDI printer for label / receipt / dot-matrix printers that take raw
-/// bytes (ESC/POS, PCL) or that don't behave well with the PDFium path.
-/// Supports both a "raw bytes" mode (for ESC/POS printers) and a "GDI
-/// rasterise PDF" mode (used as the final fallback).
+/// Raw GDI printer — the **fallback** renderer for label / receipt / dot-matrix
+/// printers that take raw bytes (ESC/POS, PCL) or that don't behave well with the
+/// SumatraPDF command-line path. Supports both a "raw bytes" mode (for ESC/POS
+/// printers, via winspool.drv P/Invoke) and a "GDI rasterise" mode (used as the
+/// final fallback when SumatraPDF is unavailable or the printer doesn't accept
+/// PDF documents at all).
 /// </summary>
 public sealed class RawGdiPrinter : IPdfRenderer
 {

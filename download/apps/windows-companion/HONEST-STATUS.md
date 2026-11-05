@@ -24,7 +24,7 @@ This document is the unvarnished, no-spin report on what is and isn't done. It i
 6. **Real backend contract documented** in `docs/BACKEND-MAPPING.md` — derived from the real Prisma schema. Every endpoint the companion needs is listed with HTTP method, path, auth, request/response, error responses, retry behaviour, idempotency behaviour.
 7. **Backend integration** — `HttpPrintShopBackend` honours `Backend:BypassTlsVerification` (dev only) via a custom `HttpClientHandler`. Loud console warning when enabled. Never enabled by default.
 8. **Magic-link pairing** with `printshopcompanion://` URL scheme registered by WiX in `HKCU\Software\Classes`. Single-use, signed, expiry-checked pairing tokens. DPAPI-encrypted device-token storage at `%AppData%\PrintShop\Companion\device.dat`.
-9. **Three renderers** in a composite fallback chain: PDFium (primary, bundled `pdfium.dll` via NuGet) → SumatraPDF (bundled `.exe`, called with `-silent -print-to -print-stat`) → raw GDI / winspool.drv (for ESC/POS label printers).
+9. **Two renderers** in a composite fallback chain: **SumatraPDF** (primary — bundled `SumatraPDF.exe` invoked with `-silent -print-to -print-stat`; it renders the PDF internally and submits to the Windows spooler) → raw GDI / winspool.drv (fallback for ESC/POS label printers). The previous PDFium in-process renderer was removed (NU1102/NU1701/NU1903 — vulnerable legacy transitive deps, unavailable native binary, .NET Framework target).
 10. **Windows printer discovery** via `System.Printing.LocalPrintServer` enumerating local + connected `PrintQueue`s, with offline detection, paper-size and duplex capability queries.
 11. **WPF app** — 5 screens (Setup, Dashboard, Printers, Print Queue, Settings), Fluent theme via WPF-UI, light/dark auto-follow, tray icon with right-click menu, single-instance guard with named-pipe IPC for magic-link forwarding, `--register-autostart` / `--unregister-autostart` / `--version` CLI args, per-user Startup shortcut (no admin needed).
 12. **Notifications** — `NotificationService` surfaces meaningful events (pairing success, test print success/failure, printer offline, job needs attention, connection lost/restored) via Windows balloon notifications. Conservative — no spam.
@@ -61,11 +61,11 @@ This document is the unvarnished, no-spin report on what is and isn't done. It i
 
 11. `RawGdiPrinter.SendRawBytes` P/Invoke is correct on paper but unverified on a real ESC/POS label printer.
 12. `SingleInstance.ForwardUrl` named-pipe IPC has a startup race: if a second instance launches before the first has set up its pipe server, the URL is lost. A retry-with-backoff is needed.
-13. `PdfiumPdfRenderer.FindSpoolerJobId` matches by `DocumentName`. Some print processors overwrite the document name. If this fails persistently on the target printer, fall back to SumatraPDF.
+13. `SumatraPdfPrinter` parses the spooler job ID from `SumatraPDF.exe`'s stdout (`SPOOLER_JOB_ID=<int>`). This depends on the bundled SumatraPDF version honouring `-print-stat`. If it doesn't, the companion falls back to a synthetic spooler ID, and physical-print confirmation via `WindowsPrinterService.HasPrintedAsync` won't be able to track the spooler job. In that case the job ends up in `UncertainSpooled` (see `JobProcessor`).
 14. `OptionsWriter.Update` in `SettingsViewModel.cs` is a stub — it does not actually update `appsettings.Local.json`. The Save button currently writes nothing. (Real implementation: read the JSON, update the key, write back. A `System.Text.Json.Nodes.JsonNode` rewrite is a 20-line change.)
 15. `AutoStartService.CreateShortcut` shells out to PowerShell. If PowerShell is restricted by group policy, this fails silently. A COM interop with `IWshRuntimeLibrary` is the production-grade fix.
-16. `WiX Bundle.wxs` references `LICENSE.rtf` and `app.png` — neither file has been created. The bundle build will fail until they exist (or the lines are commented out).
-17. The `app.ico` and `app.png` files in `installer/redist/` do not exist. The WiX installer will fall back to the default icon; the bundle build will fail.
+16. `WiX Bundle.wxs` references `LICENSE.txt` (exists) — the bundle build should now work, but has not been verified.
+17. The `app.ico` and `app.png` files in `installer/redist/` do not exist. The WiX installer falls back to the default icon; the bundle build will succeed but with no custom branding.
 
 ## First-milestone checklist (before any production auto-printing)
 

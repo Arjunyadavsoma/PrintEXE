@@ -34,7 +34,6 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Renderer:" VerticalAlignment="Center" Margin="0,0,8,0" />
                         <ComboBox SelectedItem="{Binding Renderer}" Width="160">
-                            <ComboBoxItem Content="pdfium" />
                             <ComboBoxItem Content="sumatra" />
                             <ComboBoxItem Content="gdi" />
                         </ComboBox>

@@ -61,8 +61,7 @@ public static class InfrastructureModule
         // Pairing
         services.AddSingleton<IPairingService, MagicLinkPairingService>();
 
-        // Printers — three renderers + composite that walks the fallback chain
-        services.AddSingleton<PdfiumPdfRenderer>();
+        // Printers — SumatraPDF (primary, bundled .exe) + raw GDI fallback (ESC/POS / label printers)
         services.AddSingleton<SumatraPdfPrinter>();
         services.AddSingleton<RawGdiPrinter>();
         services.AddSingleton<IPdfRenderer, CompositePdfRenderer>();

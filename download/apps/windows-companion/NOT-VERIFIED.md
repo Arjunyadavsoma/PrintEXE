@@ -13,10 +13,9 @@ The following items MUST be verified on a Windows machine against the real Print
 
 ## Printer / PDF stack
 - `WindowsPrinterService.HasPrintedAsync` interprets `PrintJobStatus.Printed | PrintJobStatus.Completed` as success. Some Windows drivers never report `Printed` for spooler-managed USB printers; if that turns out to be the case on the test printer, the heuristic will need to fall back to "job no longer in queue ⇒ printed".
-- `PdfiumPdfRenderer` uses `PdfiumViewer` + the `PdfiumViewer.Native.x86_64.v8-xfa` NuGet for the bundled binary. That binary is from 2018; if it fails to load on Windows 11, a newer `PdfiumViewer.Native.x86_64.v8-xfa` package or a manual drop of a current `pdfium.dll` is needed.
-- `PdfiumPdfRenderer.FindSpoolerJobId` recovers the spooler job ID by matching the `DocumentName`. The recovered ID is best-effort; some print processors overwrite the document name. If the recovery fails persistently on the target printer, fall back to `SumatraPdfPrinter` (which reports the spooler ID via stdout).
-- `SumatraPdfPrinter` assumes `-print-stat` writes `SPOOLER_JOB_ID=<int>` to stdout. Verify against the SumatraPDF version actually bundled. The download URL in the GitHub Actions workflow uses `sumatra-prerel-64.zip`; the production build should pin to a stable release instead.
+- `SumatraPdfPrinter` (the **primary** renderer as of v0.1.1) assumes `-print-stat` writes `SPOOLER_JOB_ID=<int>` to stdout. Verify against the SumatraPDF version actually bundled. The download URL in the GitHub Actions workflow uses `sumatra-prerel-64.zip`; the production build should pin to a stable release instead.
 - `RawGdiPrinter.SendRawBytes` calls `winspool.drv` directly. The P/Invoke signatures are correct on paper but have not been tested on a real ESC/POS label printer.
+- **Removed (v0.1.1):** `PdfiumPdfRenderer` and the `PdfiumViewer` / `PdfiumViewer.Native.x86_64.v8-xfa` NuGet dependencies. Reason: NU1102 (native binary version 2018.4.12.1858 not published), NU1701 (PdfiumViewer targets .NET Framework), NU1903 (vulnerable transitive deps: Microsoft.NETCore.App 1.1.0, Microsoft.NETCore.Jit 1.1.0, Newtonsoft.Json 9.0.1, SQLitePCLRaw.lib.e_sqlite3 2.1.11). SumatraPDF provides the same PDF printing capability without loading a native renderer into the companion process.
 
 ## Single-instance IPC
 - `SingleInstance.ForwardUrl` writes the URL to a named pipe. If the first instance is not yet listening (race during startup), the URL will be lost. A retry-with-backoff on the second instance is needed before this is considered production-grade.
@@ -26,11 +25,11 @@ The following items MUST be verified on a Windows machine against the real Print
 
 ## WiX installer
 - The WiX source references `$(var.PublishDir)` and `$(var.RepoRoot)`. These variables are supplied by `BuildInstaller.bat` and the GitHub Actions workflow; they are not set up by the .sln directly.
-- The `Bundle.wxs` for bootstrapping the .NET 10 Desktop Runtime is referenced in the installer README but is **not yet written**. The first build needs a `Bundle.wxs` that chains the .NET 10 runtime + the MSI.
-- The `CustomAction` to register per-user autostart is an `ExeCommand` call; it runs `PrintShopCompanion.exe --register-autostart`. The `--register-autostart` argument handling is **not yet implemented** in `Program.cs` (the App's `Main`/`OnStartup`). Add it.
+- The `Bundle.wxs` for bootstrapping the .NET 10 Desktop Runtime is now written (`installer/PrintShopCompanion.Bundle.wxs`). It chains the .NET 10 Desktop Runtime + the MSI into a single `PrintShopCompanion.Setup.exe`. It requires `installer/redist/dotnet-runtime-10-win-x64.exe` to exist for the `wix build` to succeed — the `install-on-windows.ps1 -BuildBundle` and the GitHub Actions workflow download this redist automatically.
+- The `CustomAction` to register per-user autostart is an `ExeCommand` call; it runs `PrintShopCompanion.exe --register-autostart`. The `--register-autostart` argument is **implemented** in `App.OnStartup` (drops a per-user Startup folder shortcut).
 
 ## Configuration
-- `appsettings.json` defaults `Backend:BaseUrl` to `https://mock.printshop.local`. For local testing, set this to `https://localhost:5241` and `Backend:BypassTlsVerification` to `true` (NOT in production). The companion's `HttpClient` does not yet honour `BypassTlsVerification`; add an `HttpClientHandler` configuration in `InfrastructureModule.AddPrintShopCompanionInfrastructure`.
+- `appsettings.json` defaults `Backend:BaseUrl` to `https://mock.printshop.local`. For local testing, set this to `https://localhost:5241` and `Backend:BypassTlsVerification` to `true` (NOT in production). `BypassTlsVerification` is **implemented** in `InfrastructureModule.AddPrintShopCompanionInfrastructure` — it installs an `HttpClientHandler` with `ServerCertificateCustomValidationCallback = (_,_,_,_) => true`. The companion logs a loud warning when this is enabled.
 
 ## GitHub Actions
 - The workflow installs .NET 10 with `actions/setup-dotnet@v4` and `dotnet-version: '10.0.x'`. .NET 10 may still be in preview depending on the build date; if setup-dotnet does not yet ship .NET 10, pin to the SDK installed by the runner image (the `windows-latest` image will need .NET 10 added to its software inventory).

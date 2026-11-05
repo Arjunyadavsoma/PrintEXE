@@ -5,7 +5,7 @@ The WiX source file `PrintShopCompanion.Installer.wxs` produces `PrintShopCompan
 ## What the installer does
 
 1. Copies the published WPF app + worker + mock backend to `C:\Program Files\PrintShop\Companion\`.
-2. Bundles `pdfium.dll` (via the `PdfiumViewer.Native.x86_64.v8-xfa` NuGet) and `SumatraPDF.exe` (placed in `installer/redist/SumatraPDF.exe`).
+2. Bundles `SumatraPDF.exe` (placed in `installer/redist/SumatraPDF.exe` by `install-on-windows.ps1` or the GitHub Actions workflow). SumatraPDF is the primary PDF renderer — it prints PDFs via `SumatraPDF.exe -silent -print-to <printer> <pdf>` and reports the spooler job ID via stdout. (The previous PdfiumViewer native binding was removed because it pulled in vulnerable legacy dependencies and targeted .NET Framework.)
 3. Registers the `printshopcompanion://` URL scheme **per-user** in `HKCU\Software\Classes\printshopcompanion`. This is the magic-link handler; the OS routes clicks on `printshopcompanion://pair?…` to `PrintShopCompanion.exe "%1"`.
 4. Adds a Start Menu shortcut to `PrintShop Companion` under `PrintShop\Companion.lnk`.
 5. Optionally installs the worker service (under `HKLM\SYSTEM\CurrentControlSet\Services\PrintShopCompanionWorker` — this requires admin elevation, which the MSI prompts for as a deferred action).

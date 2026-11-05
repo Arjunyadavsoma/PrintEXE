@@ -88,12 +88,9 @@
     </ComponentGroup>
 
     <ComponentGroup Id="RuntimeComponents" Directory="INSTALLDIR">
-      <!-- Bundled PDFium native binary -->
-      <Component Id="Pdfium" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D33">
-        <File Id="pdfium.dll"
-              Source="$(var.PublishDir)\runtimes\win-x64\native\pdfium.dll" />
-      </Component>
-      <!-- Bundled SumatraPDF.exe -->
+      <!-- Bundled SumatraPDF.exe — the primary PDF renderer. It renders PDFs
+           internally and submits them to the Windows print spooler via
+           `SumatraPDF.exe -silent -print-to <printer> <pdf>`. -->
       <Component Id="SumatraPDF" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D34">
         <File Id="SumatraPDF.exe"
               Source="$(var.RepoRoot)\installer\redist\SumatraPDF.exe" />

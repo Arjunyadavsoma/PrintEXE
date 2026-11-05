@@ -4,8 +4,13 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>PrintShopCompanion.Infrastructure</RootNamespace>
     <AssemblyName>PrintShopCompanion.Infrastructure</AssemblyName>
+    <!-- System.Printing and System.Drawing.Printing live in the Windows Desktop
+         framework (Microsoft.WindowsDesktop.App). UseWPF=true brings them in
+         without forcing a hard dependency on WPF UI assemblies — Infrastructure
+         itself never opens a Window, but it does enumerate PrintQueues and
+         submit PrintDocuments. -->
+    <UseWPF>true</UseWPF>
     <UseWindowsForms>false</UseWindowsForms>
-    <UseWPF>false</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,11 +23,18 @@
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.EventLog" Version="4.0.0" />
-    <PackageReference Include="SocketIOClient" Version="3.0.13" />
-    <PackageReference Include="PdfiumViewer" Version="2.13.0" />
-    <PackageReference Include="PdfiumViewer.Native.x86_64.v8-xfa" Version="2018.4.12.1858" />
+    <!-- SocketIOClient: pinned to 3.1.0 (the version NuGet actually resolves
+         for the previously-pinned 3.0.13, which is no longer published). -->
+    <PackageReference Include="SocketIOClient" Version="3.1.0" />
+    <!-- DPAPI for encrypted device-token storage. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
-    <PackageReference Include="System.Printing" Version="10.0.0" />
+    <!-- System.Drawing.Common is needed for System.Drawing.Printing.PrintDocument
+         used by the raw GDI fallback renderer (ESC/POS / label printers).
+         On .NET 10 Windows it is part of Microsoft.WindowsDesktop.App via
+         UseWPF=true above, but we pin the explicit package so the dependency
+         is visible in the manifest and so non-Windows-Desktop SDKs can
+         still resolve the types. -->
+    <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
