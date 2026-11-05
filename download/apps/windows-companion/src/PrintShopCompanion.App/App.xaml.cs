@@ -32,6 +32,31 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // ── Headless command-line modes (called by the installer / Windows Task Scheduler) ──
+        // These run BEFORE the single-instance guard so they don't interfere with a running app.
+        if (e.Args.Length > 0)
+        {
+            var first = e.Args[0];
+            if (first.Equals("--register-autostart", StringComparison.OrdinalIgnoreCase))
+            {
+                RegisterAutoStartShortcut();
+                Shutdown(0);
+                return;
+            }
+            if (first.Equals("--unregister-autostart", StringComparison.OrdinalIgnoreCase))
+            {
+                UnregisterAutoStartShortcut();
+                Shutdown(0);
+                return;
+            }
+            if (first.Equals("--version", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
+                Shutdown(0);
+                return;
+            }
+        }
+
         // Single-instance guard. If a second instance is launched (e.g. the OS passes
         // us a magic-link URL while the app is already running), forward the URL and exit.
         _singleInstance = new SingleInstance("PrintShop-Companion-Mutex");
@@ -97,6 +122,7 @@ public partial class App : Application
 
                     services.AddSingleton<TrayIconHost>();
                     services.AddSingleton<UriActivator>();
+                    services.AddSingleton<Services.NotificationService>();
                 })
                 .Build();
 
@@ -182,5 +208,61 @@ public partial class App : Application
             Log.Error(ex, "Error during shutdown");
         }
         base.OnExit(e);
+    }
+
+    /// <summary>
+    /// Drop a per-user shortcut into the Windows Startup folder so the companion
+    /// launches when the shopkeeper signs in. No admin elevation needed.
+    /// Invoked by the WiX installer's <c>--register-autostart</c> argument.
+    /// </summary>
+    private static void RegisterAutoStartShortcut()
+    {
+        try
+        {
+            var startupDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+            Directory.CreateDirectory(startupDir);
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exePath)) return;
+            var shortcutPath = Path.Combine(startupDir, "PrintShop Companion.lnk");
+
+            // Use a tiny PowerShell one-liner to create the .lnk (no COM interop assembly).
+            var script = $"""
+                $s = (New-Object -ComObject WScript.Shell).CreateShortcut("{shortcutPath}")
+                $s.TargetPath = "{exePath}"
+                $s.WorkingDirectory = "{Path.GetDirectoryName(exePath)}"
+                $s.WindowStyle = 7
+                $s.Description = "PrintShop Companion"
+                $s.Save()
+                """;
+            var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                $"-NoProfile -Command \"{script.Replace("\"", "`\"")}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            System.Diagnostics.Process.Start(psi)?.WaitForExit(5000);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Could not register autostart: {ex.Message}");
+        }
+    }
+
+    private static void UnregisterAutoStartShortcut()
+    {
+        try
+        {
+            var startupDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+            var shortcutPath = Path.Combine(startupDir, "PrintShop Companion.lnk");
+            if (File.Exists(shortcutPath)) File.Delete(shortcutPath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Could not unregister autostart: {ex.Message}");
+        }
     }
 }

@@ -1,0 +1,23 @@
+PrintShop Companion — End-User License Agreement
+
+Copyright (c) PrintShop. All rights reserved.
+
+This software is provided "as is", without warranty of any kind, express or implied.
+In no event shall the authors or copyright holders be liable for any claim, damages
+or other liability, whether in an action of contract, tort or otherwise, arising
+from, out of or in connection with the software or the use or other dealings in the
+software.
+
+For the full PrintShop terms of service, visit:
+https://printshop-saas-three.vercel.app/terms
+
+---
+
+PLACEHOLDER FILE — This file exists so the WiX Bundle.wxs does not fail
+when it tries to embed a license file. Replace with your real LICENSE.rtf
+(or update installer/PrintShopCompanion.Bundle.wxs to point to a real one)
+before building the .exe bootstrapper.
+
+A blank app.ico and app.png should also be placed in this directory before
+building the bundle, OR remove the IconSourceFile/LogoFile attributes
+from Bundle.wxs.

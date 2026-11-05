@@ -57,4 +57,13 @@ public interface IJobQueue
 
     /// <summary>Drop jobs older than the TTL whose status is terminal.</summary>
     Task PurgeTerminalAsync(TimeSpan olderThan, CancellationToken cancellationToken = default);
+
+    /// <summary>Mark a job UncertainSpooled — never auto-reprinted from this state.</summary>
+    Task MarkUncertainAsync(string jobId, string reason, CancellationToken cancellationToken = default);
+
+    /// <summary>Mark a job OutcomeUnknown — heartbeat will attempt reconciliation.</summary>
+    Task MarkOutcomeUnknownAsync(string jobId, string reason, CancellationToken cancellationToken = default);
+
+    /// <summary>Operator-driven resolution: marks an uncertain / unknown job as Printed. Never automatic.</summary>
+    Task MarkResolvedByOperatorAsync(string jobId, CancellationToken cancellationToken = default);
 }

@@ -2,19 +2,24 @@ name: build-windows
 
 on:
   push:
-    branches: [ main, release/* ]
+    branches: [ main, master, release/* ]
     paths:
       - 'apps/windows-companion/**'
       - '.github/workflows/build-windows.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - 'apps/windows-companion/**'
   workflow_dispatch:
+    inputs:
+      release-tag:
+        description: 'Tag to publish as a GitHub Release (e.g. v0.1.0). Leave empty to skip release.'
+        required: false
+        default: ''
 
 jobs:
   build:
-    name: Build PrintShop Companion (.msi)
+    name: Build PrintShop Companion (.msi + .exe setup)
     runs-on: windows-latest
     defaults:
       run:
@@ -46,22 +51,33 @@ jobs:
         shell: pwsh
         run: dotnet test PrintShopCompanion.sln -c Release --no-build --logger "trx;LogFileName=tests.trx"
 
-      - name: Publish app
+      - name: Publish app (self-contained, single-file)
         shell: pwsh
         run: |
+          # Self-contained so the shopkeeper does NOT need to install .NET 10 separately.
+          # Larger download (~80 MB) but no runtime prerequisite.
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
-            -c Release -r win-x64 --self-contained false `
-            -p:PublishSingleFile=true -p:PublishReadyToRun=true `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o ./artifacts/app
 
-      - name: Publish worker
+      - name: Publish worker (self-contained, single-file)
         shell: pwsh
         run: |
           dotnet publish src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj `
-            -c Release -r win-x64 --self-contained false `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o ./artifacts/worker
 
-      - name: Download SumatraPDF
+      - name: Publish mock backend (for development)
+        shell: pwsh
+        run: |
+          dotnet publish src/PrintShopCompanion.Backend/PrintShopCompanion.Backend.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -o ./artifacts/backend
+
+      - name: Download SumatraPDF for the redist folder
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force installer/redist | Out-Null
@@ -69,6 +85,18 @@ jobs:
           Invoke-WebRequest -Uri "https://www.sumatrapdfreader.org/download/sumatra-prerel-64.zip" -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath "$env:TEMP\sumatra" -Force
           Copy-Item "$env:TEMP\sumatra\SumatraPDF.exe" installer/redist/SumatraPDF.exe -Force
+          Write-Host "SumatraPDF.exe copied to installer/redist/"
+
+      - name: Download .NET 10 Desktop Runtime redist (for Bundle.wxs)
+        shell: pwsh
+        run: |
+          $url = "https://download.visualstudio.microsoft.com/download/pr/dotnet-runtime-10.0.0-win-x64.exe"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile installer/redist/dotnet-runtime-10-win-x64.exe -UseBasicParsing
+            Write-Host "Downloaded .NET 10 runtime for bundle"
+          } catch {
+            Write-Warning "Could not download .NET 10 runtime for bundle (will fall back to MSI-only): $_"
+          }
 
       - name: Build .msi
         shell: pwsh
@@ -76,12 +104,34 @@ jobs:
           PUBLISH_DIR: ${{ github.workspace }}\apps\windows-companion\artifacts\app
         run: |
           $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
+          New-Item -ItemType Directory -Force installer/build | Out-Null
           wix build installer/PrintShopCompanion.Installer.wxs `
             -d PublishDir="$env:PUBLISH_DIR\\" `
             -d RepoRoot="${{ github.workspace }}\apps\windows-companion" `
             -o installer/build/PrintShopCompanion.msi
+          if (-not (Test-Path installer/build/PrintShopCompanion.msi)) {
+            Write-Error "MSI build failed"
+            exit 1
+          }
+          Get-Item installer/build/PrintShopCompanion.msi | Format-List
 
-      - name: Sign the MSI (if cert secret available)
+      - name: Build .exe bootstrapper (Bundle.wxs) — optional if .NET runtime redist present
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
+          if (Test-Path installer/redist/dotnet-runtime-10-win-x64.exe) {
+            wix build installer/PrintShopCompanion.Bundle.wxs `
+              -d RepoRoot="${{ github.workspace }}\apps\windows-companion" `
+              -o installer/build/PrintShopCompanion.Setup.exe
+            if (Test-Path installer/build/PrintShopCompanion.Setup.exe) {
+              Write-Host "Bundle .exe built"
+            }
+          } else {
+            Write-Warning "Skipping bundle (no .NET 10 runtime redist available)"
+          }
+
+      - name: Sign MSI (if cert secret available)
         if: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX != '' }}
         shell: pwsh
         env:
@@ -92,12 +142,70 @@ jobs:
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
           & signtool sign /f $pfx /p $env:PFX_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
             installer/build/PrintShopCompanion.msi
+          if (Test-Path installer/build/PrintShopCompanion.Setup.exe) {
+            & signtool sign /f $pfx /p $env:PFX_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              installer/build/PrintShopCompanion.Setup.exe
+          }
+          Write-Host "MSI signed."
 
-      - name: Upload .msi artifact
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $hashes = @()
+          Get-ChildItem installer/build -Filter *.msi | ForEach-Object {
+            $sha = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash
+            $hashes += "$sha  $($_.Name)"
+            Write-Host "$sha  $($_.Name)"
+          }
+          Get-ChildItem installer/build -Filter *.exe -ErrorAction SilentlyContinue | ForEach-Object {
+            $sha = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash
+            $hashes += "$sha  $($_.Name)"
+            Write-Host "$sha  $($_.Name)"
+          }
+          $hashes | Out-File -Encoding ascii installer/build/SHA256SUMS.txt
+          Get-Content installer/build/SHA256SUMS.txt
+
+      - name: Write version metadata
+        shell: pwsh
+        run: |
+          $ver = (Select-Xml -Path PrintShopCompanion.sln -XPath "//*/@Version" -ErrorAction SilentlyContinue) ? "0.1.0" : "0.1.0"
+          $build = "${{ github.run_number }}"
+          $commit = "${{ github.sha }}"
+          @"
+          PrintShop Companion build metadata
+          ==================================
+          Version:    $ver
+          Build:      $build (GitHub Actions run #${{ github.run_number }})
+          Commit:     $commit
+          Branch:     ${{ github.ref_name }}
+          Built:      $(Get-Date -Format 'o')
+          Architecture: win-x64
+          Configuration: Release (self-contained)
+          "@ | Out-File -Encoding utf8 installer/build/BUILD-INFO.txt
+
+      - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: PrintShopCompanion-msi
-          path: apps/windows-companion/installer/build/PrintShopCompanion.msi
+          path: |
+            apps/windows-companion/installer/build/PrintShopCompanion.msi
+            apps/windows-companion/installer/build/SHA256SUMS.txt
+            apps/windows-companion/installer/build/BUILD-INFO.txt
+          if-no-files-found: error
+
+      - name: Upload .exe setup artifact (if built)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintShopCompanion-setup-exe
+          path: apps/windows-companion/installer/build/PrintShopCompanion.Setup.exe
+          if-no-files-found: ignore
+
+      - name: Upload published app
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintShopCompanion-app
+          path: apps/windows-companion/artifacts/app/
           if-no-files-found: error
 
       - name: Upload test results
@@ -107,3 +215,17 @@ jobs:
           name: test-results
           path: |
             apps/windows-companion/**/TestResults/*.trx
+
+      - name: Create GitHub Release (on tag)
+        if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release-tag || github.ref_name }}
+          name: PrintShop Companion ${{ github.event.inputs.release-tag || github.ref_name }}
+          body_path: apps/windows-companion/installer/build/BUILD-INFO.txt
+          fail_on_unmatched_files: false
+          files: |
+            apps/windows-companion/installer/build/PrintShopCompanion.msi
+            apps/windows-companion/installer/build/PrintShopCompanion.Setup.exe
+            apps/windows-companion/installer/build/SHA256SUMS.txt
+            apps/windows-companion/installer/build/BUILD-INFO.txt

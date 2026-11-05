@@ -96,6 +96,21 @@ public sealed class TrayIconHost : IDisposable
 
     public void Show() => _icon.Visibility = Visibility.Visible;
     public void Hide() => _icon.Visibility = Visibility.Hidden;
+
+    /// <summary>Show a balloon notification in the Windows notification area.</summary>
+    public void ShowBalloon(string title, string body, Services.NotificationService.Severity severity)
+    {
+        // H.NotifyIcon exposes ShowNotification which uses the Win32 NOTIFYICONDATA balloon API.
+        var icon = severity switch
+        {
+            Services.NotificationService.Severity.Success => System.Drawing.SystemIcons.Information,
+            Services.NotificationService.Severity.Warning => System.Drawing.SystemIcons.Warning,
+            Services.NotificationService.Severity.Error => System.Drawing.SystemIcons.Error,
+            _ => System.Drawing.SystemIcons.Information,
+        };
+        _icon.ShowNotification(title, body);
+    }
+
     public void Dispose() => _icon.Dispose();
 }
 

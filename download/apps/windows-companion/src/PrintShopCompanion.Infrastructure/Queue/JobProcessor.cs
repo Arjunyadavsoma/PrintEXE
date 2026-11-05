@@ -95,10 +95,18 @@ public sealed class JobProcessor
         using var scope = _logger.BeginScope("Job {JobId} attempt {Attempt}", job.JobId, job.AttemptCount);
 
         // Re-delivered terminal jobs: ack-and-skip. This is the "never print twice" guard.
+        // UncertainSpooled and OutcomeUnknown are NOT terminal — they require operator action.
         if (job.Status is JobStatus.Printed or JobStatus.ReportedPrinted or JobStatus.Cancelled)
         {
             _logger.LogInformation("Skipping already-terminal job");
             await _backend.AcknowledgeJobAsync(job.JobId, ct);
+            return;
+        }
+
+        // Do not auto-process uncertain jobs. Surface them in the UI for operator reconciliation.
+        if (job.Status is JobStatus.UncertainSpooled or JobStatus.OutcomeUnknown)
+        {
+            _logger.LogWarning("Job {JobId} in {Status} state — waiting for operator reconciliation", job.JobId, job.Status);
             return;
         }
 
@@ -116,6 +124,8 @@ public sealed class JobProcessor
                 var dl = await _backend.DownloadPdfAsync(job.JobId, job.PdfUrl, job.PdfSha256, ct);
                 job.LocalPdfPath = dl.LocalPath;
                 job.PdfSha256 = dl.Sha256;
+                job.Status = JobStatus.Rendering;
+                job.UpdatedAt = DateTimeOffset.UtcNow;
                 await _queue.UpdateAsync(job, ct);
                 _logger.LogInformation("Downloaded PDF ({Bytes} bytes, sha256={Sha})", dl.SizeBytes, dl.Sha256);
             }
@@ -168,7 +178,12 @@ public sealed class JobProcessor
 
         if (!printed)
         {
-            await FailAsync(job, "Spooler did not confirm physical print within timeout", permanent: false, ct);
+            // Spooler did not confirm physical printing within the timeout. This is the
+            // "uncertain outcome" case the spec calls out: never auto-reprint, surface to the operator.
+            await _queue.MarkUncertainAsync(job.JobId,
+                "Spooler did not confirm physical print within timeout; outcome uncertain",
+                ct);
+            _logger.LogWarning("Job {JobId} marked UncertainSpooled — operator reconciliation required", job.JobId);
             return;
         }
 
@@ -187,8 +202,8 @@ public sealed class JobProcessor
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Report to backend failed; will retry on next heartbeat");
-            // The job stays in Printed state. The heartbeat task will eventually retry the report.
+            _logger.LogWarning(ex, "Report to backend failed; marking OutcomeUnknown for heartbeat reconciliation");
+            await _queue.MarkOutcomeUnknownAsync(job.JobId, ex.Message, ct);
         }
     }
 

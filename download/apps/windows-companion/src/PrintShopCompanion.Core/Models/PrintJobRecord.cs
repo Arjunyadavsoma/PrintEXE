@@ -3,24 +3,46 @@ namespace PrintShopCompanion.Core.Models;
 /// <summary>
 /// Lifecycle of a print job as observed by the companion.
 /// Transitions are append-only; the queue never moves a job backwards
-/// except <see cref="Failed"/> -> <see cref="Pending"/> on a manual retry.
+/// except <see cref="Failed"/> -> <see cref="Pending"/> on a manual retry
+/// and <see cref="UncertainSpooled"/> -> <see cref="Pending"/> on operator-driven
+/// reconciliation (NEVER automatically).
 /// </summary>
 public enum JobStatus
 {
-    /// <summary>Job accepted by the companion and persisted to the queue.</summary>
+    /// <summary>Job accepted by the companion and persisted to the queue. Maps to backend <c>queued</c>.</summary>
     Pending,
 
-    /// <summary>Companion has fetched the PDF bytes from the backend.</summary>
-    Downloaded,
+    /// <summary>Companion has fetched the PDF bytes from the backend. Maps to backend <c>downloading</c>.</summary>
+    Downloading,
 
-    /// <summary>Job has been submitted to the Windows print spooler.</summary>
+    /// <summary>Companion has the PDF on disk and is about to render. Maps to backend <c>rendering</c>.</summary>
+    Rendering,
+
+    /// <summary>Job has been submitted to the Windows print spooler. Maps to backend <c>printing</c>.</summary>
     Spooled,
 
-    /// <summary>Spooler reports the document has physically printed.</summary>
+    /// <summary>
+    /// Companion submitted to the spooler but cannot confirm whether the paper physically came out
+    /// (e.g. crash between Submit and the first status poll, or spooler job has been purged and we
+    /// never observed <c>PrintJobStatus.Printed</c>). <b>Never auto-reprint from this state</b>.
+    /// Operator must explicitly mark the job as Reprinted (manual) or ReportedPrinted (after
+    /// physical verification) — see <c>PrintQueueViewModel.MarkResolved</c>.
+    /// </summary>
+    UncertainSpooled,
+
+    /// <summary>Spooler reports the document has physically printed. Maps to backend <c>printed</c>.</summary>
     Printed,
 
     /// <summary>Companion has reported <see cref="Printed"/> back to the backend and got 2xx.</summary>
     ReportedPrinted,
+
+    /// <summary>
+    /// Final outcome is genuinely unknown — companion reported but never got a 2xx, and the
+    /// backend's <c>PrintJob.status</c> may or may not have been updated. UI surfaces this as
+    /// "Outcome unknown". Reconciliation is heartbeat-driven: the next successful heartbeat
+    /// triggers a re-fetch of the job's status from the backend.
+    /// </summary>
+    OutcomeUnknown,
 
     /// <summary>Permanent failure; will not auto-retry.</summary>
     Failed,
@@ -28,6 +50,7 @@ public enum JobStatus
     /// <summary>Operator cancelled the job.</summary>
     Cancelled
 }
+
 
 /// <summary>
 /// Persisted record of a print job. Maps 1:1 with the backend's <c>PrintJob</c> table.
@@ -58,11 +81,23 @@ public sealed class PrintJobRecord
     /// <summary>Paper size name (e.g. "A4", "Letter"). Null = printer default.</summary>
     public string? PaperSize { get; init; }
 
-    /// <summary>Color mode. Null = printer default.</summary>
+    /// <summary>Color mode matching the real <c>PrintFile.colorMode</c> Prisma field: "bw" or "color".</summary>
+    public string? ColorMode { get; init; }
+
+    /// <summary>Page count from <c>PrintFile.pageCount</c>. May be null if the backend hasn't counted yet.</summary>
+    public int? PageCount { get; init; }
+
+    /// <summary>Original filename from <c>PrintFile.originalFilename</c>. Shown in the UI as the file name.</summary>
+    public string? OriginalFilename { get; init; }
+
+    /// <summary>Customer order ID (the <c>Order.customerToken</c> from the real schema).</summary>
+    public string? OrderToken { get; init; }
+
+    /// <summary>Old bool? Color kept for backward compat with the v0.1 mock; new code should use ColorMode.</summary>
     public bool? Color { get; init; }
 
-    /// <summary>Duplex mode. Null = printer default.</summary>
-    public string? Duplex { get; init; }
+    /// <summary>Duplex setting from <c>PrintFile.duplex</c>.</summary>
+    public bool? Duplex { get; init; }
 
     /// <summary>Remote URL the companion should fetch the PDF from. Short-lived signed URL.</summary>
     public Uri? PdfUrl { get; init; }

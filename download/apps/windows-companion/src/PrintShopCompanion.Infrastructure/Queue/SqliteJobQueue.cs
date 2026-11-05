@@ -85,6 +85,7 @@ public sealed class SqliteJobQueue : IJobQueue
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "PrintShop", "Companion", "queue.db");
         }
+        _dbPath = path;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -95,21 +96,88 @@ public sealed class SqliteJobQueue : IJobQueue
         _logger = logger;
     }
 
-    /// <summary>Open a connection and ensure the schema exists. Called lazily on first use.</summary>
+    private readonly string _dbPath;
+    private const long MinFreeDiskBytes = 256L * 1024 * 1024; // 256 MB minimum free space
+
+    /// <summary>
+    /// Open a connection and ensure the schema exists. Called lazily on first use.
+    /// Includes crash-safety: if the on-disk DB is corrupt (PRAGMA integrity_check fails),
+    /// it is quarantined to <c>queue.db.corrupt-YYYYMMDD</c> and a fresh empty DB is created.
+    /// This is the project's "corrupt database recovery strategy".
+    /// </summary>
     private async Task<SqliteConnection> OpenAsync(CancellationToken ct)
     {
         if (Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {
-            await using var c = new SqliteConnection(_connectionString);
-            await c.OpenAsync(ct);
-            await using var cmd = c.CreateCommand();
-            cmd.CommandText = InitSql;
-            await cmd.ExecuteNonQueryAsync(ct);
+            await EnsureDiskSpaceAsync(ct);
+            await EnsureSchemaOrRecoverAsync(ct);
         }
 
         var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         return conn;
+    }
+
+    private async Task EnsureDiskSpaceAsync(CancellationToken ct)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(_dbPath)) ?? "C:\\";
+            var drive = new DriveInfo(root);
+            if (drive.IsReady && drive.AvailableFreeSpace < MinFreeDiskBytes)
+            {
+                _logger.LogError(
+                    "Disk space on {Root} is below the {Min} byte minimum ({Free} bytes free). " +
+                    "Print jobs will not be accepted until space is freed.",
+                    root, MinFreeDiskBytes, drive.AvailableFreeSpace);
+                throw new IOException($"Insufficient disk space on {root}");
+            }
+        }
+        catch (DriveNotFoundException) { /* network path; skip check */ }
+    }
+
+    private async Task EnsureSchemaOrRecoverAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var c = new SqliteConnection(_connectionString);
+            await c.OpenAsync(ct);
+            await using var integrity = c.CreateCommand();
+            integrity.CommandText = "PRAGMA integrity_check;";
+            var result = (string?)(await integrity.ExecuteScalarAsync(ct));
+            if (!string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogError("SQLite integrity_check returned {Result}; quarantining corrupt DB", result);
+                QuarantineCorruptDb();
+            }
+            else
+            {
+                await using var cmd = c.CreateCommand();
+                cmd.CommandText = InitSql;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+        }
+        catch (SqliteException ex) when (ex.Message.Contains("database disk image is malformed", StringComparison.OrdinalIgnoreCase)
+                                       || ex.Message.Contains("file is encrypted", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogError(ex, "SQLite database is corrupt or unreadable; quarantining");
+            QuarantineCorruptDb();
+        }
+    }
+
+    private void QuarantineCorruptDb()
+    {
+        try
+        {
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var corrupt = _dbPath + ".corrupt-" + stamp;
+            if (File.Exists(_dbPath)) File.Move(_dbPath, corrupt, overwrite: true);
+            // Wipe sidecar files too.
+            foreach (var ext in new[] { "-wal", "-shm" })
+                if (File.Exists(_dbPath + ext)) File.Delete(_dbPath + ext);
+            _logger.LogWarning("Quarantined corrupt DB to {Path}; a fresh empty queue will be created", corrupt);
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Could not quarantine corrupt DB"); }
     }
 
     public async Task<PrintJobRecord> EnqueueAsync(PrintJobRecord job, CancellationToken ct = default)
@@ -178,7 +246,8 @@ public sealed class SqliteJobQueue : IJobQueue
                  LIMIT 1;
                 """;
             AddParam(sel, "@pending", (int)JobStatus.Pending);
-            AddParam(sel, "@downloaded", (int)JobStatus.Downloaded);
+            AddParam(sel, "@downloading", (int)JobStatus.Downloading);
+            AddParam(sel, "@rendering", (int)JobStatus.Rendering);
             AddParam(sel, "@spooled", (int)JobStatus.Spooled);
             AddParam(sel, "@failed", (int)JobStatus.Failed);
             AddParam(sel, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
@@ -194,7 +263,7 @@ public sealed class SqliteJobQueue : IJobQueue
             if (job.Status == JobStatus.Pending)
             {
                 job.AttemptCount += 1;
-                job.Status = JobStatus.Downloaded;
+                job.Status = JobStatus.Downloading;
                 job.UpdatedAt = DateTimeOffset.UtcNow;
                 await WriteStatusAsync(conn, tx, job, ct);
             }
@@ -329,10 +398,11 @@ public sealed class SqliteJobQueue : IJobQueue
                        updated_at = @now,
                        next_attempt_at = NULL
                  WHERE job_id = @job_id
-                   AND status IN (@downloaded, @spooled);
+                   AND status IN (@downloading, @rendering, @spooled);
                 """;
             AddParam(cmd, "@pending", (int)JobStatus.Pending);
-            AddParam(cmd, "@downloaded", (int)JobStatus.Downloaded);
+            AddParam(cmd, "@downloading", (int)JobStatus.Downloading);
+            AddParam(cmd, "@rendering", (int)JobStatus.Rendering);
             AddParam(cmd, "@spooled", (int)JobStatus.Spooled);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@job_id", jobId);
@@ -396,11 +466,14 @@ public sealed class SqliteJobQueue : IJobQueue
                    SET status = @pending,
                        updated_at = @now,
                        next_attempt_at = NULL
-                 WHERE status IN (@downloaded, @spooled);
+                 WHERE status IN (@downloading, @rendering, @spooled, @uncertain, @outcome_unknown);
                 """;
             AddParam(cmd, "@pending", (int)JobStatus.Pending);
-            AddParam(cmd, "@downloaded", (int)JobStatus.Downloaded);
+            AddParam(cmd, "@downloading", (int)JobStatus.Downloading);
+            AddParam(cmd, "@rendering", (int)JobStatus.Rendering);
             AddParam(cmd, "@spooled", (int)JobStatus.Spooled);
+            AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
+            AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             var n = await cmd.ExecuteNonQueryAsync(ct);
             if (n > 0) _logger.LogInformation("Replayed {Count} in-flight jobs back to Pending after crash", n);
@@ -415,17 +488,117 @@ public sealed class SqliteJobQueue : IJobQueue
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             DELETE FROM jobs
-             WHERE status IN (@printed, @reported, @failed, @cancelled)
+             WHERE status IN (@printed, @reported, @failed, @cancelled, @uncertain, @outcome_unknown)
                AND updated_at < @cutoff;
             """;
         AddParam(cmd, "@printed", (int)JobStatus.Printed);
         AddParam(cmd, "@reported", (int)JobStatus.ReportedPrinted);
         AddParam(cmd, "@failed", (int)JobStatus.Failed);
         AddParam(cmd, "@cancelled", (int)JobStatus.Cancelled);
+        AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
+        AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
         AddParam(cmd, "@cutoff", cutoff.ToString("O", CultureInfo.InvariantCulture));
         var n = await cmd.ExecuteNonQueryAsync(ct);
         if (n > 0) _logger.LogInformation("Purged {Count} terminal jobs older than {Ttl}", n, olderThan);
     }
+
+    /// <summary>
+    /// Mark a job as <see cref="JobStatus.UncertainSpooled"/>. Used when the spooler job
+    /// cannot be found AND we never observed <c>PrintJobStatus.Printed</c>. The companion
+    /// will NOT auto-reprint from this state — only an operator can mark it resolved.
+    /// </summary>
+    public async Task MarkUncertainAsync(string jobId, string reason, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await using var conn = await OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE jobs
+                   SET status = @uncertain,
+                       last_error = @reason,
+                       updated_at = @now,
+                       next_attempt_at = NULL
+                 WHERE job_id = @job_id
+                   AND status IN (@spooled, @downloading, @rendering);
+                """;
+            AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
+            AddParam(cmd, "@spooled", (int)JobStatus.Spooled);
+            AddParam(cmd, "@downloading", (int)JobStatus.Downloading);
+            AddParam(cmd, "@rendering", (int)JobStatus.Rendering);
+            AddParam(cmd, "@reason", reason);
+            AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            AddParam(cmd, "@job_id", jobId);
+            await cmd.ExecuteNonQueryAsync(ct);
+            _logger.LogWarning("Job {JobId} marked UncertainSpooled: {Reason}", jobId, reason);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// Mark a job as <see cref="JobStatus.OutcomeUnknown"/>. Used when the companion
+    /// sent a status report to the backend but never received a 2xx confirmation.
+    /// The next heartbeat will try to reconcile by fetching the backend's view of this
+    /// job and updating the local status to match.
+    /// </summary>
+    public async Task MarkOutcomeUnknownAsync(string jobId, string reason, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await using var conn = await OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE jobs
+                   SET status = @outcome_unknown,
+                       last_error = @reason,
+                       updated_at = @now
+                 WHERE job_id = @job_id
+                   AND status = @printed;
+                """;
+            AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
+            AddParam(cmd, "@reason", reason);
+            AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            AddParam(cmd, "@job_id", jobId);
+            await cmd.ExecuteNonQueryAsync(ct);
+            _logger.LogWarning("Job {JobId} marked OutcomeUnknown: {Reason}", jobId, reason);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// Operator-driven reconciliation: explicitly mark an UncertainSpooled job as
+    /// ReportedPrinted (operator has visually confirmed the paper came out, or
+    /// has manually re-printed and confirmed). <b>Never automatic.</b>
+    /// </summary>
+    public async Task MarkResolvedByOperatorAsync(string jobId, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await using var conn = await OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE jobs
+                   SET status = @printed,
+                       last_error = NULL,
+                       printed_at = @now,
+                       updated_at = @now
+                 WHERE job_id = @job_id
+                   AND status IN (@uncertain, @outcome_unknown);
+                """;
+            AddParam(cmd, "@printed", (int)JobStatus.Printed);
+            AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
+            AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
+            AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            AddParam(cmd, "@job_id", jobId);
+            await cmd.ExecuteNonQueryAsync(ct);
+            _logger.LogInformation("Job {JobId} resolved by operator", jobId);
+        }
+        finally { _gate.Release(); }
+    }
+
 
     // ────────────────────────── helpers ──────────────────────────
 

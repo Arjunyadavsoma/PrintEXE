@@ -45,6 +45,12 @@
                                 Command="{Binding RetryCommand}" />
                         <Button Style="{StaticResource SecondaryButton}" Content="Cancel"
                                 Margin="8,0,0,0" Command="{Binding CancelCommand}" />
+                        <Button Style="{StaticResource PrimaryButton}" Content="Mark as printed"
+                                Margin="8,0,0,0" Command="{Binding MarkResolvedCommand}"
+                                ToolTip="Use this when you have visually confirmed the paper came out. Only enabled for jobs whose outcome is uncertain." />
+                        <Button Style="{StaticResource SecondaryButton}" Content="Reprint"
+                                Margin="8,0,0,0" Command="{Binding ReprintCommand}"
+                                ToolTip="Re-submit the job to the printer. Only enabled when the outcome is uncertain." />
                     </StackPanel>
                 </StackPanel>
             </Border>
