@@ -17,6 +17,19 @@
     <Version>0.1.0</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>
     <FileVersion>0.1.0.0</FileVersion>
+
+    <!-- Suppress stylistic warnings that don't block the build.
+
+         CA1716: namespace name 'PrintShopCompanion.Shared.Constants' etc. conflicts
+                 with the VB.NET 'Shared' keyword. The companion is C#-only, so the
+                 cross-language concern is moot. Renaming the namespaces would be
+                 a much bigger refactor than the warning warrants.
+
+         CA1861: 'prefer static readonly over constant array arguments'. Triggered
+                 by the mock backend's `new[] { ... }` array passed to a method that
+                 is called on every request. Will be addressed in a follow-up but
+                 is not blocking. -->
+    <NoWarn>$(NoWarn);CA1716;CA1861</NoWarn>
   </PropertyGroup>
 
   <!-- CSproj-level shared settings -->
@@ -26,3 +39,4 @@
   </PropertyGroup>
 
 </Project>
+

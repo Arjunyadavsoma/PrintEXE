@@ -69,7 +69,7 @@ public class SqliteJobQueueTests : IDisposable
         var job = await _queue.DequeueAsync();
         job!.JobId.Should().Be("J-1");
         job.AttemptCount.Should().Be(1);
-        job.Status.Should().Be(JobStatus.Downloaded);
+        job.Status.Should().Be(JobStatus.Downloading);
 
         await _queue.MarkFailedAsync("J-1", "transient", permanent: false);
 
@@ -95,7 +95,7 @@ public class SqliteJobQueueTests : IDisposable
     public async Task ReplayInFlight_returns_in_flight_jobs_to_Pending()
     {
         await _queue.EnqueueAsync(MakeJob("J-1", "Job One"));
-        await _queue.DequeueAsync();   // pulls it to Downloaded (in-flight)
+        await _queue.DequeueAsync();   // pulls it to Downloading (in-flight)
 
         await _queue.ReplayInFlightAsync();
         var all = await _queue.ListAsync();

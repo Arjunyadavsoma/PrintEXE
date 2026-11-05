@@ -32,7 +32,7 @@ public class JobProcessorIdempotencyTests
             DequeueCalls++;
             var next = _jobs.Values.FirstOrDefault(j => j.Status == JobStatus.Pending);
             if (next == null) return Task.FromResult<PrintJobRecord?>(null);
-            next.Status = JobStatus.Downloaded;
+            next.Status = JobStatus.Downloading;
             next.AttemptCount++;
             return Task.FromResult<PrintJobRecord?>(next);
         }
@@ -52,8 +52,24 @@ public class JobProcessorIdempotencyTests
     private sealed class FakeBackend : IPrintShopBackend
     {
         public bool IsAuthenticated => true;
-        public ShopInfo? CurrentShop => new("shop", "Shop", new Uri("https://shop.local"), "/api");
-        public DeviceRegistration? CurrentDevice => new() { DeviceId = "dev", ShopId = "shop", Hostname = "h", OperatingSystem = "os", AppVersion = "0", RegisteredAt = DateTimeOffset.UtcNow, LastSeenAt = DateTimeOffset.UtcNow, Revoked = false };
+        public ShopInfo? CurrentShop => new ShopInfo
+        {
+            ShopId = "shop",
+            ShopName = "Shop",
+            BaseUrl = new Uri("https://shop.local"),
+            ApiBasePath = "/api"
+        };
+        public DeviceRegistration? CurrentDevice => new DeviceRegistration
+        {
+            DeviceId = "dev",
+            ShopId = "shop",
+            Hostname = "h",
+            OperatingSystem = "os",
+            AppVersion = "0",
+            RegisteredAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow,
+            Revoked = false
+        };
 
         public int AckCount { get; private set; }
         public int ReportCount { get; private set; }

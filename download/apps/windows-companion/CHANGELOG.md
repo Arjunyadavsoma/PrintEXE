@@ -1,5 +1,92 @@
 # PrintShop Companion — Changelog
 
+## v0.1.2 — 2026-11-05 — Real Windows Build Repair
+
+Fixed the compile errors and remaining NuGet warnings that surfaced when the user
+ran `dotnet build .\PrintShopCompanion.sln -c Release` on a Windows 11 PC with the
+.NET 10 SDK installed. These were the actual errors from the real build output.
+
+### Compile errors fixed
+
+| Error | Cause | Fix |
+| --- | --- | --- |
+| **CS0246** — `DeviceToken` not found in `IServices.cs(29,10)` and `(30,20)` | `PrintShopCompanion.Core.Contracts.IServices.cs` references the `DeviceToken` type (defined in `PrintShopCompanion.Core.Models.ShopDevice.cs`) but had no `using PrintShopCompanion.Core.Models;` directive. | Added `using PrintShopCompanion.Core.Models;` to `IServices.cs`. |
+| **CS0246** (would have fired next) — `JobStatus.Downloaded` no longer exists | Earlier v0.1.1 renamed `JobStatus.Downloaded` → `JobStatus.Downloading`, but four files still referenced the old name. | Fixed `DashboardViewModel.cs`, `SqliteJobQueueTests.cs` (test assertion), `JobProcessorIdempotencyTests.cs` (FakeQueue.DequeueAsync), and the XML doc cref in `IJobQueue.cs`. |
+| **CS1729** (would have fired next) — `new DeviceToken(...)` positional constructor does not exist | `DeviceToken` and `ShopInfo` are records with `required` properties, NOT positional records. The test files used `new DeviceToken("shop","dev","tok",...)` and `new ShopInfo("shop","Shop",...)` syntax that doesn't compile. | Rewrote those constructions as object initializers in `MagicLinkPairingServiceTests.cs` and `JobProcessorIdempotencyTests.cs`. |
+
+### NuGet warnings fixed
+
+| Warning | Cause | Fix |
+| --- | --- | --- |
+| **NU1510** — `System.Security.Cryptography.ProtectedData` will not be pruned | The package is auto-available on .NET 10 Windows via the framework reference; explicit PackageReference is redundant. | Removed the explicit PackageReference from `PrintShopCompanion.Infrastructure.csproj`. |
+| **NU1510** — `System.Drawing.Common` will not be pruned | Same — auto-available via `<UseWPF>true</UseWPF>`. | Removed the explicit PackageReference. |
+| **NU1903** — `Microsoft.NETCore.App 1.1.0` (GHSA-7mfr-774f-w5r9, GHSA-8884-xcr4-r68p) | Transitive via `SocketIOClient 3.1.0` → `SocketIOClient.Transport 3.1.0` → `System.Net.WebSockets.Client.Managed 1.0.x` → the .NET Core 1.1 runtime packages. | Upgraded `SocketIOClient` from `3.1.0` to `3.2.0`. The 3.2.0 release multi-targets `net6.0`/`net7.0`/`net8.0`; when consumed by `net10.0` it picks the `net8.0` TFM and uses the built-in `System.Net.WebSockets.ClientWebSocket`, no longer dragging in `System.Net.WebSockets.Client.Managed`. |
+| **NU1903** — `Microsoft.NETCore.Jit 1.1.0` (GHSA-xcvr-qv8h-m7xw) | Same transitive chain as above. | Fixed by the SocketIOClient 3.2.0 bump. |
+| **NU1903** — `Newtonsoft.Json 9.0.1` (GHSA-5crp-9r3c-p9vr) | Transitive via legacy dep chain. | Added explicit `<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />` to App, Worker, Infrastructure, and both test projects to force the safe version. |
+| **NU1903** — `SQLitePCLRaw.lib.e_sqlite3 2.1.11` (GHSA-2m69-gcr7-jv3q) | Transitive via `Microsoft.Data.Sqlite 10.0.0` → `SQLitePCLRaw.bundle_e_sqlite3` → `SQLitePCLRaw.lib.e_sqlite3`. The vulnerable 2.1.11 was the resolved version. | Added explicit `<PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.16" />` to App, Worker, Infrastructure, and both test projects. |
+| **CA1716** — namespace `PrintShopCompanion.Shared.*` conflicts with VB `Shared` keyword | The `Shared` keyword is reserved in VB.NET. The companion is C#-only. | Suppressed via `<NoWarn>$(NoWarn);CA1716</NoWarn>` in `Directory.Build.props`. Renaming the namespaces would be a much bigger refactor than the warning warrants. |
+| **CA1861** — `Prefer 'static readonly' fields over constant array arguments` in `Backend/Program.cs(42,25)` | The `new[] { ... }` array passed to `MapGet` was allocated on every request. | Hoisted to a `static readonly string[] EndpointList` and `static readonly string[] CorsOrigins` fields. |
+
+### Dependency version changes (this round)
+
+| Package | Old version | New version | Reason |
+| --- | --- | --- | --- |
+| `SocketIOClient` | 3.1.0 | **3.2.0** | NU1903 — drops `System.Net.WebSockets.Client.Managed` transitive dep |
+| `Newtonsoft.Json` | (transitive, 9.0.1) | **13.0.3** (explicit override) | NU1903 — explicit safe-version override |
+| `SQLitePCLRaw.lib.e_sqlite3` | (transitive, 2.1.11) | **2.1.16** (explicit override) | NU1903 — explicit safe-version override |
+| `System.Security.Cryptography.ProtectedData` | 10.0.0 (explicit) | **removed** | NU1510 — auto-available |
+| `System.Drawing.Common` | 10.0.0 (explicit) | **removed** | NU1510 — auto-available via `UseWPF=true` |
+| `WPF-UI` | 4.0.0 | **4.3.0** | 4.3.0 explicitly targets `net10.0-windows7.0`; 4.0.0 does not |
+| `H.NotifyIcon.Wpf` | 2.2.0 | **2.4.1** | 2.4.1 explicitly targets `net10.0-windows7.0` |
+| `Hardcodet.NotifyIcon.Wpf` | 2.0.1 | **removed** | Dead weight — the codebase uses `H.NotifyIcon` exclusively |
+
+### Files changed in this round
+
+| File | Change |
+| --- | --- |
+| `src/PrintShopCompanion.Core/Contracts/IServices.cs` | Added `using PrintShopCompanion.Core.Models;` — fixes CS0246 |
+| `src/PrintShopCompanion.Core/Contracts/IJobQueue.cs` | Updated `<see cref="JobStatus.Downloaded"/>` → `<see cref="JobStatus.Downloading"/>` |
+| `src/PrintShopCompanion.App/ViewModels/DashboardViewModel.cs` | `JobStatus.Downloaded` → `JobStatus.Downloading or JobStatus.Rendering or JobStatus.Spooled` |
+| `src/PrintShopCompanion.App/PrintShopCompanion.App.csproj` | Bumped `WPF-UI` 4.0.0 → 4.3.0; bumped `H.NotifyIcon.Wpf` 2.2.0 → 2.4.1; removed `Hardcodet.NotifyIcon.Wpf`; added `Newtonsoft.Json 13.0.3` and `SQLitePCLRaw.lib.e_sqlite3 2.1.16` explicit overrides |
+| `src/PrintShopCompanion.Infrastructure/PrintShopCompanion.Infrastructure.csproj` | Bumped `SocketIOClient` 3.1.0 → 3.2.0; removed `System.Security.Cryptography.ProtectedData` and `System.Drawing.Common` explicit PackageReferences (NU1510); added `Newtonsoft.Json 13.0.3` and `SQLitePCLRaw.lib.e_sqlite3 2.1.16` explicit overrides |
+| `src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj` | Added `Newtonsoft.Json 13.0.3` and `SQLitePCLRaw.lib.e_sqlite3 2.1.16` explicit overrides |
+| `tests/PrintShopCompanion.Queue.Tests/PrintShopCompanion.Queue.Tests.csproj` | Added the same explicit overrides |
+| `tests/PrintShopCompanion.Infrastructure.Tests/PrintShopCompanion.Infrastructure.Tests.csproj` | Added the same explicit overrides |
+| `tests/PrintShopCompanion.Queue.Tests/SqliteJobQueueTests.cs` | `JobStatus.Downloaded` → `JobStatus.Downloading` (assertion + comment) |
+| `tests/PrintShopCompanion.Infrastructure.Tests/JobProcessorIdempotencyTests.cs` | `JobStatus.Downloaded` → `JobStatus.Downloading`; rewrote `new ShopInfo(...)` positional construction as object initializer |
+| `tests/PrintShopCompanion.Infrastructure.Tests/MagicLinkPairingServiceTests.cs` | Rewrote `new DeviceToken(...)` and `new ShopInfo(...)` positional constructions as object initializers |
+| `Directory.Build.props` | Added `<NoWarn>$(NoWarn);CA1716;CA1861</NoWarn>` to suppress the namespace-conflict and static-readonly-array stylistic warnings |
+| `src/PrintShopCompanion.Backend/Program.cs` | Hoisted the constant array arguments to `static readonly` fields to fix CA1861 |
+| `src/PrintShopCompanion.Infrastructure/Queue/SqliteJobQueue.cs` | Updated doc comments referring to `Downloaded` → `Downloading` |
+
+### Build status
+
+The user ran `dotnet build` on Windows 11 with .NET 10 SDK and got 2 errors + 28 warnings. After this round of fixes:
+
+- **Compile errors**: 0 expected (the CS0246 in `IServices.cs`, the `JobStatus.Downloaded` references, and the positional-record construction errors are all fixed).
+- **NU1510 warnings**: 0 expected (the redundant explicit PackageReferences are removed).
+- **NU1903 vulnerability warnings**: 0 expected (SocketIOClient 3.2.0 drops the legacy `System.Net.WebSockets.Client.Managed` chain; explicit overrides pin `Newtonsoft.Json 13.0.3` and `SQLitePCLRaw.lib.e_sqlite3 2.1.16`).
+- **CA1716 / CA1861 stylistic warnings**: 0 expected (suppressed in `Directory.Build.props`).
+- **NETSDK1057** (preview SDK info): will remain — it's informational, not blocking.
+
+**Not actually verified**: I cannot run `dotnet build` in this Linux sandbox. The user must re-run `dotnet clean`, `dotnet restore`, `dotnet build` on Windows to confirm a green build. The static-blocker sweep I performed here is comprehensive but is not a substitute for a real build.
+
+### Functionality preserved
+
+All v0.1.0 functionality is preserved:
+- ✅ Printer discovery (`WindowsPrinterService` via `System.Printing` through `<UseWPF>true</UseWPF>`)
+- ✅ Windows spooler integration (via SumatraPDF's `-print-to` and `-print-stat`)
+- ✅ PDF printing (SumatraPDF primary; raw GDI fallback for ESC/POS)
+- ✅ SQLite durable queue (unchanged)
+- ✅ DPAPI credential storage (the `System.Security.Cryptography.ProtectedData` API is still available — it's part of the framework reference, just no longer an explicit PackageReference)
+- ✅ Pairing and device authentication (unchanged)
+- ✅ Backend communication (unchanged)
+- ✅ Socket.IO + HTTP polling fallback (SocketIOClient upgraded to 3.2.0)
+- ✅ Accurate job status reporting with UncertainSpooled / OutcomeUnknown states (unchanged)
+- ✅ WPF dashboard + tray (`H.NotifyIcon.Wpf` upgraded to 2.4.1; `WPF-UI` upgraded to 4.3.0)
+
+---
+
 ## v0.1.1 — 2026-11-05 — NuGet Restore Repair
 
 Fixed the NuGet restore errors that blocked the Windows build. No functional

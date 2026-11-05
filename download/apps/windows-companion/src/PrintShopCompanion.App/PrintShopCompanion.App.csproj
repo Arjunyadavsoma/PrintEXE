@@ -22,9 +22,21 @@
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.EventLog" Version="4.0.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
-    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.2.0" />
-    <PackageReference Include="WPF-UI" Version="4.0.0" />
-    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
+
+    <!-- Tray icon. H.NotifyIcon.Wpf is the maintained successor to the
+         abandoned Hardcodet.NotifyIcon.Wpf. The codebase uses H.NotifyIcon
+         exclusively (Tray/TrayIcon.cs uses `using H.NotifyIcon;`). The old
+         Hardcodet reference was unused dead weight and has been removed. -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+
+    <!-- WPF-UI 4.3.0 explicitly targets net10.0-windows7.0; 4.0.0 does not. -->
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
+
+    <!-- Vulnerable-transitive overrides. The App pulls Infrastructure transitively,
+         so it inherits the vulnerable transitive deps. Pinning them at safe versions
+         here too ensures the publish output bundles the fixed versions. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.16" />
   </ItemGroup>
 
   <ItemGroup>

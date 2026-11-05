@@ -17,7 +17,7 @@ using PrintShopCompanion.Core.Options;
 /// "never print twice" guarantee at the queue layer.</para>
 ///
 /// <para><b>Crash safety.</b> Every status transition is wrapped in a transaction. A job that
-/// was dequeued but never marked Printed/Failed stays in the <c>Downloaded</c> status;
+/// was dequeued but never marked Printed/Failed stays in the <c>Downloading</c> status;
 /// <see cref="ReplayInFlightAsync"/> returns all such jobs to <c>Pending</c> on startup.</para>
 ///
 /// <para><b>Retry.</b> Failed jobs back off exponentially with jitter; <see cref="DequeueAsync"/>
@@ -231,7 +231,7 @@ public sealed class SqliteJobQueue : IJobQueue
             await using var conn = await OpenAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
 
-            // Pick: a Pending job, or a (Downloaded/Spooled) in-flight that needs resumption,
+            // Pick: a Pending job, or a (Downloading/Rendering/Spooled) in-flight that needs resumption,
             // or a Failed job whose next_attempt_at has passed.
             await using var sel = conn.CreateCommand();
             sel.Transaction = (SqliteTransaction)tx;

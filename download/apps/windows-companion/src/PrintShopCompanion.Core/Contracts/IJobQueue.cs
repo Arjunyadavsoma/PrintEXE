@@ -20,7 +20,7 @@ public interface IJobQueue
     /// <summary>
     /// Get the next job that is ready to be processed (status = Pending or
     /// a retryable Failed job whose next attempt is due). The job is atomically
-    /// transitioned to <see cref="JobStatus.Downloaded"/> (or left as
+    /// transitioned to <see cref="JobStatus.Downloading"/> (or left as
     /// <see cref="JobStatus.Pending"/> if the caller has not yet downloaded the PDF)
     /// and is invisible to other dequeue calls until <see cref="ReleaseAsync"/>
     /// or <see cref="MarkCompletedAsync"/> is called.

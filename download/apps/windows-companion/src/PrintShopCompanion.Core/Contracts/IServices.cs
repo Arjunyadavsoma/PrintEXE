@@ -1,5 +1,7 @@
 namespace PrintShopCompanion.Core.Contracts;
 
+using PrintShopCompanion.Core.Models;
+
 /// <summary>
 /// Magic-link pairing flow. The companion registers a custom URL scheme
 /// <c>printshopcompanion://</c> with Windows during install. The website

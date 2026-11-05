@@ -28,10 +28,35 @@ public class MagicLinkPairingServiceTests
         public Task<PairingResult> PairAsync(string pairingToken, CancellationToken ct = default)
         {
             PairCalls.Add(pairingToken);
+            var now = DateTimeOffset.UtcNow;
             return Task.FromResult(new PairingResult(
-                new DeviceToken("shop", "dev", "tok", DateTimeOffset.UtcNow, null, null),
-                new DeviceRegistration { DeviceId = "dev", ShopId = "shop", Hostname = "h", OperatingSystem = "os", AppVersion = "0", RegisteredAt = DateTimeOffset.UtcNow, LastSeenAt = DateTimeOffset.UtcNow, Revoked = false },
-                new ShopInfo("shop", "Demo Shop", new Uri("https://shop.local"), "/api")));
+                new DeviceToken
+                {
+                    ShopId = "shop",
+                    DeviceId = "dev",
+                    Token = "tok",
+                    IssuedAt = now,
+                    ExpiresAt = null,
+                    RefreshToken = null
+                },
+                new DeviceRegistration
+                {
+                    DeviceId = "dev",
+                    ShopId = "shop",
+                    Hostname = "h",
+                    OperatingSystem = "os",
+                    AppVersion = "0",
+                    RegisteredAt = now,
+                    LastSeenAt = now,
+                    Revoked = false
+                },
+                new ShopInfo
+                {
+                    ShopId = "shop",
+                    ShopName = "Demo Shop",
+                    BaseUrl = new Uri("https://shop.local"),
+                    ApiBasePath = "/api"
+                }));
         }
 
         public Task<bool> RefreshTokenAsync(CancellationToken ct = default) => Task.FromResult(false);

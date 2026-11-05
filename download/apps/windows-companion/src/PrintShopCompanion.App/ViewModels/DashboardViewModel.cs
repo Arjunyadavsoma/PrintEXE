@@ -57,7 +57,7 @@ public partial class DashboardViewModel : ObservableObject
 
         var all = _queue.ListAsync().GetAwaiter().GetResult();
         PendingCount = all.Count(j => j.Status == JobStatus.Pending);
-        PrintingCount = all.Count(j => j.Status is JobStatus.Downloaded or JobStatus.Spooled);
+        PrintingCount = all.Count(j => j.Status is JobStatus.Downloading or JobStatus.Rendering or JobStatus.Spooled);
         CompletedToday = all.Count(j => j.Status is JobStatus.Printed or JobStatus.ReportedPrinted);
         FailedCount = all.Count(j => j.Status == JobStatus.Failed);
         RecentJobs = new ObservableCollection<PrintJobRecord>(all.Take(10));

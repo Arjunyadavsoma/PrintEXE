@@ -20,12 +20,26 @@ using PrintShopCompanion.Backend.Endpoints;
 /// </summary>
 public static class Program
 {
+    // CA1861: hoisted to a static readonly field so the array is allocated once
+    // rather than on every request to the root endpoint.
+    private static readonly string[] EndpointList =
+    {
+        "/pair", "/heartbeat", "/jobs/pending",
+        "/jobs/{id}/ack", "/jobs/{id}/status", "/jobs/{id}/pdf"
+    };
+
+    private static readonly string[] CorsOrigins =
+    {
+        "https://app.printshop.local",
+        "http://localhost:5173"
+    };
+
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
         builder.Services.AddSingleton<MockStore>();
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
-            .WithOrigins("https://app.printshop.local", "http://localhost:5173")
+            .WithOrigins(CorsOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()));
         builder.Services.AddHostedService<JobGeneratorService>();
@@ -39,7 +53,7 @@ public static class Program
         {
             name = "PrintShop Companion Mock Backend",
             version = "0.1.0-mock",
-            endpoints = new[] { "/pair", "/heartbeat", "/jobs/pending", "/jobs/{id}/ack", "/jobs/{id}/status", "/jobs/{id}/pdf" }
+            endpoints = EndpointList
         }));
         app.Run();
     }
