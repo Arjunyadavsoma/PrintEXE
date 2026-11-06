@@ -24,6 +24,14 @@ jobs:
     defaults:
       run:
         working-directory: apps/windows-companion
+    # Job-level env: secrets are hoisted here so that step-level `if:`
+    # conditions can read them. The `secrets` context is NOT available
+    # directly inside a step's `if:` expression — only in `env:` and
+    # `with:` blocks. So we set them at the job level, then test the
+    # resulting env var.
+    env:
+      PFX_B64: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX }}
+      PFX_PWD: ${{ secrets.PRINTSHOP_CODE_SIGN_PWD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -132,11 +140,11 @@ jobs:
           }
 
       - name: Sign MSI (if cert secret available)
-        if: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX != '' }}
+        # Note: `secrets.*` is NOT available inside a step's `if:` expression.
+        # We hoisted the secrets to the job-level `env:` block above, so we
+        # can check the resulting env var here.
+        if: ${{ env.PFX_B64 != '' }}
         shell: pwsh
-        env:
-          PFX_B64: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX }}
-          PFX_PWD: ${{ secrets.PRINTSHOP_CODE_SIGN_PWD }}
         run: |
           $pfx = "$env:TEMP\sign.pfx"
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
