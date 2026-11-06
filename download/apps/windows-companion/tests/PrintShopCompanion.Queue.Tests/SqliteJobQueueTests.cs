@@ -37,9 +37,8 @@ public class SqliteJobQueueTests : IDisposable
         var job = MakeJob("J-1", "Job One");
         var inserted = await _queue.EnqueueAsync(job);
 
-        // Re-enqueue the same JobId with a different title — should be a no-op.
-        var dup = job with { };
-        var result = await _queue.EnqueueAsync(dup);
+        // Re-enqueue the same JobId — should be a no-op (idempotent on JobId).
+        var result = await _queue.EnqueueAsync(job);
 
         result.JobId.Should().Be("J-1");
         result.Title.Should().Be("Job One", "the second enqueue should NOT overwrite the original");

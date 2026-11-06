@@ -12,7 +12,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IOptionsMonitor<AppOptions> _appOpts;
     private readonly IOptionsMonitor<PrinterOptions> _printerOpts;
     private readonly AutoStartService _autoStart;
-    private readonly ThemeService _theme;
+    private readonly ThemeService _themeSvc;
     private readonly IPrintShopBackend _backend;
 
     [ObservableProperty]
@@ -52,7 +52,7 @@ public partial class SettingsViewModel : ObservableObject
         _appOpts = appOpts;
         _printerOpts = printerOpts;
         _autoStart = autoStart;
-        _theme = theme;
+        _themeSvc = theme;
         _backend = backend;
         Load();
     }
@@ -80,7 +80,7 @@ public partial class SettingsViewModel : ObservableObject
         OptionsWriter.Update("App:Theme", Theme);
         OptionsWriter.Update("Printer:Renderer", Renderer);
         _autoStart.SyncFromOptions();
-        _theme.ApplyFromOptions();
+        _themeSvc.ApplyFromOptions();
     }
 
     [RelayCommand]

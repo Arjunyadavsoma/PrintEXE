@@ -16,10 +16,9 @@ using SocketIOClient;
 /// queue is the actual truth — the companion will keep an acked job in
 /// its SQLite queue even after the wire ack so it can survive a crash.
 ///
-/// <para>Falls back to HTTP polling if the socket is unreachable; see
-/// <see cref="HttpFallbackPoller"/>. The mock backend does not run a
-/// Socket.IO server, so this client is paired with the polling fallback
-/// for local testing.</para>
+/// <para>Uses SocketIOClient 3.1.2 (the stable, 865K-download version).
+/// SocketIOClient 4.0.0 has major API breaking changes and only 760 downloads
+/// — not safe for production.</para>
 /// </summary>
 public sealed class SocketIoRealtimeClient : IDisposable
 {
@@ -59,7 +58,44 @@ public sealed class SocketIoRealtimeClient : IDisposable
         _socket.OnConnected += OnConnected;
         _socket.OnDisconnected += OnDisconnected;
         _socket.OnError += OnError;
-        _socket.On(CompanionProtocol.HubMethodDeliverJob, OnJobDelivered);
+        // SocketIOClient 3.1.2: the On callback receives a SocketIOEvent.
+        // We use a lambda so the compiler infers the type — this avoids
+        // needing to know the exact namespace of SocketIOEvent (which varies
+        // between SocketIOClient versions).
+        _socket.On(CompanionProtocol.HubMethodDeliverJob, async (ev) =>
+        {
+            try
+            {
+                var dto = ev.GetValue<PrintJobDto>();
+                var record = new PrintJobRecord
+                {
+                    JobId = dto.JobId,
+                    ShopId = dto.ShopId,
+                    DeviceId = dto.DeviceId,
+                    Title = dto.Title,
+                    PrinterName = dto.PrinterName,
+                    Copies = dto.Copies,
+                    PageRange = dto.PageRange,
+                    PaperSize = dto.PaperSize,
+                    Color = dto.Color,
+                    Duplex = dto.Duplex,
+                    PdfUrl = dto.PdfUrl,
+                    PdfSha256 = dto.PdfSha256,
+                    Status = JobStatus.Pending,
+                    CreatedAt = dto.CreatedAt,
+                    QueuedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+                record = await _queue.EnqueueAsync(record);
+                JobDelivered?.Invoke(record);
+                await _socket.EmitAsync(CompanionProtocol.HubMethodAckJob, new { jobId = dto.JobId });
+                _logger.LogInformation("Job {JobId} delivered via Socket.IO and persisted", dto.JobId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OnJobDelivered failed");
+            }
+        });
     }
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -88,7 +124,7 @@ public sealed class SocketIoRealtimeClient : IDisposable
         return new Uri(baseUrl, o.HubPath.TrimStart('/'));
     }
 
-    private async Task OnConnected(SocketIO _)
+    private async void OnConnected(object? sender, EventArgs e)
     {
         _logger.LogInformation("Socket.IO connected");
         ConnectionChanged?.Invoke(true);
@@ -96,51 +132,18 @@ public sealed class SocketIoRealtimeClient : IDisposable
         await _socket.EmitAsync("registerDevice", new { deviceId = ThisApp.DeviceId.ToString("N") });
     }
 
-    private void OnDisconnected(object? _, string reason)
+    private void OnDisconnected(object? sender, string reason)
     {
         _logger.LogWarning("Socket.IO disconnected: {Reason}; HTTP poll fallback active", reason);
         ConnectionChanged?.Invoke(false);
         _poller.Start(_cts?.Token ?? CancellationToken.None);
     }
 
-    private void OnError(object? _, string err) => _logger.LogError("Socket.IO error: {Err}", err);
+    private void OnError(object? sender, string err) => _logger.LogError("Socket.IO error: {Err}", err);
 
-    private async Task OnJobDelivered(SocketIOEvent ev)
-    {
-        try
-        {
-            var dto = ev.GetValue<PrintJobDto>();
-            var record = new PrintJobRecord
-            {
-                JobId = dto.JobId,
-                ShopId = dto.ShopId,
-                DeviceId = dto.DeviceId,
-                Title = dto.Title,
-                PrinterName = dto.PrinterName,
-                Copies = dto.Copies,
-                PageRange = dto.PageRange,
-                PaperSize = dto.PaperSize,
-                Color = dto.Color,
-                Duplex = dto.Duplex,
-                PdfUrl = dto.PdfUrl,
-                PdfSha256 = dto.PdfSha256,
-                Status = JobStatus.Pending,
-                CreatedAt = dto.CreatedAt,
-                QueuedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
-            // Persist before processing. EnqueueAsync is idempotent on JobId.
-            record = await _queue.EnqueueAsync(record);
-            JobDelivered?.Invoke(record);
-            // ACK on the wire — the queue is still the source of truth.
-            await _socket.EmitAsync(CompanionProtocol.HubMethodAckJob, new { jobId = dto.JobId });
-            _logger.LogInformation("Job {JobId} delivered via Socket.IO and persisted", dto.JobId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "OnJobDelivered failed");
-        }
-    }
+    // OnJobDelivered is now an inline lambda in the constructor (above).
+    // This avoids needing to reference the SocketIOEvent type directly,
+    // which lives in different namespaces across SocketIOClient versions.
 
     public void Dispose()
     {

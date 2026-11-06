@@ -55,7 +55,6 @@ public partial class MainWindow : Window
         if (sender is Button b && b.Tag is string s) _nav.NavigateTo(s);
     }
 
-    private void OnClosing(object sender, CancelEventArgs e) { /* XAML event hookup; routed */ }
     private void OnClosingHandler(object? sender, CancelEventArgs e)
     {
         var opts = _services.GetRequiredService<IOptionsMonitor<AppOptions>>().CurrentValue;

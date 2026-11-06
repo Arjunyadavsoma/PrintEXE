@@ -104,8 +104,8 @@ public sealed class WindowsPrinterService : IPrinterService
             copies: job.Copies,
             color: job.Color,
             paperSize: job.PaperSize,
-            duplex: job.Duplex,
-            ct);
+            duplex: job.Duplex == true ? "duplexlong" : job.Duplex == false ? "simplex" : null,
+            cancellationToken: ct);
 
         if (spoolerJobId <= 0)
             throw new InvalidOperationException("Spooler returned an invalid job ID");
@@ -139,7 +139,7 @@ public sealed class WindowsPrinterService : IPrinterService
         {
             // Generate a 1-page test PDF in temp dir and print it.
             var testPdf = await TestPdfGenerator.GenerateAsync(ct);
-            var spoolerId = await _renderer.PrintAsync(testPdf, printerFullName, ct);
+            var spoolerId = await _renderer.PrintAsync(testPdf, printerFullName, cancellationToken: ct);
             _logger.LogInformation("Test print spooled to {Printer} as job #{Id}", printerFullName, spoolerId);
             return new TestPrintResult { Success = true, SpoolerJobId = spoolerId, Duration = sw.Elapsed };
         }

@@ -33,7 +33,7 @@ public sealed class PrintJobDto
     public bool? Color { get; init; }
 
     [JsonPropertyName("duplex")]
-    public string? Duplex { get; init; }
+    public bool? Duplex { get; init; }
 
     [JsonPropertyName("pdfUrl")]
     public Uri? PdfUrl { get; init; }

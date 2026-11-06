@@ -15,11 +15,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.2" />
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.EventLog" Version="4.0.0" />
@@ -30,7 +30,7 @@
          so it no longer drags in System.Net.WebSockets.Client.Managed 1.0.x
          (which is what was pulling in the vulnerable Microsoft.NETCore.App 1.1.0
          and Microsoft.NETCore.Jit 1.1.0 transitive deps). -->
-    <PackageReference Include="SocketIOClient" Version="3.2.0" />
+    <PackageReference Include="SocketIOClient" Version="3.1.2" />
 
     <!-- Explicit overrides for vulnerable transitive deps.
 
@@ -44,8 +44,8 @@
          via System.Net.WebSockets.Client.Managed). The other two are pinned
          here to safe versions so any other transitive consumer resolves to
          the fixed version rather than the vulnerable one. -->
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.16" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
   </ItemGroup>
 
   <ItemGroup>

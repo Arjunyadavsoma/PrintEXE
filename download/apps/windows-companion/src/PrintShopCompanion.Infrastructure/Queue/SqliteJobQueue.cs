@@ -265,7 +265,7 @@ public sealed class SqliteJobQueue : IJobQueue
                 job.AttemptCount += 1;
                 job.Status = JobStatus.Downloading;
                 job.UpdatedAt = DateTimeOffset.UtcNow;
-                await WriteStatusAsync(conn, tx, job, ct);
+                await WriteStatusAsync(conn, (SqliteTransaction)tx, job, ct);
             }
             await tx.CommitAsync(ct);
             return job;
@@ -283,7 +283,7 @@ public sealed class SqliteJobQueue : IJobQueue
         {
             await using var conn = await OpenAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
-            await WriteStatusAsync(conn, tx, job, ct);
+            await WriteStatusAsync(conn, (SqliteTransaction)tx, job, ct);
             await tx.CommitAsync(ct);
         }
         finally { _gate.Release(); }
@@ -675,7 +675,7 @@ public sealed class SqliteJobQueue : IJobQueue
             PageRange = r["page_range"] is DBNull ? null : (string)r["page_range"],
             PaperSize = r["paper_size"] is DBNull ? null : (string)r["paper_size"],
             Color = color,
-            Duplex = r["duplex"] is DBNull ? null : (string)r["duplex"],
+            Duplex = r["duplex"] is DBNull ? null : Convert.ToInt32(r["duplex"]) != 0,
             PdfUrl = r["pdf_url"] is DBNull ? null : Uri.TryCreate((string)r["pdf_url"], UriKind.Absolute, out var u) ? u : null,
             LocalPdfPath = r["local_pdf_path"] is DBNull ? null : (string)r["local_pdf_path"],
             PdfSha256 = r["pdf_sha256"] is DBNull ? null : (string)r["pdf_sha256"],

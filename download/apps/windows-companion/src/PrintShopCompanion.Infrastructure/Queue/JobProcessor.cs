@@ -24,6 +24,7 @@ public sealed class JobProcessor
     private readonly IPrinterService _printers;
     private readonly IPdfRenderer _renderer;
     private readonly IOptions<PrinterOptions> _options;
+    private readonly IOptions<BackendOptions> _backendOpts;
     private readonly ILogger<JobProcessor> _logger;
     private readonly SemaphoreSlim _concurrency = new(1, 1);
     private CancellationTokenSource? _loopCts;
@@ -34,6 +35,7 @@ public sealed class JobProcessor
         IPrinterService printers,
         IPdfRenderer renderer,
         IOptions<PrinterOptions> options,
+        IOptions<BackendOptions> backendOpts,
         ILogger<JobProcessor> logger)
     {
         _queue = queue;
@@ -41,6 +43,7 @@ public sealed class JobProcessor
         _printers = printers;
         _renderer = renderer;
         _options = options;
+        _backendOpts = backendOpts;
         _logger = logger;
     }
 
@@ -88,7 +91,7 @@ public sealed class JobProcessor
         var job = await _queue.DequeueAsync(ct);
         if (job is null)
         {
-            await Task.Delay(_options.Value.PollFallbackInterval, ct);
+            await Task.Delay(_backendOpts.Value.PollFallbackInterval, ct);
             return;
         }
 

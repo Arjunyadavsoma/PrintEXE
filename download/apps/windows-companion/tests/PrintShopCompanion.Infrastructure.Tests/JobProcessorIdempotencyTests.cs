@@ -47,6 +47,9 @@ public class JobProcessorIdempotencyTests
         public Task<IReadOnlyList<PrintJobRecord>> ListAsync(JobStatus? filterStatus = null, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<PrintJobRecord>>(_jobs.Values.ToList());
         public Task ReplayInFlightAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task PurgeTerminalAsync(TimeSpan olderThan, CancellationToken ct = default) => Task.CompletedTask;
+        public Task MarkUncertainAsync(string jobId, string reason, CancellationToken ct = default) { _jobs[jobId].Status = JobStatus.UncertainSpooled; _jobs[jobId].LastError = reason; return Task.CompletedTask; }
+        public Task MarkOutcomeUnknownAsync(string jobId, string reason, CancellationToken ct = default) { _jobs[jobId].Status = JobStatus.OutcomeUnknown; _jobs[jobId].LastError = reason; return Task.CompletedTask; }
+        public Task MarkResolvedByOperatorAsync(string jobId, CancellationToken ct = default) { _jobs[jobId].Status = JobStatus.Printed; return Task.CompletedTask; }
     }
 
     private sealed class FakeBackend : IPrintShopBackend
@@ -143,7 +146,7 @@ public class JobProcessorIdempotencyTests
             CreatedAt = DateTimeOffset.UtcNow, QueuedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
         });
 
-        var proc = new JobProcessor(q, be, pr, rd, opts, logger);
+        var proc = new JobProcessor(q, be, pr, rd, opts, Microsoft.Extensions.Options.Options.Create(new BackendOptions { PollFallbackInterval = TimeSpan.FromSeconds(2) }), logger);
         using var cts = new CancellationTokenSource();
         // Drive one iteration of the loop manually.
         var one = await q.DequeueAsync(cts.Token);

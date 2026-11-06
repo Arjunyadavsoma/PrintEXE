@@ -17,7 +17,8 @@
     Version="0.1.0.0"
     UpgradeCode="A6F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D2E"
     Language="1033"
-    Codepage="1252">
+    Codepage="1252"
+    InstallScope="perMachine">
 
     <SummaryInformation
       Description="PrintShop Companion installer"
@@ -26,8 +27,8 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of PrintShop Companion is already installed." />
     <Media Id="1" Cabinet="PrintShopCompanion.cab" EmbedCab="yes" />
 
-    <!-- Per-machine install (ProgramFiles). Per-user auto-start is set up via a Startup shortcut, not a Run key, so no elevation is required for daily use. -->
-    <Property Id="ALLUSERS" Value="1" />
+    <!-- Per-machine install is set via InstallScope="perMachine" on the Package
+         element (WiX v5 handles ALLUSERS internally). -->
 
     <Feature Id="Complete" Title="PrintShop Companion" Level="1">
       <Feature Id="AppFeature" Title="PrintShop Companion app" Level="1">
@@ -43,10 +44,9 @@
       </Feature>
     </Feature>
 
-    <UI>
-      <UIRef Id="WixUI_FeatureTree" />
-      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
-    </UI>
+    <!-- Basic install — no custom UI dialog. WiX v5 moved WixUI_FeatureTree to a
+         separate extension (WixToolset.UI.wixext) that requires an extra NuGet
+         reference. For the initial release we use the default install flow. -->
 
     <Property Id="INSTALLDIR" Value="C:\Program Files\PrintShop\Companion" />
     <Property Id="STARTMENUFOLDER" Value="PrintShop" />

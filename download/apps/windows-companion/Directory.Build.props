@@ -32,6 +32,15 @@
     <NoWarn>$(NoWarn);CA1716;CA1861</NoWarn>
   </PropertyGroup>
 
+  <!-- Global usings. With UseWPF=true on Infrastructure, the default implicit
+       usings change and System.IO is NOT included automatically. Adding it here
+       as a global using for all projects so we don't need 'using System.IO;'
+       in every file that uses Path, File, Directory, MemoryStream, etc. -->
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
   <!-- CSproj-level shared settings -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>embedded</DebugType>

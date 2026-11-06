@@ -1,5 +1,5 @@
 <Window
-    x:Class="PrintShopCompanion.App.MainWindow"
+    x:Class="PrintShopCompanion.App.Views.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:nav="clr-namespace:PrintShopCompanion.App.Views"
@@ -9,8 +9,7 @@
     WindowStartupLocation="CenterScreen"
     Background="{DynamicResource ApplicationBackgroundBrush}"
     WindowStyle="SingleBorderWindow"
-    ResizeMode="CanResize"
-    Closing="OnClosing">
+    ResizeMode="CanResize">
 
     <Grid>
         <Grid.ColumnDefinitions>

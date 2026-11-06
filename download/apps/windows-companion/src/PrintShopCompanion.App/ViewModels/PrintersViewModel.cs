@@ -14,7 +14,7 @@ using PrintShopCompanion.Core.Options;
 /// </summary>
 public partial class PrintersViewModel : ObservableObject
 {
-    private readonly IPrinterService _printers;
+    private readonly IPrinterService _printSvc;
     private readonly IOptionsMonitor<PrinterOptions> _options;
 
     [ObservableProperty]
@@ -31,14 +31,14 @@ public partial class PrintersViewModel : ObservableObject
 
     public PrintersViewModel(IPrinterService printers, IOptionsMonitor<PrinterOptions> options)
     {
-        _printers = printers;
+        _printSvc = printers;
         _options = options;
         Refresh();
     }
 
     public void Refresh()
     {
-        Printers = new ObservableCollection<PrinterInfo>(_printers.DiscoverPrinters());
+        Printers = new ObservableCollection<PrinterInfo>(_printSvc.DiscoverPrinters());
         Selected = Printers.FirstOrDefault(p => p.IsSelected)
                 ?? Printers.FirstOrDefault(p => p.IsDefault)
                 ?? Printers.FirstOrDefault();
@@ -48,7 +48,7 @@ public partial class PrintersViewModel : ObservableObject
     private async Task SelectPrinterAsync()
     {
         if (Selected is null) return;
-        await _printers.SelectPrinterAsync(Selected.FullName);
+        await _printSvc.SelectPrinterAsync(Selected.FullName);
         TestStatus = $"Selected {Selected.DisplayName}.";
     }
 
@@ -60,7 +60,7 @@ public partial class PrintersViewModel : ObservableObject
         TestStatus = "Sending test print…";
         try
         {
-            var result = await _printers.TestPrintAsync(Selected.FullName);
+            var result = await _printSvc.TestPrintAsync(Selected.FullName);
             TestStatus = result.Success
                 ? $"Test print sent to {Selected.DisplayName} (spooler job #{result.SpoolerJobId}, {result.Duration.TotalSeconds:F1}s)."
                 : $"Test print failed: {result.ErrorMessage}";

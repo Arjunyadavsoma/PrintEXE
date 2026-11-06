@@ -5,6 +5,7 @@ using System.Windows;
 using H.NotifyIcon;
 using Microsoft.Extensions.DependencyInjection;
 using PrintShopCompanion.App.Services;
+using PrintShopCompanion.App.Views;
 
 /// <summary>
 /// System-tray icon and context menu. The tray is the primary UI surface
