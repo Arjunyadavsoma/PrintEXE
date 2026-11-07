@@ -16,13 +16,13 @@ using PrintShopCompanion.Infrastructure.Sync;
 public partial class SyncCenterViewModel : ObservableObject
 {
     private readonly SyncEngine _sync;
-    private readonly IPendingOpsQueue _pendingOps;
+    private readonly IPendingOpsQueue _pendingOpsQueue;
     private readonly IShopBackend _backend;
 
     public SyncCenterViewModel(SyncEngine sync, IPendingOpsQueue pendingOps, IShopBackend backend)
     {
         _sync = sync;
-        _pendingOps = pendingOps;
+        _pendingOpsQueue = pendingOps;
         _backend = backend;
 
         // Subscribe to engine events so the UI updates live.
@@ -118,7 +118,7 @@ public partial class SyncCenterViewModel : ObservableObject
 
     private async Task RefreshPendingOpsAsync()
     {
-        var pending = _pendingOps.GetPendingOps(limit: 50);
+        var pending = _pendingOpsQueue.GetPendingOps(limit: 50);
         PendingOps = new ObservableCollection<PendingOpRow>(
             pending.Select(p => new PendingOpRow
             {
