@@ -1,5 +1,6 @@
 namespace PrintShopCompanion.Infrastructure.Backend;
 
+using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -130,7 +131,7 @@ public sealed class HttpShopBackend : IShopBackend, IDisposable
         if (status is { } s) q += $"&status={s.ToWire()}";
         var resp = await SendAuthedAsync(HttpMethod.Get, $"shops/me/orders{q}", ct);
         var envelope = await ReadEnvelopeWithPaginationAsync<OrderDto>(resp, ct);
-        var orders = envelope.Data?.Select(MapOrder).ToList() ?? new();
+        var orders = envelope.Data?.Select(d => MapOrder(d)).ToList() ?? new();
         return (orders, envelope.Pagination?.Total ?? orders.Count);
     }
 
