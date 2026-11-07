@@ -1,0 +1,33 @@
+# Build artifacts
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+artifacts/
+publish/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+
+# WiX
+*.wixobj
+*.wixpdb
+*.msi
+*.wixpdb
+installer/build/
+
+# Local runtime files
+*.log
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# OS files
+Thumbs.db
+.DS_Store
