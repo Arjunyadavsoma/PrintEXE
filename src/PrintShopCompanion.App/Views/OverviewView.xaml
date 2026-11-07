@@ -127,7 +127,7 @@
                                 <GridViewColumn Header="Amount" Width="100"
                                                 DisplayMemberBinding="{Binding TotalAmountPaise}" />
                                 <GridViewColumn Header="Created" Width="140"
-                                                DisplayMemberBinding="{Binding CreatedAt, StringFormat=\{0:MMM dd, HH:mm\}}" />
+                                                DisplayMemberBinding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" />
                             </GridView>
                         </ListView.View>
                     </ListView>

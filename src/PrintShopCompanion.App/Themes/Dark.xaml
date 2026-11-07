@@ -3,13 +3,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- Dark theme — matches printshop-saas globals.css dark mode -->
-    <!-- --background: oklch(0.145 0 0) = #232323 -->
-    <!-- --foreground: oklch(0.985 0 0) = #FAFAFA -->
-    <!-- --card: oklch(0.205 0 0) = #333333 -->
-    <!-- --muted: oklch(0.269 0 0) = #444444 -->
-    <!-- --muted-foreground: oklch(0.708 0 0) = #B5B5B5 -->
-    <!-- --border: oklch(1 0 0 / 10%) = rgba(255,255,255,0.1) -->
-    <!-- --brand: oklch(0.72 0.19 50) ≈ #F59E0B -->
 
     <SolidColorBrush x:Key="ApplicationBackgroundBrush"  Color="#232323" />
     <SolidColorBrush x:Key="CardBackgroundBrush"         Color="#333333" />

@@ -3,9 +3,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- PrintShop brand colors — from globals.css OKLCH values -->
-    <!-- --brand: oklch(0.646 0.222 41.116) ≈ #D97706 -->
-    <!-- --brand-soft: oklch(0.95 0.05 75) ≈ #FEF3C7 -->
-    <!-- --brand-foreground: oklch(0.985 0 0) ≈ #FAFAFA -->
 
     <SolidColorBrush x:Key="BrandPrimaryBrush"  Color="#D97706" />
     <SolidColorBrush x:Key="BrandAccentBrush"   Color="#F59E0B" />
