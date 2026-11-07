@@ -18,7 +18,7 @@
     UpgradeCode="A6F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D2E"
     Language="1033"
     Codepage="1252"
-    InstallScope="perMachine">
+    Scope="perMachine">
 
     <SummaryInformation
       Description="PrintShop Companion installer"
@@ -27,8 +27,9 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of PrintShop Companion is already installed." />
     <Media Id="1" Cabinet="PrintShopCompanion.cab" EmbedCab="yes" />
 
-    <!-- Per-machine install is set via InstallScope="perMachine" on the Package
-         element (WiX v5 handles ALLUSERS internally). -->
+    <!-- Per-machine install is set via Scope="perMachine" on the Package
+         element (WiX v5 renamed InstallScope to Scope; the older
+         InstallScope attribute is rejected with WIX0004 on WiX 5.0.x). -->
 
     <Feature Id="Complete" Title="PrintShop Companion" Level="1">
       <Feature Id="AppFeature" Title="PrintShop Companion app" Level="1">

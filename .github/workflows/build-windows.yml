@@ -149,11 +149,25 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force installer/redist | Out-Null
           $zip = "$env:TEMP\sumatra.zip"
+          $extractDir = "$env:TEMP\sumatra"
           # The old URL (sumatra-prerel-64.zip) is 404. Use the stable 3.5.2 release.
-          Invoke-WebRequest -Uri "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip" -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "$env:TEMP\sumatra" -Force
-          Copy-Item "$env:TEMP\sumatra\SumatraPDF.exe" installer/redist/SumatraPDF.exe -Force
-          Write-Host "SumatraPDF.exe copied to installer/redist/"
+          try {
+            Invoke-WebRequest -Uri "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip" -OutFile $zip -UseBasicParsing
+            # Create the extract dir BEFORE Expand-Archive (Expand-Archive does
+            # NOT create the destination dir if it doesn't exist on some PS
+            # versions — that was the failure on the v0.4.5 build).
+            New-Item -ItemType Directory -Force $extractDir | Out-Null
+            Expand-Archive -Path $zip -DestinationPath $extractDir -Force
+            $sumatraExe = Get-ChildItem -Path $extractDir -Filter "SumatraPDF.exe" -Recurse | Select-Object -First 1
+            if ($sumatraExe) {
+              Copy-Item $sumatraExe.FullName installer/redist/SumatraPDF.exe -Force
+              Write-Host "SumatraPDF.exe copied to installer/redist/"
+            } else {
+              Write-Warning "SumatraPDF.exe not found in the ZIP — MSI build will skip the SumatraPDF component"
+            }
+          } catch {
+            Write-Warning "Could not download SumatraPDF (MSI build will skip): $_"
+          }
 
       - name: Download .NET 10 Desktop Runtime redist (for Bundle.wxs)
         shell: pwsh
@@ -321,8 +335,11 @@ jobs:
 
             Built from commit ${{ github.sha }} on GitHub Actions run #${{ github.run_number }}.
           fail_on_unmatched_files: false
+          # Only attach files that actually exist (the MSI / Setup.exe may
+          # fail to build on some runners because of WiX / .NET 10 redist
+          # availability — those are continue-on-error steps. The portable
+          # ZIP is the recommended distribution and must always succeed.)
           files: |
             installer/build/PrintShopCompanion-portable.zip
             installer/build/PrintShopCompanion.msi
             installer/build/PrintShopCompanion.Setup.exe
-            installer/build/SHA256SUMS.txt
