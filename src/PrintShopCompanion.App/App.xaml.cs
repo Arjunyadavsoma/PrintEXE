@@ -13,6 +13,8 @@ using PrintShopCompanion.App.Views;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure;
+using PrintShopCompanion.Infrastructure.Backend;
+using PrintShopCompanion.Infrastructure.Queue;
 using Serilog;
 
 public partial class App : Application
