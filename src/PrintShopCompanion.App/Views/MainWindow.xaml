@@ -2,11 +2,53 @@
     x:Class="PrintShopCompanion.App.Views.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="PrintShop"
-    Width="1100" Height="700" MinWidth="600" MinHeight="450"
+    Title="PrintShop Companion"
+    Width="1180" Height="740" MinWidth="720" MinHeight="480"
     WindowStartupLocation="CenterScreen"
-    Background="White"
-    ResizeMode="CanResize">
+    Background="#F7F7F8"
+    ResizeMode="CanResize"
+    FontFamily="Segoe UI">
+
+    <Window.Resources>
+        <!-- Sidebar nav item style — clean rail with hover/active states -->
+        <Style x:Key="NavItem" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="14,11" />
+            <Setter Property="Margin" Value="8,1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#374151" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#F3F4F6"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#E5E7EB"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Active nav item — amber tint + amber left accent strip -->
+        <Style x:Key="NavItemActive" TargetType="Button" BasedOn="{StaticResource NavItem}">
+            <Setter Property="Background" Value="#FFF7ED"/>
+            <Setter Property="Foreground" Value="#B45309"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Resources>
 
     <Grid x:Name="RootGrid">
         <Grid.ColumnDefinitions>
@@ -15,41 +57,63 @@
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar (hidden on login) -->
-        <Border x:Name="Sidebar" Grid.Column="0" Background="#FAFAFA"
+        <Border x:Name="Sidebar" Grid.Column="0" Background="#FFFFFF"
                 BorderBrush="#E5E7EB" BorderThickness="0,0,1,0">
             <DockPanel>
-                <!-- Header -->
-                <StackPanel DockPanel.Dock="Top" Margin="20,20,20,16">
-                    <Border Width="36" Height="36" CornerRadius="8" Background="#D97706" HorizontalAlignment="Left">
-                        <TextBlock Text="P" FontSize="18" FontWeight="Bold" Foreground="White"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <TextBlock x:Name="VersionLabel" Text="v0.4.1" FontSize="10" Foreground="#9CA3AF" Margin="0,8,0,0"/>
+                <!-- Brand header -->
+                <StackPanel DockPanel.Dock="Top" Margin="20,20,20,20">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="36" Height="36" CornerRadius="9" Background="#D97706">
+                            <TextBlock Text="P" FontSize="18" FontWeight="Bold" Foreground="White"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="PrintShop" FontSize="14.5" FontWeight="Bold" Foreground="#111827"/>
+                            <TextBlock x:Name="VersionLabel" Text="v0.4.3" FontSize="11" Foreground="#9CA3AF"/>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
-                <!-- Logout -->
-                <Button DockPanel.Dock="Bottom" Content="Sign Out" Click="Logout_Click"
-                        HorizontalAlignment="Left" Margin="20,0,0,16" Padding="16,8"
-                        Background="#F3F4F6" BorderBrush="#E5E7EB" BorderThickness="1" FontSize="12"/>
+                <!-- Section divider -->
+                <Border DockPanel.Dock="Top" Height="1" Background="#F3F4F6" Margin="16,0"/>
 
-                <!-- Nav items -->
-                <StackPanel Margin="12,0">
-                    <Button Content="Overview" Click="Nav_Click" Tag="Overview" x:Name="NavOverview"
-                            HorizontalContentAlignment="Left" Padding="16,10" Margin="0,2"
-                            Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
-                    <Button Content="Orders" Click="Nav_Click" Tag="Orders" x:Name="NavOrders"
-                            HorizontalContentAlignment="Left" Padding="16,10" Margin="0,2"
-                            Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
-                    <Button Content="Print Queue" Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue"
-                            HorizontalContentAlignment="Left" Padding="16,10" Margin="0,2"
-                            Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
-                    <Button Content="Printers" Click="Nav_Click" Tag="Printers" x:Name="NavPrinters"
-                            HorizontalContentAlignment="Left" Padding="16,10" Margin="0,2"
-                            Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
-                    <Button Content="Settings" Click="Nav_Click" Tag="Settings" x:Name="NavSettings"
-                            HorizontalContentAlignment="Left" Padding="16,10" Margin="0,2"
-                            Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
+                <!-- Nav items — main section -->
+                <StackPanel DockPanel.Dock="Top" Margin="12,12">
+                    <TextBlock Text="MENU" FontSize="10" FontWeight="SemiBold"
+                               Foreground="#9CA3AF" Margin="12,0,0,8"/>
+                    <Button Content="Overview"  Click="Nav_Click" Tag="Overview"  x:Name="NavOverview"  Style="{StaticResource NavItem}"/>
+                    <Button Content="Orders"     Click="Nav_Click" Tag="Orders"    x:Name="NavOrders"   Style="{StaticResource NavItem}"/>
+                    <Button Content="Print Queue" Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue" Style="{StaticResource NavItem}"/>
+                    <Button Content="Printers"   Click="Nav_Click" Tag="Printers"  x:Name="NavPrinters"  Style="{StaticResource NavItem}"/>
+                    <Button Content="Sync Center" Click="Nav_Click" Tag="SyncCenter" x:Name="NavSyncCenter" Style="{StaticResource NavItem}"/>
                 </StackPanel>
+
+                <!-- Section divider -->
+                <Border DockPanel.Dock="Top" Height="1" Background="#F3F4F6" Margin="16,8"/>
+
+                <!-- Nav items — system section -->
+                <StackPanel DockPanel.Dock="Top" Margin="12,4">
+                    <TextBlock Text="SYSTEM" FontSize="10" FontWeight="SemiBold"
+                               Foreground="#9CA3AF" Margin="12,0,0,8"/>
+                    <Button Content="Settings" Click="Nav_Click" Tag="Settings" x:Name="NavSettings" Style="{StaticResource NavItem}"/>
+                </StackPanel>
+
+                <!-- Bottom: account + sign out -->
+                <Border DockPanel.Dock="Bottom" Background="#FAFAFA" Padding="16,12">
+                    <DockPanel>
+                        <Border Width="32" Height="32" CornerRadius="16" Background="#E5E7EB" DockPanel.Dock="Left">
+                            <TextBlock x:Name="UserInitial" Text="S" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="#374151" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="UserLabel" Text="Shopkeeper" FontSize="12" FontWeight="Medium" Foreground="#1F2937"/>
+                            <TextBlock x:Name="UserSubtitle" Text="Not signed in" FontSize="11" Foreground="#6B7280"/>
+                        </StackPanel>
+                        <Button Content="Sign Out" Click="Logout_Click" DockPanel.Dock="Right"
+                                Background="Transparent" BorderThickness="0" FontSize="11"
+                                Foreground="#6B7280" Cursor="Hand" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
             </DockPanel>
         </Border>
 
@@ -60,14 +124,30 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <Border x:Name="UpdateBanner" Grid.Row="0" Background="#FEF3C7"
-                    Padding="16,8" Visibility="Collapsed">
+            <Border x:Name="UpdateBanner" Grid.Row="0" Background="#FFFBEB"
+                    BorderBrush="#FDE68A" BorderThickness="0,0,0,1"
+                    Padding="20,12" Visibility="Collapsed">
                 <DockPanel>
-                    <TextBlock x:Name="UpdateText" FontSize="13" FontWeight="Medium"
-                               Foreground="#92400E" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                    <Button Content="Update Now" Click="Update_Click" DockPanel.Dock="Right"
-                            Background="#D97706" Foreground="White" Padding="16,6"
-                            BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="UpdateStateIcon" Text="●" FontSize="13" Foreground="#D97706"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="UpdateText" FontSize="13" FontWeight="Medium"
+                                   Foreground="#92400E" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock x:Name="UpdateProgressText" FontSize="12" Foreground="#92400E"
+                                   VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed"/>
+                        <ProgressBar x:Name="UpdateProgress" Width="120" Height="6"
+                                     VerticalAlignment="Center" Margin="0,0,12,0"
+                                     Visibility="Collapsed" Maximum="100"/>
+                        <Button x:Name="UpdateButton" Content="Update Now" Click="Update_Click"
+                                Background="#D97706" Foreground="White" Padding="20,8"
+                                BorderThickness="0" FontWeight="SemiBold" FontSize="13" Cursor="Hand"/>
+                        <Button x:Name="UpdateDismissButton" Content="Dismiss" Click="UpdateDismiss_Click"
+                                Background="Transparent" Foreground="#92400E" Padding="14,8"
+                                BorderThickness="0" FontSize="12" Cursor="Hand" Margin="4,0,0,0"
+                                ToolTip="Hide this banner until next check"/>
+                    </StackPanel>
                 </DockPanel>
             </Border>
 

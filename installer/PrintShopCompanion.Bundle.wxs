@@ -13,7 +13,7 @@
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
 
   <Bundle Name="PrintShop Companion"
-          Version="0.1.0.0"
+          Version="$(var.BuildVersion)"
           Manufacturer="PrintShop"
           UpgradeCode="C0FFEE00-1234-5678-9ABC-DEADBEEF0001">
 

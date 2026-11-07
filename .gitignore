@@ -31,3 +31,9 @@ installer/build/
 # OS files
 Thumbs.db
 .DS_Store
+
+# Sandbox artifacts (parent project directories, not part of the companion source)
+download/
+skills/
+upload/
+scripts/syntax-check.csx

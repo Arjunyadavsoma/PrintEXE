@@ -6,4 +6,6 @@
     <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
     <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
     <conv:InverseBoolConverter x:Key="InverseBool" />
+    <conv:StringToVisibilityConverter x:Key="StringToVis" />
+    <conv:InverseStringToVisibilityConverter x:Key="InverseStringToVis" />
 </ResourceDictionary>

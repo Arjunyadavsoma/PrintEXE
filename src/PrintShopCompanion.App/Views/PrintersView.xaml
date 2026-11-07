@@ -4,46 +4,133 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    FontFamily="Segoe UI">
 
-    <Grid Background="White">
+    <Grid Background="#F7F7F8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <DockPanel Grid.Row="0" Margin="24,24,24,0">
-            <StackPanel DockPanel.Dock="Left">
-                <TextBlock Text="Printers" FontSize="22" FontWeight="Bold" Foreground="#1F2937"/>
-                <TextBlock Text="Installed printers on this computer" FontSize="13" Foreground="#6B7280" Margin="0,2,0,0"/>
-            </StackPanel>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Refresh" Click="Refresh_Click" Padding="16,8" FontSize="13"
-                        Background="#F3F4F6" Foreground="#374151" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Cursor="Hand" Margin="0,0,8,0"/>
-                <Button Content="Test Print" Click="TestPrint_Click" Padding="16,8" FontSize="13"
-                        Background="#D97706" Foreground="White" BorderThickness="0"
-                        FontWeight="SemiBold" Cursor="Hand"/>
-            </StackPanel>
-        </DockPanel>
-
-        <Border Grid.Row="1" Background="White" CornerRadius="10" BorderBrush="#E5E7EB"
-                BorderThickness="1" Margin="24" Padding="20">
-            <StackPanel>
-                <TextBlock x:Name="StatusText" Text="" FontSize="13" Margin="0,0,0,12" Foreground="#6B7280"/>
-                <ListView x:Name="PrinterList" Background="Transparent" BorderThickness="0">
-                    <ListView.View>
-                        <GridView>
-                            <GridViewColumn Header="Name" Width="250" DisplayMemberBinding="{Binding DisplayName}"/>
-                            <GridViewColumn Header="Status" Width="100" DisplayMemberBinding="{Binding IsOffline}"/>
-                            <GridViewColumn Header="Default" Width="80" DisplayMemberBinding="{Binding IsDefault}"/>
-                            <GridViewColumn Header="Selected" Width="80" DisplayMemberBinding="{Binding IsSelected}"/>
-                        </GridView>
-                    </ListView.View>
-                </ListView>
-                <TextBlock Text="No printers found" FontSize="13" Foreground="#6B7280"
-                           HorizontalAlignment="Center" Margin="0,20"/>
-            </StackPanel>
+        <!-- Page header -->
+        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1">
+            <DockPanel Margin="24,18,24,18">
+                <StackPanel DockPanel.Dock="Left">
+                    <TextBlock Text="Printers" FontSize="22" FontWeight="Bold" Foreground="#111827"/>
+                    <TextBlock Text="Installed printers on this computer" FontSize="12.5"
+                               Foreground="#6B7280" Margin="0,3,0,0"/>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="↻  Refresh" Click="Refresh_Click" Padding="16,9" FontSize="13"
+                            Background="#FFFFFF" Foreground="#374151" BorderBrush="#E5E7EB"
+                            BorderThickness="1" Cursor="Hand" FontWeight="Medium" Margin="0,0,8,0"/>
+                    <Button Content="🖨  Test Print" Click="TestPrint_Click" Padding="16,9" FontSize="13"
+                            Background="#D97706" Foreground="White" BorderThickness="0"
+                            FontWeight="SemiBold" Cursor="Hand"/>
+                </StackPanel>
+            </DockPanel>
         </Border>
+
+        <!-- Printers list -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,20">
+                <!-- Status line -->
+                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                        BorderThickness="1" Padding="20,12" Margin="0,0,0,16"
+                        Visibility="{Binding TestStatus, Converter={StaticResource StringToVis}}">
+                    <TextBlock x:Name="StatusText" Text="{Binding TestStatus}" FontSize="13"
+                               Foreground="#374151" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Section heading -->
+                <TextBlock Text="AVAILABLE PRINTERS" FontSize="11" FontWeight="SemiBold"
+                           Foreground="#9CA3AF" Margin="0,0,0,10"/>
+
+                <!-- Printer cards -->
+                <ListView x:Name="PrinterList"
+                          Background="Transparent" BorderThickness="0"
+                          ItemsSource="{Binding Printers}"
+                          SelectedItem="{Binding Selected, Mode=TwoWay}">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0,0,0,10"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Border x:Name="Bd" Background="#FFFFFF"
+                                                BorderBrush="#E5E7EB" BorderThickness="1"
+                                                CornerRadius="10">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#D97706"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#D97706"/>
+                                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel Margin="20,16">
+                                <!-- Status dot -->
+                                <Border Width="10" Height="10" CornerRadius="5"
+                                        DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,14,0">
+                                    <Border.Background>
+                                        <SolidColorBrush x:Name="DotBrush" Color="#16A34A"/>
+                                    </Border.Background>
+                                </Border>
+
+                                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding DisplayName}" FontSize="14"
+                                               FontWeight="SemiBold" Foreground="#111827"/>
+                                    <TextBlock Text="{Binding FullName}" FontSize="11.5"
+                                               Foreground="#6B7280" TextTrimming="CharacterEllipsis"
+                                               Margin="0,2,0,0" MaxWidth="450"/>
+                                </StackPanel>
+
+                                <!-- Badges -->
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <Border Background="#FEF3C7" CornerRadius="10" Padding="10,3"
+                                            Margin="0,0,6,0" Visibility="{Binding IsDefault, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Windows Default" FontSize="11" FontWeight="Medium"
+                                                   Foreground="#92400E"/>
+                                    </Border>
+                                    <Border Background="#D97706" CornerRadius="10" Padding="10,3"
+                                            Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Selected" FontSize="11" FontWeight="Medium"
+                                                   Foreground="White"/>
+                                    </Border>
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Empty state -->
+                <StackPanel HorizontalAlignment="Center" Margin="0,40"
+                            Visibility="{Binding Printers.Count, Converter={StaticResource InverseBoolToVis}}">
+                    <Border Width="56" Height="56" CornerRadius="28" Background="#F3F4F6" Margin="0,0,0,12">
+                        <TextBlock Text="🖨" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="No printers found" FontSize="14" FontWeight="Medium"
+                               Foreground="#111827" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Install at least one Windows printer to use the companion"
+                               FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

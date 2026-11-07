@@ -12,11 +12,27 @@
     <Authors>PrintShop</Authors>
     <Product>PrintShop Companion</Product>
     <Copyright>Copyright (c) PrintShop</Copyright>
-    <PackageProjectUrl>https://github.com/printshop/printshop</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/printshop/printshop</RepositoryUrl>
-    <Version>0.4.1</Version>
-    <AssemblyVersion>0.4.1.0</AssemblyVersion>
-    <FileVersion>0.4.1.0</FileVersion>
+    <PackageProjectUrl>https://github.com/Arjunyadavsoma/PrintEXE</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Arjunyadavsoma/PrintEXE</RepositoryUrl>
+
+    <!--
+      Version is now overridable from CI via the BUILD_VERSION env var.
+      Local builds fall back to the hardcoded 0.4.3 below.
+      The GitHub Actions workflow sets BUILD_VERSION from the git tag
+      (e.g. v0.4.3 -> 0.4.3) BEFORE calling dotnet build, so a release
+      build's assembly version always matches its tag.
+
+      This was the root cause of the "update installs but version stays
+      the same" bug: the workflow published a v0.4.2 tag with assembly
+      version 0.4.1.0 hardcoded here, so the auto-updater downloaded
+      the new files but the assembly version never changed and the
+      updater kept reporting "update available".
+    -->
+    <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
+    <Version Condition="'$(BUILD_VERSION)' == ''">0.4.3</Version>
+
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <FileVersion>$(Version).0</FileVersion>
 
     <!-- Suppress stylistic warnings that don't block the build.
 
@@ -48,4 +64,3 @@
   </PropertyGroup>
 
 </Project>
-

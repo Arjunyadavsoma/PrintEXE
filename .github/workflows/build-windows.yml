@@ -42,6 +42,39 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Set BUILD_VERSION from git tag
+        shell: pwsh
+        run: |
+          # Resolve the version string from the git ref.
+          # - Tag push (refs/tags/v0.4.3) -> "0.4.3"
+          # - Branch push / workflow_dispatch with release-tag -> that tag
+          # - Otherwise (e.g. a PR build) -> fall back to "0.0.<run_number>"
+          #
+          # This is what makes the auto-updater actually move versions:
+          # Directory.Build.props reads $(BUILD_VERSION) and writes it into
+          # <AssemblyVersion>, so a v0.4.3 release ships with assembly version
+          # 0.4.3.0 and the GitHubUpdateService.IsNewer() check returns false
+          # after the update completes.
+          #
+          # Note: .NET <Version> MUST be a valid System.Version string
+          # (major.minor[.build[.revision]]) with no SemVer pre-release
+          # suffixes like "-dev.42". So the fallback for non-tag builds is
+          # "0.0.<run_number>" — no hyphens.
+          $tag = "${{ github.event.inputs.release-tag }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "${{ github.ref_name }}" }
+          $ver = $tag -replace '^v',''
+          if (-not ($ver -match '^\d+\.\d+\.\d+')) {
+            $ver = "0.0.${{ github.run_number }}"
+          }
+          Write-Host "Resolved BUILD_VERSION = $ver"
+          # Append to GITHUB_ENV without BOM (Out-File utf8 adds BOM on PS5;
+          # pwsh on runners uses UTF-8 without BOM by default for -Encoding utf8
+          # but -Encoding utf8NoBOM is explicit and safer).
+          Add-Content -Path $env:GITHUB_ENV -Value "BUILD_VERSION=$ver" -Encoding utf8NoBOM
+          Write-Host "##[group]Directory.Build.props version preview"
+          Get-Content Directory.Build.props | Select-String -Pattern '<Version' -Context 1,1
+          Write-Host "##[endgroup]"
+
       - name: Install WiX v5
         shell: pwsh
         run: |
@@ -141,9 +174,18 @@ jobs:
         run: |
           $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
           New-Item -ItemType Directory -Force installer/build | Out-Null
+          # Pass BuildVersion so the .msi ProductVersion matches the git tag.
+          # The WiX sources reference $(var.BuildVersion); without -d it would
+          # error out. We pad to four parts because MSI ProductVersion
+          # requires a.b.c.d format.
+          $parts = $env:BUILD_VERSION -split '\.'
+          while ($parts.Count -lt 4) { $parts += '0' }
+          $ver4 = $parts -join '.'
+          Write-Host "MSI version = $ver4"
           wix build installer/PrintShopCompanion.Installer.wxs `
             -d "PublishDir=$env:PUBLISH_DIR\\" `
             -d "RepoRoot=$env:GITHUB_WORKSPACE" `
+            -d "BuildVersion=$ver4" `
             -o installer/build/PrintShopCompanion.msi
           if (-not (Test-Path installer/build/PrintShopCompanion.msi)) {
             Write-Error "MSI build failed"
@@ -157,8 +199,13 @@ jobs:
         run: |
           $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
           if (Test-Path installer/redist/dotnet-runtime-10-win-x64.exe) {
+            $parts = $env:BUILD_VERSION -split '\.'
+            while ($parts.Count -lt 4) { $parts += '0' }
+            $ver4 = $parts -join '.'
+            Write-Host "Bundle version = $ver4"
             wix build installer/PrintShopCompanion.Bundle.wxs `
               -d "RepoRoot=$env:GITHUB_WORKSPACE" `
+              -d "BuildVersion=$ver4" `
               -o installer/build/PrintShopCompanion.Setup.exe
             if (Test-Path installer/build/PrintShopCompanion.Setup.exe) {
               Write-Host "Bundle .exe built"
@@ -204,7 +251,8 @@ jobs:
       - name: Write version metadata
         shell: pwsh
         run: |
-          $ver = "0.1.2"
+          $ver = $env:BUILD_VERSION
+          if ([string]::IsNullOrWhiteSpace($ver)) { $ver = "0.0.0-unknown" }
           $build = "${{ github.run_number }}"
           $commit = "${{ github.sha }}"
           @"

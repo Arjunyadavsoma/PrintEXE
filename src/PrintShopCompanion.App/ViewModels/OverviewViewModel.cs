@@ -23,6 +23,16 @@ public partial class OverviewViewModel : ObservableObject
     [ObservableProperty] private int _ready;
     [ObservableProperty] private ObservableCollection<OrderRecord> _recentOrders = new();
 
+    /// <summary>
+    /// First letter of the shop name, used as the avatar fallback in the
+    /// overview banner. Returns "P" while the shop name is still loading.
+    /// </summary>
+    public string ShopNameInitial => string.IsNullOrWhiteSpace(ShopName) || ShopName == "Loading..."
+        ? "P"
+        : ShopName.Substring(0, 1).ToUpperInvariant();
+
+    partial void OnShopNameChanged(string value) => OnPropertyChanged(nameof(ShopNameInitial));
+
     [RelayCommand]
     public async Task LoadAsync()
     {

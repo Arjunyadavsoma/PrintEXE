@@ -4,44 +4,137 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    FontFamily="Segoe UI">
 
-    <ScrollViewer Background="White" VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24">
-            <TextBlock Text="Settings" FontSize="22" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,24"/>
+    <ScrollViewer Background="#F7F7F8" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,20">
 
-            <!-- App settings -->
-            <Border Background="White" CornerRadius="10" BorderBrush="#E5E7EB" BorderThickness="1" Padding="20" Margin="0,0,0,16">
+            <!-- Page header -->
+            <TextBlock Text="Settings" FontSize="22" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,4"/>
+            <TextBlock Text="Configure your companion app and account"
+                       FontSize="12.5" Foreground="#6B7280" Margin="0,0,0,24"/>
+
+            <!-- ===== APPLICATION section ===== -->
+            <TextBlock Text="APPLICATION" FontSize="11" FontWeight="SemiBold"
+                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
+            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                    BorderThickness="1" Margin="0,0,0,20">
                 <StackPanel>
-                    <TextBlock Text="Application" FontSize="15" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,12"/>
-                    <CheckBox Content="Launch at Windows startup" FontSize="13" Margin="0,4"/>
-                    <CheckBox Content="Minimize to tray on close" FontSize="13" Margin="0,4"/>
-                    <CheckBox Content="Follow system theme" FontSize="13" Margin="0,4"/>
+                    <!-- Row 1: Launch at startup -->
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Launch at Windows startup" FontSize="13.5" FontWeight="Medium"
+                                       Foreground="#111827"/>
+                            <TextBlock Text="Open the companion when you sign in to Windows"
+                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <CheckBox DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+
+                    <!-- Row 2: Minimize to tray -->
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Minimize to tray on close" FontSize="13.5" FontWeight="Medium"
+                                       Foreground="#111827"/>
+                            <TextBlock Text="Keep the companion running in the system tray"
+                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <CheckBox DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+
+                    <!-- Row 3: Follow system theme -->
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Follow system theme" FontSize="13.5" FontWeight="Medium"
+                                       Foreground="#111827"/>
+                            <TextBlock Text="Match Windows light/dark mode automatically"
+                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <CheckBox DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
-            <!-- Shop info -->
-            <Border Background="White" CornerRadius="10" BorderBrush="#E5E7EB" BorderThickness="1" Padding="20" Margin="0,0,0,16">
+            <!-- ===== SHOP INFORMATION section ===== -->
+            <TextBlock Text="SHOP INFORMATION" FontSize="11" FontWeight="SemiBold"
+                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
+            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                    BorderThickness="1" Margin="0,0,0,20">
                 <StackPanel>
-                    <TextBlock Text="Shop Information" FontSize="15" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,8"/>
-                    <TextBlock Text="Connected shop:" FontSize="12" Foreground="#6B7280"/>
-                    <TextBlock x:Name="ShopNameLabel" Text="Not connected" FontSize="14" FontWeight="Medium" Foreground="#1F2937" Margin="0,2,0,8"/>
-                    <TextBlock Text="Device ID:" FontSize="12" Foreground="#6B7280"/>
-                    <TextBlock x:Name="DeviceIdLabel" Text="—" FontSize="14" Foreground="#1F2937" Margin="0,2,0,8"/>
-                    <TextBlock Text="App version:" FontSize="12" Foreground="#6B7280"/>
-                    <TextBlock x:Name="VersionLabel" Text="v0.4.1" FontSize="14" Foreground="#1F2937" Margin="0,2,0,8"/>
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Connected shop" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock x:Name="ShopNameLabel" Text="Not connected" FontSize="14"
+                                       FontWeight="Medium" Foreground="#111827" Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <Border Background="#D1FAE5" CornerRadius="10" Padding="10,3"
+                                DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="Connected" FontSize="11" FontWeight="Medium" Foreground="#065F46"/>
+                        </Border>
+                    </DockPanel>
+                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Device ID" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock x:Name="DeviceIdLabel" Text="—" FontSize="14"
+                                       FontFamily="Consolas" Foreground="#111827" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </DockPanel>
+                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="App version" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock x:Name="VersionLabel" Text="v0.4.3" FontSize="14"
+                                       FontFamily="Consolas" Foreground="#111827" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
-            <!-- Actions -->
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Open Log Folder" Click="OpenLogs_Click" Padding="16,8" FontSize="13"
-                        Background="#F3F4F6" Foreground="#374151" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Cursor="Hand" Margin="0,0,8,0"/>
-                <Button Content="Sign Out" Click="SignOut_Click" Padding="16,8" FontSize="13"
-                        Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA"
-                        BorderThickness="1" Cursor="Hand"/>
-            </StackPanel>
+            <!-- ===== DIAGNOSTICS section ===== -->
+            <TextBlock Text="DIAGNOSTICS" FontSize="11" FontWeight="SemiBold"
+                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
+            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                    BorderThickness="1" Margin="0,0,0,20">
+                <StackPanel>
+                    <DockPanel Margin="20,16">
+                        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Open log folder" FontSize="13.5" FontWeight="Medium"
+                                       Foreground="#111827"/>
+                            <TextBlock Text="Open the folder where daily logs are stored"
+                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Button Content="Open" Click="OpenLogs_Click" DockPanel.Dock="Right"
+                                HorizontalAlignment="Right" Padding="20,9" FontSize="13"
+                                Background="#FFFFFF" Foreground="#374151" BorderBrush="#E5E7EB"
+                                BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== ACCOUNT section ===== -->
+            <TextBlock Text="ACCOUNT" FontSize="11" FontWeight="SemiBold"
+                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
+            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                    BorderThickness="1">
+                <DockPanel Margin="20,16">
+                    <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="Sign out of this device" FontSize="13.5" FontWeight="Medium"
+                                   Foreground="#111827"/>
+                        <TextBlock Text="You'll need to sign in again to receive print jobs"
+                                   FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Button Content="Sign Out" Click="SignOut_Click" DockPanel.Dock="Right"
+                            HorizontalAlignment="Right" Padding="20,9" FontSize="13"
+                            Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA"
+                            BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                </DockPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

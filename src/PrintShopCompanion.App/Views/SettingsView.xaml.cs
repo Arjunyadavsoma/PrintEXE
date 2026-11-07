@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
+using PrintShopCompanion.App.Services;
 using PrintShopCompanion.Core.Contracts;
 
 public partial class SettingsView : UserControl
@@ -15,12 +16,11 @@ public partial class SettingsView : UserControl
     {
         InitializeComponent();
         _services = services;
-        try
-        {
-            var ver = typeof(SettingsView).Assembly.GetName().Version;
-            VersionLabel.Text = "v" + (ver?.ToString() ?? "0.4.1");
-        }
-        catch { }
+
+        // Always read the version from the assembly — never hardcode it.
+        // The original SettingsView hardcoded "v0.4.1" which is why a successful
+        // update still showed v0.4.1 in the UI even after the swap.
+        VersionLabel.Text = AppVersion.Prefixed;
     }
 
     private void OpenLogs_Click(object sender, RoutedEventArgs e)
@@ -40,7 +40,7 @@ public partial class SettingsView : UserControl
     {
         var backend = _services.GetService<IShopBackend>();
         backend?.SignOutAsync();
-        var nav = _services.GetRequiredService<Services.INavigationService>();
+        var nav = _services.GetRequiredService<INavigationService>();
         nav.NavigateTo("Login");
     }
 }

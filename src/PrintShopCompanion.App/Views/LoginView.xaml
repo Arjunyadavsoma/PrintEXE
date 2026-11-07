@@ -4,54 +4,150 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    FontFamily="Segoe UI">
 
-    <Grid Background="#FEF3C7">
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="24">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="380"/>
+            <ColumnDefinition Width="*" MinWidth="380"/>
+        </Grid.ColumnDefinitions>
 
-            <!-- Logo -->
-            <Border Width="52" Height="52" CornerRadius="13" Background="#D97706"
-                    HorizontalAlignment="Center" Margin="0,0,0,16">
-                <TextBlock Text="P" FontSize="26" FontWeight="Bold" Foreground="White"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
+        <!-- LEFT: brand panel -->
+        <Border Grid.Column="0" Background="#D97706">
+            <Grid>
+                <Border HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <Border.Background>
+                        <RadialGradientBrush>
+                            <GradientStop Offset="0" Color="#F59E0B"/>
+                            <GradientStop Offset="1" Color="#D97706"/>
+                        </RadialGradientBrush>
+                    </Border.Background>
+                </Border>
 
-            <TextBlock Text="Shopkeeper Portal" FontSize="26" FontWeight="Bold"
-                       Foreground="#1F2937" HorizontalAlignment="Center" Margin="0,0,0,6"/>
-            <TextBlock Text="Sign in to your print shop account" FontSize="14"
-                       Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,0,0,32"/>
-
-            <!-- Card -->
-            <Border Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="32">
-                <StackPanel>
-                    <TextBlock Text="Sign In" FontSize="18" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,4"/>
-                    <TextBlock Text="Enter your shop credentials" FontSize="12" Foreground="#6B7280" Margin="0,0,0,24"/>
-
-                    <TextBlock Text="Email" FontSize="12" FontWeight="Medium" Foreground="#374151" Margin="0,0,0,4"/>
-                    <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="12,10" FontSize="14" Margin="0,0,0,16"
-                             BorderBrush="#D1D5DB" BorderThickness="1"/>
-
-                    <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Foreground="#374151" Margin="0,0,0,4"/>
-                    <PasswordBox x:Name="PasswordBox" Padding="12,10" FontSize="14"
-                                 BorderBrush="#D1D5DB" BorderThickness="1" Margin="0,0,0,16"
-                                 PasswordChanged="PasswordBox_PasswordChanged"/>
-
-                    <Border Background="#FEF2F2" CornerRadius="8" Padding="12,10" Margin="0,0,0,16"
-                            Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
-                        <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#DC2626" TextWrapping="Wrap"/>
+                <StackPanel VerticalAlignment="Center" Margin="48,40">
+                    <Border Width="56" Height="56" CornerRadius="14" Background="#FFFFFF" Opacity="0.95"
+                            HorizontalAlignment="Left" Margin="0,0,0,28">
+                        <TextBlock Text="P" FontSize="28" FontWeight="Bold" Foreground="#D97706"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
 
-                    <Button Content="Sign In" Click="SignIn_Click"
-                            Background="#D97706" Foreground="White" Padding="0,12"
-                            FontSize="14" FontWeight="SemiBold" BorderThickness="0"
-                            Cursor="Hand"/>
-                </StackPanel>
-            </Border>
+                    <TextBlock Text="PrintShop" FontSize="32" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
+                    <TextBlock Text="Companion" FontSize="32" FontWeight="Bold" Foreground="White" Opacity="0.85" Margin="0,0,0,24"/>
 
-            <TextBlock HorizontalAlignment="Center" FontSize="12" Foreground="#6B7280" Margin="0,16,0,0">
-                Don't have a shop account? <Run Text="Register" FontWeight="Medium" Foreground="#D97706"/>
-            </TextBlock>
-        </StackPanel>
+                    <TextBlock Text="The desktop companion that connects your shop printer to the cloud."
+                               FontSize="14" Foreground="White" Opacity="0.92"
+                               TextWrapping="Wrap" Margin="0,0,0,32" MaxWidth="380"/>
+
+                    <StackPanel Margin="0,0,0,16">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Border Width="22" Height="22" CornerRadius="11" Background="#FFFFFF" Opacity="0.25">
+                                <TextBlock Text="✓" Foreground="White" FontSize="12" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Auto-print incoming orders" FontSize="13" Foreground="White" Opacity="0.92"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Border Width="22" Height="22" CornerRadius="11" Background="#FFFFFF" Opacity="0.25">
+                                <TextBlock Text="✓" Foreground="White" FontSize="12" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Offline queue with auto-retry" FontSize="13" Foreground="White" Opacity="0.92"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Border Width="22" Height="22" CornerRadius="11" Background="#FFFFFF" Opacity="0.25">
+                                <TextBlock Text="✓" Foreground="White" FontSize="12" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Auto-update on every release" FontSize="13" Foreground="White" Opacity="0.92"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Height="1" Background="#FFFFFF" Opacity="0.25" Margin="0,28,0,12"/>
+                    <TextBlock x:Name="VersionLabel" Text="v0.4.3" FontSize="11" Foreground="White" Opacity="0.85"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- RIGHT: login form -->
+        <Border Grid.Column="1" Background="#FFFFFF">
+            <Grid>
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            MaxWidth="380" Margin="40">
+                    <TextBlock Text="Sign In" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,6"/>
+                    <TextBlock Text="Enter your shopkeeper credentials to continue."
+                               FontSize="13" Foreground="#6B7280" Margin="0,0,0,32"/>
+
+                    <!-- Email field -->
+                    <TextBlock Text="EMAIL" FontSize="11" FontWeight="SemiBold" Foreground="#374151" Margin="0,0,0,6"/>
+                    <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="14,12" FontSize="14" Margin="0,0,0,18"
+                             BorderBrush="#D1D5DB" BorderThickness="1"
+                             VerticalContentAlignment="Center"/>
+
+                    <!-- Password field — masked + overlay reveal box -->
+                    <TextBlock Text="PASSWORD" FontSize="11" FontWeight="SemiBold" Foreground="#374151" Margin="0,0,0,6"/>
+                    <Grid Margin="0,0,0,18">
+                        <PasswordBox x:Name="PasswordBox" Padding="14,12" FontSize="14"
+                                     BorderBrush="#D1D5DB" BorderThickness="1"
+                                     PasswordChanged="PasswordBox_PasswordChanged"
+                                     VerticalContentAlignment="Center"/>
+                        <!-- Overlay plain TextBox (initially hidden) for password reveal -->
+                        <TextBox x:Name="PasswordRevealBox" Padding="14,12" FontSize="14"
+                                 BorderBrush="#D1D5DB" BorderThickness="1"
+                                 Visibility="Collapsed"
+                                 IsReadOnly="True"
+                                 VerticalContentAlignment="Center"
+                                 TextChanged="PasswordRevealBox_TextChanged"/>
+                        <Button x:Name="TogglePasswordBtn" Content="Show"
+                                Click="TogglePassword_Click"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="#6B7280" FontSize="11" Cursor="Hand"
+                                Padding="14,0" Margin="0,0,4,0"/>
+                    </Grid>
+
+                    <!-- Error message -->
+                    <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
+                            BorderBrush="#FECACA" BorderThickness="1"
+                            Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠" FontSize="14" Foreground="#DC2626" Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#DC2626"
+                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Sign in button -->
+                    <Button Content="Sign In" Click="SignIn_Click"
+                            Background="#D97706" Foreground="White" Padding="0,14"
+                            FontSize="14" FontWeight="SemiBold" BorderThickness="0"
+                            Cursor="Hand" Margin="0,0,0,16"/>
+
+                    <!-- Divider -->
+                    <Grid Margin="0,8,0,16">
+                        <Border Height="1" Background="#E5E7EB" VerticalAlignment="Center"/>
+                        <Border Background="#FFFFFF" Padding="10,0" HorizontalAlignment="Center">
+                            <TextBlock Text="OR" FontSize="11" Foreground="#9CA3AF"/>
+                        </Border>
+                    </Grid>
+
+                    <!-- Footer link -->
+                    <TextBlock HorizontalAlignment="Center" FontSize="12" Foreground="#6B7280">
+                        Don't have a shop account?
+                        <Run Text="Register here" FontWeight="SemiBold" Foreground="#D97706" Cursor="Hand"/>
+                    </TextBlock>
+                </StackPanel>
+
+                <TextBlock x:Name="BuildStamp" Text="PrintShop Companion"
+                           FontSize="11" Foreground="#9CA3AF"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,18"/>
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>

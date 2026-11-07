@@ -16,6 +16,7 @@ public sealed class SyncEngine
     private readonly IPendingOpsQueue _pendingOps;
     private readonly ILogger<SyncEngine> _logger;
     private CancellationTokenSource? _cts;
+    private Task? _loopTask;
     private bool _isOnline = true;
     private DateTimeOffset _lastSyncTime = DateTimeOffset.MinValue;
 
@@ -35,16 +36,35 @@ public sealed class SyncEngine
 
     public void Start(CancellationToken ct = default)
     {
+        // Create a linked CTS so the caller can cancel the loop externally
+        // (e.g. via App.OnExit's shared token). We keep our own CTS so
+        // StopAsync can also cancel from here.
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _ = Task.Run(() => RunAsync(_cts.Token), _cts.Token);
+        _loopTask = Task.Run(() => RunAsync(_cts.Token), _cts.Token);
     }
 
     public async Task StopAsync()
     {
+        // Cancel and WAIT for the loop task to actually exit before returning.
+        // The previous implementation just cancelled + disposed the CTS without
+        // waiting, which meant a background SQLite write could be cut off
+        // mid-flight when the App proceeded to dispose the host.
         try { _cts?.Cancel(); } catch { }
+
+        if (_loopTask is not null)
+        {
+            try
+            {
+                // Bounded wait — if the loop is stuck in an uncancelable
+                // SQLite write, give up after 3 seconds.
+                await Task.WhenAny(_loopTask, Task.Delay(TimeSpan.FromSeconds(3)));
+            }
+            catch { /* swallow — we're shutting down anyway */ }
+        }
+
         _cts?.Dispose();
         _cts = null;
-        await Task.CompletedTask;
+        _loopTask = null;
     }
 
     private async Task RunAsync(CancellationToken ct)

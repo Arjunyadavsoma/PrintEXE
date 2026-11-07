@@ -53,4 +53,11 @@
     <ProjectReference Include="..\PrintShopCompanion.Shared\PrintShopCompanion.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Expose internals (GitHubRelease, GitHubAsset, IsNewer) to the test
+         project so the auto-update tests can verify the deserialization
+         shape and the version comparison logic directly. -->
+    <InternalsVisibleTo Include="PrintShopCompanion.Infrastructure.Tests" />
+  </ItemGroup>
+
 </Project>

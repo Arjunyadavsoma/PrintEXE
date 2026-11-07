@@ -28,6 +28,7 @@ public sealed class JobProcessor
     private readonly ILogger<JobProcessor> _logger;
     private readonly SemaphoreSlim _concurrency = new(1, 1);
     private CancellationTokenSource? _loopCts;
+    private Task? _loopTask;
 
     public JobProcessor(
         IJobQueue queue,
@@ -50,16 +51,33 @@ public sealed class JobProcessor
     public Task StartAsync(CancellationToken ct = default)
     {
         _loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _ = Task.Run(() => RunAsync(_loopCts.Token), _loopCts.Token);
+        _loopTask = Task.Run(() => RunAsync(_loopCts.Token), _loopCts.Token);
         return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken ct = default)
     {
+        // Cancel and WAIT for the loop task to actually exit before returning.
+        // The previous implementation just cancelled + disposed the CTS without
+        // waiting, which meant a background spooler submission could be cut
+        // off mid-flight when the App proceeded to dispose the host.
         try { _loopCts?.Cancel(); } catch { /* ignore */ }
+
+        if (_loopTask is not null)
+        {
+            try
+            {
+                // Bounded wait — if the loop is stuck in an uncancelable
+                // spooler call, give up after 3 seconds.
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                await Task.WhenAny(_loopTask, Task.Delay(TimeSpan.FromSeconds(3), linkedCts.Token));
+            }
+            catch { /* swallow — we're shutting down anyway */ }
+        }
+
         _loopCts?.Dispose();
         _loopCts = null;
-        await Task.CompletedTask;
+        _loopTask = null;
     }
 
     private async Task RunAsync(CancellationToken ct)

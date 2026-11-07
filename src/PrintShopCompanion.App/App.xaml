@@ -6,9 +6,17 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Themes/Colors.xaml" />
+                <!-- Design tokens (colors, typography, spacing, corner radius) -->
+                <ResourceDictionary Source="Themes/Tokens.xaml" />
+                <!-- Component styles built on the tokens -->
+                <ResourceDictionary Source="Themes/Components.xaml" />
+                <!-- Converters (BoolToVis, InverseBoolToVis, StringToVis, etc.) -->
                 <ResourceDictionary Source="Themes/Converters.xaml" />
+                <!-- Legacy color/theme resources kept for backward compatibility -->
+                <ResourceDictionary Source="Themes/Colors.xaml" />
                 <ResourceDictionary Source="Themes/Fluent.xaml" />
+                <ResourceDictionary Source="Themes/Light.xaml" />
+                <ResourceDictionary Source="Themes/Dark.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
