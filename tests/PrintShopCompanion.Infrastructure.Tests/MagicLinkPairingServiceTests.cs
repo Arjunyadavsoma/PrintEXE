@@ -49,6 +49,8 @@ public class MagicLinkPairingServiceTests
             => Task.FromResult(new SyncPushResult(new List<SyncPushResultItem>()));
         public Task<SyncStatusResult> SyncStatusAsync(CancellationToken ct = default)
             => Task.FromResult(new SyncStatusResult("dev", "shop", null, null, null, true));
+        public Task<ReceiptAcknowledgement> MarkJobReceivedAsync(string jobId, string checksum, long fileSize, DateTimeOffset receivedAt, CancellationToken ct = default)
+            => Task.FromResult(new ReceiptAcknowledgement(jobId, "received", "local_verified", DateTimeOffset.UtcNow.AddMinutes(15), Skipped: false, Reason: null));
     }
 
     private static MagicLinkPairingService Make(out FakeBackend backend)

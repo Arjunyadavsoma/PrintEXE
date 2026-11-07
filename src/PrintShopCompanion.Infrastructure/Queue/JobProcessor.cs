@@ -145,12 +145,46 @@ public sealed class JobProcessor
                 job.LocalPdfPath = dl.LocalPath;
                 job.PdfSha256 = dl.Sha256;
                 job.Status = JobStatus.Rendering;
+                job.DeliveryStatus = DeliveryStatus.Transferring;
                 job.UpdatedAt = DateTimeOffset.UtcNow;
                 await _queue.UpdateAsync(job, ct);
                 _logger.LogInformation("Downloaded PDF ({Bytes} bytes, sha256={Sha})", dl.SizeBytes, dl.Sha256);
+
+                // v0.5: Durable receipt acknowledgement — tell the backend the PDF
+                // is on the shop PC, SHA-256 verified, and atomically persisted.
+                // This gates cloud deletion: the backend sets cloudDeleteAfter =
+                // now + 15 min. If this call fails, the cloud copy stays.
+                try
+                {
+                    var checksum = "sha256:" + dl.Sha256;
+                    var receipt = await _backend.MarkJobReceivedAsync(
+                        job.JobId, checksum, dl.SizeBytes, DateTimeOffset.UtcNow, ct);
+                    job.DeliveryStatus = DeliveryStatus.Received;
+                    job.StorageStatus = StorageStatus.LocalVerified;
+                    job.ReceivedAt = DateTimeOffset.UtcNow;
+                    job.CloudDeleteAfter = receipt.CloudDeleteAfter;
+                    job.UpdatedAt = DateTimeOffset.UtcNow;
+                    await _queue.UpdateAsync(job, ct);
+                    _logger.LogInformation("Receipt acknowledged — cloud copy scheduled for deletion at {Deadline}",
+                        receipt.CloudDeleteAfter);
+                }
+                catch (Exception ex)
+                {
+                    // The backend may not have the /received route yet (v0.4.7).
+                    // Log + continue — the cloud copy just won't be auto-deleted.
+                    _logger.LogWarning(ex, "Receipt acknowledgement failed (backend may not support /received yet) — continuing");
+                    job.DeliveryStatus = DeliveryStatus.Received;  // locally we have the file
+                    job.StorageStatus = StorageStatus.LocalVerified;
+                    job.UpdatedAt = DateTimeOffset.UtcNow;
+                    await _queue.UpdateAsync(job, ct);
+                }
             }
             catch (Exception ex)
             {
+                job.DeliveryStatus = DeliveryStatus.DeliveryFailed;
+                job.LastDeliveryError = ex.Message;
+                job.UpdatedAt = DateTimeOffset.UtcNow;
+                await _queue.UpdateAsync(job, ct);
                 await FailAsync(job, "PDF download failed: " + ex.Message, permanent: false, ct);
                 return;
             }
@@ -237,6 +271,18 @@ public sealed class JobProcessor
         var printedAt = DateTimeOffset.UtcNow;
         await _queue.MarkPrintedAsync(job.JobId, printedAt, sub.SpoolerJobId, ct);
         _logger.LogInformation("Spooler confirmed physical print at {Time}", printedAt);
+
+        // v0.5: Set localDeleteAfter = printedAt + 60 min (configurable).
+        // The FileRetentionManager will delete the local PDF when this deadline passes.
+        try
+        {
+            var retentionMinutes = _backendOpts.Value.PollFallbackInterval.TotalSeconds > 0 ? 60 : 60;  // default
+            job.LocalDeleteAfter = printedAt.AddMinutes(retentionMinutes);
+            job.UpdatedAt = DateTimeOffset.UtcNow;
+            await _queue.UpdateAsync(job, ct);
+            _logger.LogInformation("Local PDF scheduled for deletion at {Deadline} (60 min after print)", job.LocalDeleteAfter);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to set localDeleteAfter (non-fatal)"); }
 
         // 6. Report completion to the backend.
         try

@@ -131,4 +131,68 @@ public sealed class PrintJobRecord
 
     /// <summary>Companion timestamp when the spooler reported physical printing.</summary>
     public DateTimeOffset? PrintedAt { get; set; }
+
+    // ─── v0.5 additions: independent state machines ──────────────────────────
+
+    /// <summary>
+    /// The delivery state machine (created → cloud_staged → transferring → received → delivery_failed).
+    /// Independent of <see cref="Status"/> (printing) — a job can be received
+    /// but not yet printed, or printed but delivery_failed (if WebRTC failed
+    /// but cloud fallback succeeded).
+    /// </summary>
+    public DeliveryStatus DeliveryStatus { get; set; } = DeliveryStatus.CloudStaged;
+
+    /// <summary>
+    /// The storage state machine (cloud_available → local_verified → cloud_deleted → local_deleted).
+    /// Tracks where the PDF bytes physically live. Independent of delivery +
+    /// printing.
+    /// </summary>
+    public StorageStatus StorageStatus { get; set; } = StorageStatus.CloudAvailable;
+
+    /// <summary>
+    /// SHA-256 of the PDF, in the form "sha256:&lt;hex&gt;". Set by the
+    /// backend when the customer uploads; verified by the companion after
+    /// download. If they don't match, the companion marks delivery_failed.
+    /// </summary>
+    public string? Checksum { get; set; }
+
+    /// <summary>
+    /// File size in bytes. Set by the backend when the customer uploads.
+    /// Used by the companion to check disk space before downloading and
+    /// to verify the download is complete (Content-Length match).
+    /// </summary>
+    public long? FileSize { get; set; }
+
+    /// <summary>
+    /// When the companion confirmed local receipt (called POST /agents/jobs/{id}/received).
+    /// This is the gate for cloud deletion: cloudDeleteAfter = ReceivedAt + 15 min.
+    /// </summary>
+    public DateTimeOffset? ReceivedAt { get; set; }
+
+    /// <summary>
+    /// When the cloud copy should be deleted. Set by the backend when
+    /// receipt is confirmed. The companion does NOT enforce this — the
+    /// server-side cron worker does. Stored locally for display in the UI.
+    /// </summary>
+    public DateTimeOffset? CloudDeleteAfter { get; set; }
+
+    /// <summary>
+    /// When the local PDF should be deleted. Set by the companion when
+    /// the printing state transitions to terminal (completed/failed/cancelled):
+    /// localDeleteAfter = printedAt + 60 min (configurable).
+    /// Enforced by the FileRetentionManager.
+    /// </summary>
+    public DateTimeOffset? LocalDeleteAfter { get; set; }
+
+    /// <summary>
+    /// Number of delivery attempts (cloud downloads or WebRTC transfers).
+    /// Incremented on each retry. Capped at MaxPrintAttempts (default 5).
+    /// </summary>
+    public int DeliveryAttemptCount { get; set; }
+
+    /// <summary>
+    /// Last delivery error (e.g. "SHA-256 mismatch", "download timeout",
+    /// "insufficient disk space"). Cleared on successful delivery.
+    /// </summary>
+    public string? LastDeliveryError { get; set; }
 }

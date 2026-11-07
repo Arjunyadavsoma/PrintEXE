@@ -590,3 +590,38 @@ public sealed class SyncStatusResponseDto
     [JsonPropertyName("isOnline")]
     public bool IsOnline { get; init; }
 }
+
+/// <summary>Wire DTO for POST /api/v1/agents/jobs/{id}/received request body.</summary>
+public sealed class JobReceivedRequestDto
+{
+    [JsonPropertyName("checksum")]
+    public required string Checksum { get; init; }
+
+    [JsonPropertyName("fileSize")]
+    public long FileSize { get; init; }
+
+    [JsonPropertyName("receivedAt")]
+    public required string ReceivedAt { get; init; }
+}
+
+/// <summary>Wire DTO for POST /api/v1/agents/jobs/{id}/received response body (envelope-wrapped).</summary>
+public sealed class JobReceivedResponseDto
+{
+    [JsonPropertyName("jobId")]
+    public string? JobId { get; init; }
+
+    [JsonPropertyName("deliveryStatus")]
+    public string? DeliveryStatus { get; init; }
+
+    [JsonPropertyName("storageStatus")]
+    public string? StorageStatus { get; init; }
+
+    [JsonPropertyName("cloudDeleteAfter")]
+    public DateTimeOffset? CloudDeleteAfter { get; init; }
+
+    [JsonPropertyName("skipped")]
+    public bool Skipped { get; init; }
+
+    [JsonPropertyName("reason")]
+    public string? Reason { get; init; }
+}

@@ -85,7 +85,7 @@ public sealed class StorageOptions
 {
     public const string SectionName = "Storage";
 
-    /// <summary>Path to the SQLite database file. Defaults to <c>%AppData%\PrintShop\Companion\queue.db</c>.</summary>
+    /// <summary>Path to the SQLite database file. Defaults to <c>%LocalAppData%\PrintShop\Companion\Database\queue.db</c>.</summary>
     public string? QueueDbPath { get; set; }
 
     /// <summary>Path to the directory used to cache downloaded PDFs.</summary>
@@ -95,11 +95,32 @@ public sealed class StorageOptions
     public string? LogDir { get; set; }
 
     /// <summary>
-    /// Path to the DPAPI-encrypted file that stores the device token (the
-    /// Bearer credential for /agents/* endpoints). Defaults to
-    /// <c>%AppData%\PrintShop\Companion\device.dat</c>.
+    /// Path to the DPAPI-encrypted file that stores the device token.
+    /// Defaults to <c>%LocalAppData%\PrintShop\Companion\Security\device.dat</c>.
     /// </summary>
     public string? DeviceTokenPath { get; set; }
+
+    /// <summary>
+    /// Local PDF retention in minutes after a terminal printing state
+    /// (completed/failed/cancelled). The FileRetentionManager deletes the
+    /// local PDF when localDeleteAfter &lt; now. Default 60.
+    /// </summary>
+    public int LocalRetentionMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Cloud PDF retention in minutes after verified local receipt. The
+    /// server-side cron worker deletes the Supabase object when
+    /// cloudDeleteAfter &lt; now. Default 15. (Server-side config; this
+    /// is for the UI display only.)
+    /// </summary>
+    public int CloudRetentionMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Maximum total bytes for the Jobs/ directory. If exceeded, the
+    /// companion aggressively cleans up completed files regardless of
+    /// localDeleteAfter. Default 1 GB.
+    /// </summary>
+    public long MaxLocalStorageBytes { get; set; } = 1_000_000_000;
 
     /// <summary>Jobs older than this in a terminal state are purged on startup.</summary>
     public TimeSpan TerminalJobTtl { get; set; } = TimeSpan.FromDays(7);

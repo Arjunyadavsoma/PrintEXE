@@ -73,6 +73,31 @@ public interface IPrintShopBackend
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Durable receipt acknowledgement — confirms that the PDF has been
+    /// downloaded, SHA-256 verified, and atomically persisted to the local
+    /// encrypted SQLite queue. The backend uses this to:
+    /// <list type="bullet">
+    ///   <item>Set <c>deliveryStatus = "received"</c> on the PrintJob row.</item>
+    ///   <item>Set <c>storageStatus = "local_verified"</c>.</item>
+    ///   <item>Set <c>receivedAt = now</c> and <c>cloudDeleteAfter = now + 15 min</c>.</item>
+    ///   <item>Schedule the cloud cleanup worker to delete the Supabase object.</item>
+    /// </list>
+    /// <para><b>Idempotent:</b> calling twice with the same checksum is a no-op
+    /// (returns the existing <c>cloudDeleteAfter</c>). Calling with a different
+    /// checksum returns 409 Conflict (the file has been tampered with).</para>
+    /// <para><b>Atomic local persistence:</b> the companion must NOT call this
+    /// until the local file has been atomically renamed from <c>.tmp</c> to
+    /// <c>.pdf</c> — otherwise a crash between this call and the rename would
+    /// cause the cloud copy to be deleted with no local copy.</para>
+    /// </summary>
+    Task<ReceiptAcknowledgement> MarkJobReceivedAsync(
+        string jobId,
+        string checksum,
+        long fileSize,
+        DateTimeOffset receivedAt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Download the PDF bytes for a job. The <paramref name="pdfUrl"/> is a
     /// presigned S3/Supabase URL with 15-minute TTL — no auth needed (the
     /// signature is in the URL). The companion downloads directly from
@@ -114,6 +139,20 @@ public sealed record JobStatusReport(
     string? Status,
     bool Applied,
     bool Skipped,
+    string? Reason);
+
+/// <summary>
+/// Response from POST /agents/jobs/{id}/received. The companion uses
+/// <see cref="CloudDeleteAfter"/> to display "Cloud copy will be deleted at
+/// ..." in the UI, but the actual deletion is done by the server-side cron
+/// worker — the companion never deletes cloud objects.
+/// </summary>
+public sealed record ReceiptAcknowledgement(
+    string? JobId,
+    string? DeliveryStatus,    // "received" on success
+    string? StorageStatus,     // "local_verified" on success
+    DateTimeOffset? CloudDeleteAfter,
+    bool Skipped,              // true if the receipt was a no-op (already received)
     string? Reason);
 
 public sealed record SyncPullResult(

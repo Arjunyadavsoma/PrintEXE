@@ -398,6 +398,49 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
             AgentName: dto.AgentName, IsOnline: dto.IsOnline);
     }
 
+    /// <summary>
+    /// Durable receipt acknowledgement — POST /api/v1/agents/jobs/{id}/received.
+    /// Confirms the PDF is on the shop PC + SHA-256 verified + atomically persisted.
+    /// The backend sets deliveryStatus=received, storageStatus=local_verified,
+    /// and schedules cloud cleanup (cloudDeleteAfter = now + 15 min).
+    /// Idempotent on (jobId, checksum).
+    /// </summary>
+    public async Task<ReceiptAcknowledgement> MarkJobReceivedAsync(
+        string jobId, string checksum, long fileSize, DateTimeOffset receivedAt,
+        CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var url = ApiUrl($"agents/jobs/{jobId}/received");
+        var body = new JobReceivedRequestDto
+        {
+            Checksum = checksum,
+            FileSize = fileSize,
+            ReceivedAt = receivedAt.ToString("O")
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(body)
+        };
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("Device token rejected by backend");
+        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            throw new InvalidOperationException("Checksum mismatch — the file may have been tampered with");
+        resp.EnsureSuccessStatusCode();
+
+        var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<JobReceivedResponseDto>>(Json, ct)
+            ?? throw new InvalidOperationException("Empty received response");
+        var dto = envelope.Data;
+        return new ReceiptAcknowledgement(
+            JobId: dto?.JobId,
+            DeliveryStatus: dto?.DeliveryStatus,
+            StorageStatus: dto?.StorageStatus,
+            CloudDeleteAfter: dto?.CloudDeleteAfter,
+            Skipped: dto?.Skipped ?? false,
+            Reason: dto?.Reason);
+    }
+
     // ────────────────────────── helpers ──────────────────────────
 
     private void EnsureAuthenticated()
