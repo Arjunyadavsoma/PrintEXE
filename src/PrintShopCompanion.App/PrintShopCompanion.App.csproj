@@ -6,9 +6,13 @@
     <RootNamespace>PrintShopCompanion.App</RootNamespace>
     <AssemblyName>PrintShopCompanion</AssemblyName>
     <UseWPF>true</UseWPF>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- No ApplicationManifest — the manifest triggers SxS assembly lookups
+         that fail on machines without the exact VC++ runtime. Let .NET use
+         its default (no manifest = no SxS dependency). -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- No ReadyToRun — R2R native code references specific VC++ runtime
+         versions via SxS. JIT compilation avoids the dependency entirely. -->
+    <PublishReadyToRun>false</PublishReadyToRun>
     <SelfContained>false</SelfContained>
   </PropertyGroup>
 

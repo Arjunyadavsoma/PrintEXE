@@ -67,7 +67,7 @@ jobs:
         run: |
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
             -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o ./artifacts/app-singlefile
 
       - name: Publish app (folder distribution — more reliable, no self-extraction)
@@ -75,7 +75,7 @@ jobs:
         run: |
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
             -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=false -p:PublishReadyToRun=true `
+            -p:PublishSingleFile=false `
             -o ./artifacts/app-folder
 
       - name: Zip the folder distribution (RECOMMENDED — no SxS errors)
@@ -99,7 +99,7 @@ jobs:
         run: |
           dotnet publish src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj `
             -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o ./artifacts/worker
 
       - name: Publish mock backend (for development)
