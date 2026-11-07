@@ -2,6 +2,7 @@ namespace PrintShopCompanion.Infrastructure.Sync;
 
 using System.Net.Http;
 using System.Text.Json;
+using PrintShopCompanion.Infrastructure.Backend;
 using Microsoft.Extensions.Logging;
 using PrintShopCompanion.Core.Contracts;
 
