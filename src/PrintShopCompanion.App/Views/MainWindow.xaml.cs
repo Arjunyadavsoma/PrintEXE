@@ -32,16 +32,20 @@ public partial class MainWindow : Window
 
         // Hide sidebar on login screen — full-width centered login
         var sidebar = FindName("NavPanel") as FrameworkElement;
-        var sidebarCol = Content.ColumnDefinitions[0];
-        if (current == "Login")
+        var mainGrid = Content.Parent as Grid;
+        if (mainGrid != null && mainGrid.ColumnDefinitions.Count > 0)
         {
-            sidebarCol.Width = new GridLength(0);
-            if (sidebar != null) sidebar.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            sidebarCol.Width = new GridLength(240);
-            if (sidebar != null) sidebar.Visibility = Visibility.Visible;
+            var sidebarCol = mainGrid.ColumnDefinitions[0];
+            if (current == "Login")
+            {
+                sidebarCol.Width = new GridLength(0);
+                if (sidebar != null) sidebar.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                sidebarCol.Width = new GridLength(240);
+                if (sidebar != null) sidebar.Visibility = Visibility.Visible;
+            }
         }
 
         foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "Reports", "Settings", "Account" })
