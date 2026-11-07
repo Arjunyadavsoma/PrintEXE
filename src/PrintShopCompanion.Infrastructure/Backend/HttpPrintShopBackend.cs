@@ -116,7 +116,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _token = new DeviceToken
         {
             ShopId = dto.ShopId,
-            DeviceId = dto.DeviceId,
+            AgentId = dto.DeviceId,
             Token = dto.DeviceToken,
             IssuedAt = dto.IssuedAt,
         };
@@ -298,8 +298,8 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     private static PrintJobRecord MapToRecord(PrintJobDto dto) => new()
     {
         JobId = dto.JobId,
-        Id = "", // The real /agents/jobs/pending doesn't return shopId; the device token is shop-scoped
-        DeviceDeviceId = "",
+        ShopId = "",
+        DeviceId = "",
         Title = dto.Filename,
         PrinterName = null,
         Copies = dto.Copies,
