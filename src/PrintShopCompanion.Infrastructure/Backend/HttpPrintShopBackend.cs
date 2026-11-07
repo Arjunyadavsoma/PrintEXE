@@ -177,15 +177,15 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return new HeartbeatResult(dto.ServerTime, dto.TokenStillValid, dto.RecommendedBackendVersion);
     }
 
-    public async Task<IReadOnlyList<LegacyPrintJobDto>> FetchPendingJobsAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
     {
         EnsureAuthenticated();
-        var url = ApiUrl("jobs/pending");
+        var url = ApiUrl("agents/jobs/pending");
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
-        var dtos = await resp.Content.ReadFromJsonAsync<List<LegacyPrintJobDto>>(Json, ct) ?? new();
+        var dtos = await resp.Content.ReadFromJsonAsync<List<PrintJobDto>>(Json, ct) ?? new();
         return dtos.Select(MapToRecord).ToList();
     }
 
@@ -309,23 +309,23 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static PrintJobRecord MapToRecord(LegacyPrintJobDto dto) => new()
+    private static PrintJobRecord MapToRecord(PrintJobDto dto) => new()
     {
         JobId = dto.JobId,
-        ShopId = dto.ShopId,
-        DeviceId = dto.DeviceId,
-        Title = dto.Title,
-        PrinterName = dto.PrinterName,
+        ShopId = "", // The real /agents/jobs/pending doesn't return shopId; the device token is shop-scoped
+        DeviceId = "", // Same for deviceId
+        Title = dto.Filename,
+        PrinterName = null,
         Copies = dto.Copies,
         PageRange = dto.PageRange,
         PaperSize = dto.PaperSize,
-        Color = dto.Color,
+        Color = dto.ColorMode == "color",
         Duplex = dto.Duplex,
-        PdfUrl = dto.PdfUrl,
-        PdfSha256 = dto.PdfSha256,
+        PdfUrl = Uri.TryCreate(dto.DownloadUrl, UriKind.Absolute, out var u) ? u : null,
+        PdfSha256 = null,
         Status = JobStatus.Pending,
         AttemptCount = 0,
-        CreatedAt = dto.CreatedAt,
+        CreatedAt = DateTimeOffset.UtcNow,
         QueuedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow
     };
