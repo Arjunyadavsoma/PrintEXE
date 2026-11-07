@@ -81,13 +81,3 @@ public interface IShopBackend
     /// <summary>Sign out — clears the in-memory session. The persisted credentials file is NOT deleted (the shopkeeper may re-login).</summary>
     Task SignOutAsync(CancellationToken ct = default);
 }
-
-/// <summary>A registered print-agent device, from GET /shops/me/agents.</summary>
-public sealed record DeviceRegistration(
-    string Id,
-    string Name,
-    bool IsOnline,
-    DateTimeOffset? LastSeenAt,
-    string? PrinterName,
-    string? Version,
-    string? Os);

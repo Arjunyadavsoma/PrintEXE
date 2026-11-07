@@ -223,8 +223,22 @@ public sealed class HttpShopBackend : IShopBackend, IDisposable
     {
         var resp = await SendAuthedAsync(HttpMethod.Get, "shops/me/agents", ct);
         var dto = await ReadEnvelopeAsync<List<AgentDto>>(resp, ct);
-        return dto.Select(a => new DeviceRegistration(
-            a.Id, a.Name, a.IsOnline, a.LastSeenAt, a.PrinterName, a.Version, a.Os)).ToList();
+        return dto.Select(a => new DeviceRegistration
+        {
+            DeviceId = a.Id,
+            ShopId = "",
+            Hostname = "",
+            OperatingSystem = a.Os ?? "",
+            AppVersion = a.Version ?? "",
+            RegisteredAt = DateTimeOffset.UtcNow,
+            LastSeenAt = a.LastSeenAt ?? DateTimeOffset.UtcNow,
+            Revoked = false,
+            Name = a.Name,
+            IsOnline = a.IsOnline,
+            PrinterName = a.PrinterName,
+            Version = a.Version,
+            Os = a.Os
+        }).ToList();
     }
 
     public Task SignOutAsync(CancellationToken ct = default)

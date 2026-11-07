@@ -177,7 +177,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return new HeartbeatResult(dto.ServerTime, dto.TokenStillValid, dto.RecommendedBackendVersion);
     }
 
-    public async Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<LegacyPrintJobDto>> FetchPendingJobsAsync(CancellationToken ct = default)
     {
         EnsureAuthenticated();
         var url = ApiUrl("jobs/pending");
@@ -185,7 +185,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
-        var dtos = await resp.Content.ReadFromJsonAsync<List<PrintJobDto>>(Json, ct) ?? new();
+        var dtos = await resp.Content.ReadFromJsonAsync<List<LegacyPrintJobDto>>(Json, ct) ?? new();
         return dtos.Select(MapToRecord).ToList();
     }
 
@@ -309,7 +309,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static PrintJobRecord MapToRecord(PrintJobDto dto) => new()
+    private static PrintJobRecord MapToRecord(LegacyPrintJobDto dto) => new()
     {
         JobId = dto.JobId,
         ShopId = dto.ShopId,

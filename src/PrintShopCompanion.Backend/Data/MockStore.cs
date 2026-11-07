@@ -22,5 +22,5 @@ public sealed record DeviceRecord(
     string AppVersion, string DeviceToken, DateTimeOffset RegisteredAt, DateTimeOffset LastSeenAt);
 
 public sealed record JobRecord(
-    PrintJobDto Dto, bool Acked, DateTimeOffset? PrintedAt, DateTimeOffset? FailedAt,
+    LegacyPrintJobDto Dto, bool Acked, DateTimeOffset? PrintedAt, DateTimeOffset? FailedAt,
     string? Error, int? SpoolerJobId);
