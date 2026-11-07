@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
+using PrintShopCompanion.Infrastructure.Backend;
 
 public partial class OverviewViewModel : ObservableObject
 {

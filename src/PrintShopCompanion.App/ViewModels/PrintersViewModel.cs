@@ -53,7 +53,7 @@ public partial class PrintersViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task TestPrintAsync()
+    public async Task TestPrintAsync()
     {
         if (Selected is null) return;
         IsTestPrinting = true;
