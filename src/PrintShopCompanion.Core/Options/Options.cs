@@ -80,8 +80,11 @@ public sealed class AppOptions
 {
     public const string SectionName = "App";
 
-    /// <summary>True to minimise to tray on close. Default true (shopkeeper expects the app to "stay running").</summary>
-    public bool MinimizeToTrayOnClose { get; set; } = true;
+    /// <summary>True to minimise to tray on close. Default FALSE — clicking X closes the app.
+    /// The shopkeeper can still use the tray menu's "Open Dashboard" to restore a minimized window.
+    /// Setting this to false prevents the "cannot reopen" issue where the user thinks they closed
+    /// the app but it's still running in the tray.</summary>
+    public bool MinimizeToTrayOnClose { get; set; } = false;
 
     /// <summary>True to launch on Windows startup. Default true.</summary>
     public bool AutoStartWithWindows { get; set; } = true;

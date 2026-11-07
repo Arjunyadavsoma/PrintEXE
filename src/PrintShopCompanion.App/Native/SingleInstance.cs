@@ -3,17 +3,22 @@ namespace PrintShopCompanion.App.Native;
 using System.Threading;
 
 /// <summary>
-/// Single-instance guard. Acquires a named mutex at startup; if another
-/// instance already holds it, this instance forwards its arguments to the
-/// existing instance (via a named pipe) and exits.
+/// Single-instance guard using a named Mutex.
 ///
-/// <para><b>Mutex lifecycle:</b> The Mutex is created with <c>owns=true</c> if
-/// we're the first instance. On <see cref="Dispose"/>, we release and dispose
-/// the Mutex so the OS frees it immediately — the next launch can acquire it.</para>
+/// <para><b>Design:</b></para>
+/// <list type="bullet">
+///   <item>If we're the first instance, we own the Mutex and run a background
+///     pipe server to receive forwarded URLs from later instances.</item>
+///   <item>If a second instance launches, it can't acquire the Mutex, so it
+///     forwards its URL via the pipe and exits.</item>
+///   <item>On dispose, we cancel the pipe server and release the Mutex so
+///     the OS frees it immediately for the next launch.</item>
+/// </list>
 ///
-/// <para><b>Pipe lifecycle:</b> The receiver loop runs on a background thread
-/// with a <see cref="CancellationTokenSource"/>. On dispose, we cancel the token
-/// and dispose the pipe server so the thread exits cleanly.</para>
+/// <para><b>Key fix:</b> The Mutex is a local variable held alive by the
+/// field reference. Previous versions had the pipe server thread keeping
+/// the process alive after Dispose. Now the pipe server is disposed
+/// BEFORE the Mutex is released, ensuring no threads are stuck.</para>
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
@@ -21,26 +26,46 @@ public sealed class SingleInstance : IDisposable
     private Mutex? _mutex;
     private bool _owns;
     private CancellationTokenSource? _cts;
-    private Task? _receiverTask;
+    private NamedPipeServerStream? _pipeServer;
+    private Thread? _receiverThread;
 
     public event EventHandler<string>? UrlForwarded;
+    public event Action? AnotherInstanceLaunched;
 
     public SingleInstance(string mutexName) => _mutexName = mutexName;
 
     public bool AcquireOrForward(string[] args)
     {
-        // Try to create the mutex. If we get ownership, we're the first instance.
+        // Create the Mutex. If we get ownership, we're the first instance.
         _mutex = new Mutex(true, _mutexName, out _owns);
         if (_owns)
         {
-            // Start the IPC receiver that listens for forwarded URLs from later launches.
+            // Start the pipe server on a dedicated background thread (not ThreadPool
+            // — ThreadPool threads can keep the process alive via Task.Run).
             _cts = new CancellationTokenSource();
-            _receiverTask = Task.Run(() => ReceiverLoop(_cts.Token), _cts.Token);
+            _pipeServer = new NamedPipeServerStream(
+                "PrintShopCompanion",
+                System.IO.Pipes.PipeDirection.In,
+                1,
+                System.IO.Pipes.PipeTransmissionMode.Byte,
+                System.IO.Pipes.PipeOptions.None);
+            _receiverThread = new Thread(() => ReceiverLoop(_cts.Token))
+            {
+                IsBackground = true,
+                Name = "SingleInstance-PipeServer"
+            };
+            _receiverThread.Start();
             return true;
         }
-        // We're a second instance — try to forward args to the first one.
+
+        // We're a second instance. Try to forward the URL via the pipe.
         if (args.Length > 0 && args[0].StartsWith("printshopcompanion://", StringComparison.OrdinalIgnoreCase))
             ForwardUrl(args[0]);
+
+        // Also signal that another instance tried to launch (the caller can
+        // use this to bring the existing window to the foreground).
+        AnotherInstanceLaunched?.Invoke();
+
         return false;
     }
 
@@ -50,10 +75,8 @@ public sealed class SingleInstance : IDisposable
         {
             using var client = new System.IO.Pipes.NamedPipeClientStream(
                 ".", "PrintShopCompanion",
-                System.IO.Pipes.PipeDirection.Out,
-                System.IO.Pipes.PipeOptions.None,
-                System.Security.Principal.TokenImpersonationLevel.None);
-            client.Connect(1000);
+                System.IO.Pipes.PipeDirection.Out);
+            client.Connect(500);
             using var w = new System.IO.StreamWriter(client);
             w.WriteLine(url);
             w.Flush();
@@ -65,56 +88,58 @@ public sealed class SingleInstance : IDisposable
     {
         try
         {
-            var server = new System.IO.Pipes.NamedPipeServerStream(
-                "PrintShopCompanion",
-                System.IO.Pipes.PipeDirection.In,
-                1,
-                System.IO.Pipes.PipeTransmissionMode.Byte,
-                System.IO.Pipes.PipeOptions.None);
-
             while (!ct.IsCancellationRequested)
             {
-                // Wait for a connection with cancellation support.
-                var waitTask = Task.Run(() => server.WaitForConnection(), ct);
-                try { waitTask.Wait(ct); }
-                catch (OperationCanceledException) { break; }
+                // WaitForConnection blocks until a client connects or the pipe is disposed.
+                _pipeServer?.WaitForConnection();
 
-                if (!server.IsConnected) continue;
+                if (ct.IsCancellationRequested) break;
+                if (_pipeServer == null || !_pipeServer.IsConnected) continue;
 
                 try
                 {
-                    using var r = new System.IO.StreamReader(server);
+                    using var r = new System.IO.StreamReader(_pipeServer);
                     var line = r.ReadLine();
                     if (!string.IsNullOrEmpty(line))
                         UrlForwarded?.Invoke(this, line);
                 }
-                catch { /* ignore read errors */ }
+                catch { /* read error */ }
 
-                server.Disconnect();
+                try { _pipeServer?.Disconnect(); } catch { }
             }
-
-            server.Dispose();
         }
-        catch (OperationCanceledException) { /* normal shutdown */ }
-        catch (Exception) { /* pipe error — exit silently */ }
+        catch (ObjectDisposedException) { /* pipe disposed — normal shutdown */ }
+        catch (Exception) { /* other error — exit silently */ }
     }
 
     public void Dispose()
     {
-        // 1. Cancel the receiver loop.
+        // 1. Cancel the token (signals the receiver loop to stop).
         try { _cts?.Cancel(); } catch { }
-        // 2. Wait briefly for the receiver task to exit (max 2 seconds).
-        try { _receiverTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
-        // 3. Dispose the cancellation token source.
-        _cts?.Dispose();
+
+        // 2. Dispose the pipe server — this unblocks WaitForConnection()
+        //    by throwing ObjectDisposedException on the receiver thread.
+        try { _pipeServer?.Dispose(); } catch { }
+        _pipeServer = null;
+
+        // 3. Wait for the receiver thread to exit (max 1 second — it should
+        //    exit immediately when the pipe is disposed).
+        try { _receiverThread?.Join(1000); } catch { }
+        _receiverThread = null;
+
+        // 4. Dispose the CTS.
+        try { _cts?.Dispose(); } catch { }
         _cts = null;
-        // 4. Release and dispose the Mutex so the OS frees it immediately.
+
+        // 5. Release and dispose the Mutex — CRITICAL for reopening.
         try
         {
             if (_owns && _mutex is not null)
+            {
                 _mutex.ReleaseMutex();
+            }
         }
-        catch { /* already released */ }
+        catch { /* already released or abandoned */ }
         try { _mutex?.Dispose(); } catch { }
         _mutex = null;
     }

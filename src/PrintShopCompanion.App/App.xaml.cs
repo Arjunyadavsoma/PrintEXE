@@ -236,51 +236,59 @@ public partial class App : Application
         }
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    protected override void OnExit(ExitEventArgs e)
     {
+        // CRITICAL: This must be SYNCHRONOUS (not async void).
+        // WPF does NOT await async void OnExit — the process can exit before
+        // async cleanup completes, leaving the Mutex unreleased and preventing
+        // the app from being reopened.
         try
         {
-            Serilog.Log.Information("PrintShop Companion shutting down — stopping services");
+            Serilog.Log.Information("PrintShop Companion shutting down");
 
+            // 1. Release the single-instance mutex FIRST — even if cleanup
+            //    hangs, the next launch can acquire the mutex.
+            Serilog.Log.Information("Releasing single-instance mutex");
+            try { _singleInstance?.Dispose(); } catch { }
+
+            // 2. Stop background services synchronously (with timeout).
             if (_host is not null)
             {
-                // Stop the sync engine first (it uses the backend HTTP client).
                 try
                 {
                     var syncEngine = _host.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Sync.SyncEngine>();
-                    await syncEngine.StopAsync();
+                    syncEngine.StopAsync().Wait(TimeSpan.FromSeconds(3));
                     Serilog.Log.Information("SyncEngine stopped");
                 }
                 catch (Exception ex) { Serilog.Log.Warning(ex, "SyncEngine stop failed"); }
 
-                // Stop the job processor.
                 try
                 {
                     var processor = _host.Services.GetRequiredService<JobProcessor>();
-                    await processor.StopAsync();
+                    processor.StopAsync().Wait(TimeSpan.FromSeconds(3));
                     Serilog.Log.Information("JobProcessor stopped");
                 }
                 catch (Exception ex) { Serilog.Log.Warning(ex, "JobProcessor stop failed"); }
 
-                // Stop the DI host (disposes all IDisposable services).
-                await _host.StopAsync(TimeSpan.FromSeconds(5));
-                _host.Dispose();
-                Serilog.Log.Information("DI host stopped and disposed");
+                // 3. Stop and dispose the DI host.
+                try
+                {
+                    _host.StopAsync(TimeSpan.FromSeconds(3)).Wait();
+                    _host.Dispose();
+                    Serilog.Log.Information("DI host disposed");
+                }
+                catch (Exception ex) { Serilog.Log.Warning(ex, "DI host stop failed"); }
             }
 
-            // Hide tray icon.
-            _tray?.Hide();
+            // 4. Hide tray.
+            try { _tray?.Hide(); } catch { }
 
-            // Release the single-instance mutex (CRITICAL for reopening).
-            Serilog.Log.Information("Releasing single-instance mutex");
-            _singleInstance?.Dispose();
-
-            Serilog.Log.Information("PrintShop Companion shutdown complete");
+            Serilog.Log.Information("Shutdown complete");
             Serilog.Log.CloseAndFlush();
         }
         catch (Exception ex)
         {
-            Serilog.Log.Error(ex, "Error during shutdown");
+            try { Serilog.Log.Error(ex, "Error during shutdown"); } catch { }
             try { Serilog.Log.CloseAndFlush(); } catch { }
         }
         base.OnExit(e);
