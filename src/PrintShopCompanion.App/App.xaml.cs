@@ -73,7 +73,7 @@ public partial class App : Application
             // Serilog bootstrap.
             var logDir = SystemDiagnostics.CompanionLogDir();
             Directory.CreateDirectory(logDir);
-            Log.Logger = new LoggerConfiguration()
+            Serilog.Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .Enrich.FromLogContext()
                 .Enrich.With<DeviceTokenRedactor>()
@@ -183,7 +183,7 @@ public partial class App : Application
                 }
                 else
                 {
-                    Log.LogInformation("App is up to date (v{Version})", updateService.CurrentVersion);
+                    Serilog.Log.Information("App is up to date (v{Version})", updateService.CurrentVersion);
                 }
 
                 // Magic-link URL handling.
@@ -245,7 +245,7 @@ public partial class App : Application
             _tray?.Hide();
             _singleInstance?.Dispose();
             Serilog.Log.Information("PrintShop Companion shutting down");
-            Serilog.Log.CloseAndFlush();
+            Serilog.Serilog.Log.CloseAndFlush();
         }
         catch (Exception ex)
         {
