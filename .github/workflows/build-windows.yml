@@ -81,17 +81,15 @@ jobs:
       - name: Zip the folder distribution (RECOMMENDED — no SxS errors)
         shell: pwsh
         run: |
-          $src = "$env:GITHUB_WORKSPACE\artifacts\app-folder\*"
+          $src = "$env:GITHUB_WORKSPACE\artifacts\app-folder"
           $dst = "$env:GITHUB_WORKSPACE\installer\build\PrintShopCompanion-portable.zip"
           New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
-          # Use tar instead of Compress-Archive (more reliable for large folders)
-          $tarExe = "C:\Program Files\Git\usr\bin\tar.exe"
-          if (Test-Path $tarExe) {
-            Push-Location "$env:GITHUB_WORKSPACE\artifacts\app-folder"
-            & $tarExe -caf $dst *
-            Pop-Location
+          # Use 7-Zip (pre-installed on GitHub Actions windows-latest runners)
+          $7z = "C:\Program Files\7-Zip\7z.exe"
+          if (Test-Path $7z) {
+            & $7z a -tzip $dst "$src\*"
           } else {
-            Compress-Archive -Path $src -DestinationPath $dst -Force
+            Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
           }
           Write-Host "Zipped folder distribution:"
           Get-Item $dst | Format-List
