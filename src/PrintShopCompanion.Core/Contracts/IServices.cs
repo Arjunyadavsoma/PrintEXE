@@ -25,14 +25,6 @@ public interface IPairingService
     Task CancelAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Secure storage for the device token. Encrypts with DPAPI (current-user scope).</summary>
-public interface IDeviceTokenStore
-{
-    Task<DeviceToken?> LoadAsync(CancellationToken cancellationToken = default);
-    Task SaveAsync(DeviceToken token, CancellationToken cancellationToken = default);
-    Task ClearAsync(CancellationToken cancellationToken = default);
-}
-
 /// <summary>Minimal PDF rendering / printing abstraction.</summary>
 public interface IPdfRenderer
 {
