@@ -245,7 +245,7 @@ public partial class App : Application
             _tray?.Hide();
             _singleInstance?.Dispose();
             Serilog.Log.Information("PrintShop Companion shutting down");
-            Serilog.Serilog.Log.CloseAndFlush();
+            Serilog.Log.CloseAndFlush();
         }
         catch (Exception ex)
         {
