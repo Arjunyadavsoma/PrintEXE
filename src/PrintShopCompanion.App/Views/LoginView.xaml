@@ -43,7 +43,7 @@
 
                     <!-- Password -->
                     <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Margin="0,0,0,6" />
-                    <PasswordBox x:Name="PasswordBox" Style="{StaticResource InputField}" Margin="0,0,0,16"
+                    <PasswordBox x:Name="PasswordBox" Padding="12,10" FontSize="14" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" MinHeight="40" VerticalContentAlignment="Center" Margin="0,0,0,16"
                                  PasswordChanged="PasswordBox_PasswordChanged" />
 
                     <!-- Error -->
