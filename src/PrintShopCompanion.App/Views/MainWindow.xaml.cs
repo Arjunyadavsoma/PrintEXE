@@ -29,6 +29,21 @@ public partial class MainWindow : Window
     private void OnViewChanged()
     {
         var current = _nav.CurrentView;
+
+        // Hide sidebar on login screen — full-width centered login
+        var sidebar = FindName("NavPanel") as FrameworkElement;
+        var sidebarCol = Content.ColumnDefinitions[0];
+        if (current == "Login")
+        {
+            sidebarCol.Width = new GridLength(0);
+            if (sidebar != null) sidebar.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            sidebarCol.Width = new GridLength(240);
+            if (sidebar != null) sidebar.Visibility = Visibility.Visible;
+        }
+
         foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "Reports", "Settings", "Account" })
         {
             var btn = (Button)FindName("Nav" + name);

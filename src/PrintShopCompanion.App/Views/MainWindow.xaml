@@ -1,106 +1,106 @@
 <Window
-    x:Class="PrintShopCompanion.App.Views.MainWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="PrintShop — Shopkeeper Portal"
-    Width="1200" Height="750" MinWidth="600" MinHeight="500"
-    WindowStartupLocation="CenterScreen"
-    Background="{DynamicResource ApplicationBackgroundBrush}"
-    WindowStyle="SingleBorderWindow"
-    ResizeMode="CanResize"
-    SizeChanged="Window_SizeChanged">
+ x:Class="PrintShopCompanion.App.Views.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="PrintShop — Shopkeeper Portal"
+ Width="1200" Height="750" MinWidth="600" MinHeight="500"
+ WindowStartupLocation="CenterScreen"
+ Background="{DynamicResource ApplicationBackgroundBrush}"
+ WindowStyle="SingleBorderWindow"
+ ResizeMode="CanResize"
+ SizeChanged="Window_SizeChanged">
 
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="SidebarColumn" Width="240" MinWidth="60" MaxWidth="280" />
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+ <Grid>
+ <Grid.ColumnDefinitions>
+ <ColumnDefinition x:Name="SidebarColumn" Width="240" MinWidth="60" MaxWidth="280" />
+ <ColumnDefinition Width="*" />
+ </Grid.ColumnDefinitions>
 
-        <!-- Left navigation rail -->
-        <Border Grid.Column="0" Background="{DynamicResource CardBackgroundBrush}"
-                BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="0,0,1,0">
-            <DockPanel LastChildFill="True">
-                <!-- Shop header -->
-                <StackPanel DockPanel.Dock="Top" Margin="20,20,20,12">
-                    <Border Width="40" Height="40" CornerRadius="10"
-                            Background="{DynamicResource BrandPrimaryBrush}" HorizontalAlignment="Left" Margin="0,0,0,10">
-                        <TextBlock Text="P" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource BrandForegroundBrush}" />
-                    </Border>
-                    <TextBlock Text="PrintShop" FontSize="15" FontWeight="Bold"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                    <TextBlock x:Name="VersionLabel" FontSize="10" Opacity="0.5" Margin="0,2,0,0"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
+ <!-- Left navigation rail -->
+ <Border x:Name="NavPanel" Grid.Column="0" Background="{DynamicResource CardBackgroundBrush}"
+ BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="0,0,1,0">
+ <DockPanel LastChildFill="True">
+ <!-- Shop header -->
+ <StackPanel DockPanel.Dock="Top" Margin="20,20,20,12">
+ <Border Width="40" Height="40" CornerRadius="10"
+ Background="{DynamicResource BrandPrimaryBrush}" HorizontalAlignment="Left" Margin="0,0,0,10">
+ <TextBlock Text="P" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+ Foreground="{DynamicResource BrandForegroundBrush}" />
+ </Border>
+ <TextBlock Text="PrintShop" FontSize="15" FontWeight="Bold"
+ Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+ <TextBlock x:Name="VersionLabel" FontSize="10" Opacity="0.5" Margin="0,2,0,0"
+ Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+ </StackPanel>
 
-                <!-- User email + logout -->
-                <Border DockPanel.Dock="Bottom" Padding="20,14"
-                         BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="0,1,0,0">
-                    <StackPanel>
-                        <TextBlock x:Name="UserEmailLabel" Text="" FontSize="11" Opacity="0.7"
-                                   TextTrimming="CharacterEllipsis"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <Button x:Name="LogoutButton" Content="Sign Out" FontSize="11"
-                                Style="{StaticResource SecondaryButton}" Padding="10,5" Margin="0,8,0,0"
-                                Click="LogoutButton_Click" HorizontalAlignment="Left" />
-                    </StackPanel>
-                </Border>
+ <!-- User email + logout -->
+ <Border DockPanel.Dock="Bottom" Padding="20,14"
+ BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="0,1,0,0">
+ <StackPanel>
+ <TextBlock x:Name="UserEmailLabel" Text="" FontSize="11" Opacity="0.7"
+ TextTrimming="CharacterEllipsis"
+ Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+ <Button x:Name="LogoutButton" Content="Sign Out" FontSize="11"
+ Style="{StaticResource SecondaryButton}" Padding="10,5" Margin="0,8,0,0"
+ Click="LogoutButton_Click" HorizontalAlignment="Left" />
+ </StackPanel>
+ </Border>
 
-                <!-- Settings label -->
-                <TextBlock DockPanel.Dock="Top" Text="SETTINGS" FontSize="9" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                           Margin="20,8,0,4" />
+ <!-- Settings label -->
+ <TextBlock DockPanel.Dock="Top" Text="SETTINGS" FontSize="9" FontWeight="SemiBold"
+ Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+ Margin="20,8,0,4" />
 
-                <!-- Main nav + settings nav -->
-                <StackPanel Margin="8,0,8,0">
-                    <Button Style="{StaticResource NavRailItem}" Content="Overview"
-                            Click="Nav_Click" Tag="Overview" x:Name="NavOverview"/>
-                    <Button Style="{StaticResource NavRailItem}" Content="Orders"
-                            Click="Nav_Click" Tag="Orders" x:Name="NavOrders"/>
-                    <Button Style="{StaticResource NavRailItem}" Content="Print Queue"
-                            Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue"/>
-                    <Button Style="{StaticResource NavRailItem}" Content="Printers"
-                            Click="Nav_Click" Tag="Printers" x:Name="NavPrinters"/>
-                    <Button Style="{StaticResource NavRailItem}" Content="Reports"
-                            Click="Nav_Click" Tag="Reports" x:Name="NavReports"/>
-                    <Button Style="{StaticResource NavRailItem}" Content="Settings"
-                            Click="Nav_Click" Tag="Settings" x:Name="NavSettings"/>
-                    <Button Style="{StaticResource NavRailItem}" Content="Account"
-                            Click="Nav_Click" Tag="Account" x:Name="NavAccount"/>
-                </StackPanel>
-            </DockPanel>
-        </Border>
+ <!-- Main nav + settings nav -->
+ <StackPanel Margin="8,0,8,0">
+ <Button Style="{StaticResource NavRailItem}" Content="Overview"
+ Click="Nav_Click" Tag="Overview" x:Name="NavOverview"/>
+ <Button Style="{StaticResource NavRailItem}" Content="Orders"
+ Click="Nav_Click" Tag="Orders" x:Name="NavOrders"/>
+ <Button Style="{StaticResource NavRailItem}" Content="Print Queue"
+ Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue"/>
+ <Button Style="{StaticResource NavRailItem}" Content="Printers"
+ Click="Nav_Click" Tag="Printers" x:Name="NavPrinters"/>
+ <Button Style="{StaticResource NavRailItem}" Content="Reports"
+ Click="Nav_Click" Tag="Reports" x:Name="NavReports"/>
+ <Button Style="{StaticResource NavRailItem}" Content="Settings"
+ Click="Nav_Click" Tag="Settings" x:Name="NavSettings"/>
+ <Button Style="{StaticResource NavRailItem}" Content="Account"
+ Click="Nav_Click" Tag="Account" x:Name="NavAccount"/>
+ </StackPanel>
+ </DockPanel>
+ </Border>
 
-        <!-- Active screen + update banner -->
-        <Grid Grid.Column="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+ <!-- Active screen + update banner -->
+ <Grid Grid.Column="1">
+ <Grid.RowDefinitions>
+ <RowDefinition Height="Auto" />
+ <RowDefinition Height="*" />
+ </Grid.RowDefinitions>
 
-            <!-- Update banner -->
-            <Border x:Name="UpdateBanner" Grid.Row="0"
-                    Background="{DynamicResource BrandSoftBrush}"
-                    BorderBrush="{DynamicResource BrandPrimaryBrush}" BorderThickness="0,0,0,2"
-                    Padding="20,10" Visibility="Collapsed">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="Update available" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#92400E" VerticalAlignment="Center" />
-                        <TextBlock x:Name="UpdateText" FontSize="13" Margin="12,0,0,0"
-                                   Foreground="#92400E" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <Button Grid.Column="1" x:Name="UpdateButton" Content="Update Now"
-                            Style="{StaticResource PrimaryButton}" Padding="20,8"
-                            Click="UpdateButton_Click" />
-                </Grid>
-            </Border>
+ <!-- Update banner -->
+ <Border x:Name="UpdateBanner" Grid.Row="0"
+ Background="{DynamicResource BrandSoftBrush}"
+ BorderBrush="{DynamicResource BrandPrimaryBrush}" BorderThickness="0,0,0,2"
+ Padding="20,10" Visibility="Collapsed">
+ <Grid>
+ <Grid.ColumnDefinitions>
+ <ColumnDefinition Width="*" />
+ <ColumnDefinition Width="Auto" />
+ </Grid.ColumnDefinitions>
+ <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+ <TextBlock Text="Update available" FontSize="14" FontWeight="SemiBold"
+ Foreground="#92400E" VerticalAlignment="Center" />
+ <TextBlock x:Name="UpdateText" FontSize="13" Margin="12,0,0,0"
+ Foreground="#92400E" VerticalAlignment="Center" />
+ </StackPanel>
+ <Button Grid.Column="1" x:Name="UpdateButton" Content="Update Now"
+ Style="{StaticResource PrimaryButton}" Padding="20,8"
+ Click="UpdateButton_Click" />
+ </Grid>
+ </Border>
 
-            <ContentControl Grid.Row="1" x:Name="ContentArea" />
-        </Grid>
-    </Grid>
+ <ContentControl Grid.Row="1" x:Name="ContentArea" />
+ </Grid>
+ </Grid>
 </Window>
