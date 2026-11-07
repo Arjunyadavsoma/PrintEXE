@@ -6,80 +6,117 @@
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24">
+    <Grid Background="White">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-            <!-- Header -->
-            <DockPanel Margin="0,0,0,24">
-                <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="{Binding ShopName}" FontSize="20" FontWeight="Bold"/>
-                    <TextBlock Text="Dashboard" FontSize="12" Foreground="#6B7280"/>
-                </StackPanel>
-                <Button Content="Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
-                        HorizontalAlignment="Right" Padding="16,8"
-                        Background="#F3F4F6" BorderBrush="#E5E7EB" BorderThickness="1" Cursor="Hand"/>
-            </DockPanel>
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="24,24,24,0">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="{Binding ShopName}" FontSize="22" FontWeight="Bold" Foreground="#1F2937"/>
+                <TextBlock Text="Dashboard" FontSize="13" Foreground="#6B7280" Margin="0,2,0,0"/>
+            </StackPanel>
+            <Button Content="Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
+                    HorizontalAlignment="Right" Padding="16,8" FontSize="13"
+                    Background="#F3F4F6" Foreground="#374151" BorderBrush="#E5E7EB"
+                    BorderThickness="1" Cursor="Hand"/>
+        </DockPanel>
 
-            <!-- Error -->
-            <Border Background="#FEF2F2" CornerRadius="8" Padding="12,8" Margin="0,0,0,16"
-                    Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
-                <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#DC2626"/>
-            </Border>
-
-            <!-- Stats -->
-            <WrapPanel Margin="0,0,0,20">
-                <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock Text="Revenue" FontSize="11" Foreground="#6B7280"/>
-                        <TextBlock Text="{Binding RevenueFormatted}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-                <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock Text="Total Orders" FontSize="11" Foreground="#6B7280"/>
-                        <TextBlock Text="{Binding TotalOrders}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-                <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock Text="Paid" FontSize="11" Foreground="#6B7280"/>
-                        <TextBlock Text="{Binding PaidOrders}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-                <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock Text="Printing" FontSize="11" Foreground="#6B7280"/>
-                        <TextBlock Text="{Binding Printing}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-                <Border Width="180" Margin="0,0,0,12" Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock Text="Ready" FontSize="11" Foreground="#6B7280"/>
-                        <TextBlock Text="{Binding Ready}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-            </WrapPanel>
-
-            <!-- Recent orders -->
-            <Border Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Padding="20">
-                <StackPanel>
-                    <TextBlock Text="Recent Orders" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                    <ListView ItemsSource="{Binding RecentOrders}" Background="Transparent" BorderThickness="0">
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="Token" Width="80" DisplayMemberBinding="{Binding TokenNumber}"/>
-                                <GridViewColumn Header="Customer" Width="120" DisplayMemberBinding="{Binding CustomerPhone}"/>
-                                <GridViewColumn Header="Status" Width="100" DisplayMemberBinding="{Binding Status}"/>
-                                <GridViewColumn Header="Amount" Width="100" DisplayMemberBinding="{Binding TotalAmountPaise}"/>
-                                <GridViewColumn Header="Date" Width="120" DisplayMemberBinding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}"/>
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
-                    <TextBlock Text="No orders yet" FontSize="13" Foreground="#6B7280"
-                               HorizontalAlignment="Center" Margin="0,20"
-                               Visibility="{Binding RecentOrders.Count, Converter={StaticResource InverseBoolToVis}}"/>
-                </StackPanel>
-            </Border>
+        <!-- Loading -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Loading..." FontSize="14" Foreground="#6B7280"/>
         </StackPanel>
-    </ScrollViewer>
+
+        <!-- Error -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="24"
+                    Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="{Binding ErrorMessage}" FontSize="14" Foreground="#DC2626"
+                       TextWrapping="Wrap" TextAlignment="Center"/>
+            <Button Content="Retry" Click="Refresh_Click" Margin="0,12,0,0"
+                    Padding="16,8" Background="#D97706" Foreground="White"
+                    BorderThickness="0" Cursor="Hand"/>
+        </StackPanel>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding IsLoading, Converter={StaticResource InverseBoolToVis}}">
+            <StackPanel Margin="24">
+                <!-- Stats -->
+                <WrapPanel Margin="0,0,0,20">
+                    <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="Revenue" FontSize="11" Foreground="#6B7280"/>
+                            <TextBlock Text="{Binding RevenueFormatted}" FontSize="22" FontWeight="Bold"
+                                       Foreground="#1F2937" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="Total Orders" FontSize="11" Foreground="#6B7280"/>
+                            <TextBlock Text="{Binding TotalOrders}" FontSize="22" FontWeight="Bold"
+                                       Foreground="#1F2937" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="Paid" FontSize="11" Foreground="#6B7280"/>
+                            <TextBlock Text="{Binding PaidOrders}" FontSize="22" FontWeight="Bold"
+                                       Foreground="#1F2937" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Width="180" Margin="0,0,12,12" Background="White" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="Printing" FontSize="11" Foreground="#6B7280"/>
+                            <TextBlock Text="{Binding Printing}" FontSize="22" FontWeight="Bold"
+                                       Foreground="#D97706" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Width="180" Margin="0,0,0,12" Background="White" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="Ready" FontSize="11" Foreground="#6B7280"/>
+                            <TextBlock Text="{Binding Ready}" FontSize="22" FontWeight="Bold"
+                                       Foreground="#16A34A" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </WrapPanel>
+
+                <!-- Recent Orders -->
+                <Border Background="White" CornerRadius="10" BorderBrush="#E5E7EB"
+                        BorderThickness="1" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="Recent Orders" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#1F2937" Margin="0,0,0,12"/>
+                        <ListView ItemsSource="{Binding RecentOrders}"
+                                  Background="Transparent" BorderThickness="0">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Token" Width="80"
+                                                    DisplayMemberBinding="{Binding TokenNumber}"/>
+                                    <GridViewColumn Header="Customer" Width="120"
+                                                    DisplayMemberBinding="{Binding CustomerPhone}"/>
+                                    <GridViewColumn Header="Status" Width="100"
+                                                    DisplayMemberBinding="{Binding Status}"/>
+                                    <GridViewColumn Header="Amount" Width="100"
+                                                    DisplayMemberBinding="{Binding TotalAmountPaise}"/>
+                                    <GridViewColumn Header="Date" Width="120"
+                                                    DisplayMemberBinding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock Text="No orders yet" FontSize="13" Foreground="#6B7280"
+                                   HorizontalAlignment="Center" Margin="0,20"
+                                   Visibility="{Binding RecentOrders.Count, Converter={StaticResource InverseBoolToVis}}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
 </UserControl>

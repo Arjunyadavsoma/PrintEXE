@@ -7,51 +7,49 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
 
     <Grid Background="#FEF3C7">
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="400" Margin="24">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="24">
 
             <!-- Logo -->
-            <Border Width="48" Height="48" CornerRadius="12" Background="#D97706"
+            <Border Width="52" Height="52" CornerRadius="13" Background="#D97706"
                     HorizontalAlignment="Center" Margin="0,0,0,16">
-                <TextBlock Text="P" FontSize="24" FontWeight="Bold" Foreground="White"
+                <TextBlock Text="P" FontSize="26" FontWeight="Bold" Foreground="White"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
 
-            <TextBlock Text="Shopkeeper Portal" FontSize="24" FontWeight="Bold"
-                       HorizontalAlignment="Center" Margin="0,0,0,6"/>
+            <TextBlock Text="Shopkeeper Portal" FontSize="26" FontWeight="Bold"
+                       Foreground="#1F2937" HorizontalAlignment="Center" Margin="0,0,0,6"/>
             <TextBlock Text="Sign in to your print shop account" FontSize="14"
-                       Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,0,0,28"/>
+                       Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,0,0,32"/>
 
             <!-- Card -->
-            <Border Background="White" CornerRadius="10" Padding="28" Margin="0,0,0,16">
-                <Border.BorderBrush><SolidColorBrush Color="#E5E7EB"/></Border.BorderBrush>
-                <Border.BorderThickness>1</Border.BorderThickness>
-
+            <Border Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="32">
                 <StackPanel>
-                    <TextBlock Text="Sign In" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBlock Text="Enter your shop credentials" FontSize="12" Foreground="#6B7280" Margin="0,0,0,20"/>
+                    <TextBlock Text="Sign In" FontSize="18" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,4"/>
+                    <TextBlock Text="Enter your shop credentials" FontSize="12" Foreground="#6B7280" Margin="0,0,0,24"/>
 
-                    <TextBlock Text="Email" FontSize="12" FontWeight="Medium" Margin="0,0,0,4"/>
+                    <TextBlock Text="Email" FontSize="12" FontWeight="Medium" Foreground="#374151" Margin="0,0,0,4"/>
                     <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="10,8" FontSize="14" Margin="0,0,0,16" BorderBrush="#D1D5DB"/>
+                             Padding="12,10" FontSize="14" Margin="0,0,0,16"
+                             BorderBrush="#D1D5DB" BorderThickness="1"/>
 
-                    <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Margin="0,0,0,4"/>
-                    <PasswordBox x:Name="PasswordBox" Padding="10,8" FontSize="14"
-                                 BorderBrush="#D1D5DB" Margin="0,0,0,16"
+                    <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Foreground="#374151" Margin="0,0,0,4"/>
+                    <PasswordBox x:Name="PasswordBox" Padding="12,10" FontSize="14"
+                                 BorderBrush="#D1D5DB" BorderThickness="1" Margin="0,0,0,16"
                                  PasswordChanged="PasswordBox_PasswordChanged"/>
 
-                    <Border Background="#FEF2F2" CornerRadius="6" Padding="10,8" Margin="0,0,0,12"
+                    <Border Background="#FEF2F2" CornerRadius="8" Padding="12,10" Margin="0,0,0,16"
                             Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#DC2626" TextWrapping="Wrap"/>
                     </Border>
 
                     <Button Content="Sign In" Click="SignIn_Click"
-                            Background="#D97706" Foreground="White" Padding="0,10"
+                            Background="#D97706" Foreground="White" Padding="0,12"
                             FontSize="14" FontWeight="SemiBold" BorderThickness="0"
-                            Cursor="Hand" Margin="0,4,0,0"/>
+                            Cursor="Hand"/>
                 </StackPanel>
             </Border>
 
-            <TextBlock HorizontalAlignment="Center" FontSize="12" Foreground="#6B7280">
+            <TextBlock HorizontalAlignment="Center" FontSize="12" Foreground="#6B7280" Margin="0,16,0,0">
                 Don't have a shop account? <Run Text="Register" FontWeight="Medium" Foreground="#D97706"/>
             </TextBlock>
         </StackPanel>

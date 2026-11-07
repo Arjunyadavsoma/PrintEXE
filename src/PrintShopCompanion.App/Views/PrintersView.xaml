@@ -1,67 +1,49 @@
 <UserControl
- x:Class="PrintShopCompanion.App.Views.PrintersView"
- xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- xmlns:vm="clr-namespace:PrintShopCompanion.App.ViewModels"
- xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
- xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
- mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:PrintersViewModel}">
+    x:Class="PrintShopCompanion.App.Views.PrintersView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
 
- <ScrollViewer VerticalScrollBarVisibility="Auto">
- <StackPanel>
- <Grid Margin="0,0,0,16">
- <Grid.ColumnDefinitions>
- <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
- </Grid.ColumnDefinitions>
- <StackPanel Grid.Column="0">
- <TextBlock Text="Printers" FontSize="28" FontWeight="SemiBold" />
- <TextBlock Text="Pick the printer you want this PC to use for jobs. Test print to confirm." Opacity="0.7" />
- </StackPanel>
- <StackPanel Grid.Column="1" Orientation="Horizontal">
- <Button Style="{StaticResource SecondaryButton}" Content="Refresh" Command="{Binding RefreshListCommand}" />
- <Button Style="{StaticResource PrimaryButton}" Content="Test print"
- Margin="8,0,0,0" Command="{Binding TestPrintCommand}"
- IsEnabled="{Binding IsTestPrinting, Converter={StaticResource InverseBool}}" />
- </StackPanel>
- </Grid>
+    <Grid Background="White">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
- <Border Style="{StaticResource Card}">
- <StackPanel>
- <TextBlock Text="{Binding TestStatus}" TextWrapping="Wrap" Margin="0,0,0,12" />
- </StackPanel>
- </Border>
+        <DockPanel Grid.Row="0" Margin="24,24,24,0">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="Printers" FontSize="22" FontWeight="Bold" Foreground="#1F2937"/>
+                <TextBlock Text="Installed printers on this computer" FontSize="13" Foreground="#6B7280" Margin="0,2,0,0"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Refresh" Click="Refresh_Click" Padding="16,8" FontSize="13"
+                        Background="#F3F4F6" Foreground="#374151" BorderBrush="#E5E7EB"
+                        BorderThickness="1" Cursor="Hand" Margin="0,0,8,0"/>
+                <Button Content="Test Print" Click="TestPrint_Click" Padding="16,8" FontSize="13"
+                        Background="#D97706" Foreground="White" BorderThickness="0"
+                        FontWeight="SemiBold" Cursor="Hand"/>
+            </StackPanel>
+        </DockPanel>
 
- <Border Style="{StaticResource Card}">
- <StackPanel>
- <TextBlock Text="Installed printers" FontWeight="SemiBold" Margin="0,0,0,12" />
- <ListView ItemsSource="{Binding Printers}" SelectedItem="{Binding Selected}"
- Background="Transparent" BorderThickness="0">
- <ListView.ItemTemplate>
- <DataTemplate>
- <Border Padding="0,8" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="0,0,0,1">
- <Grid>
- <Grid.ColumnDefinitions>
- <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
- </Grid.ColumnDefinitions>
- <StackPanel Grid.Column="0">
- <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
- <TextBlock Text="{Binding FullName}" Opacity="0.55" FontSize="11" />
- </StackPanel>
- <TextBlock Grid.Column="1" Text="Default" Opacity="0.7" Visibility="{Binding IsDefault, Converter={StaticResource BoolToVis}}" Margin="0,0,12,0" VerticalAlignment="Center" />
- <TextBlock Grid.Column="2" Text="Offline" Foreground="{DynamicResource BrandDangerBrush}" Visibility="{Binding IsOffline, Converter={StaticResource BoolToVis}}" Margin="0,0,12,0" VerticalAlignment="Center" />
- <TextBlock Grid.Column="3" Text="Selected" Foreground="{DynamicResource BrandPrimaryBrush}" Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}" VerticalAlignment="Center" />
- </Grid>
- </Border>
- </DataTemplate>
- </ListView.ItemTemplate>
- </ListView>
-
- <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
- <Button Style="{StaticResource PrimaryButton}" Content="Set as default for this PC"
- Command="{Binding SelectPrinterCommand}" />
- </StackPanel>
- </StackPanel>
- </Border>
- </StackPanel>
- </ScrollViewer>
+        <Border Grid.Row="1" Background="White" CornerRadius="10" BorderBrush="#E5E7EB"
+                BorderThickness="1" Margin="24" Padding="20">
+            <StackPanel>
+                <TextBlock x:Name="StatusText" Text="" FontSize="13" Margin="0,0,0,12" Foreground="#6B7280"/>
+                <ListView x:Name="PrinterList" Background="Transparent" BorderThickness="0">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Name" Width="250" DisplayMemberBinding="{Binding DisplayName}"/>
+                            <GridViewColumn Header="Status" Width="100" DisplayMemberBinding="{Binding IsOffline}"/>
+                            <GridViewColumn Header="Default" Width="80" DisplayMemberBinding="{Binding IsDefault}"/>
+                            <GridViewColumn Header="Selected" Width="80" DisplayMemberBinding="{Binding IsSelected}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <TextBlock Text="No printers found" FontSize="13" Foreground="#6B7280"
+                           HorizontalAlignment="Center" Margin="0,20"/>
+            </StackPanel>
+        </Border>
+    </Grid>
 </UserControl>

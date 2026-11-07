@@ -1,90 +1,64 @@
 <UserControl
- x:Class="PrintShopCompanion.App.Views.OrdersView"
- xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
- xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
- mc:Ignorable="d">
+    x:Class="PrintShopCompanion.App.Views.OrdersView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
 
- <ScrollViewer VerticalScrollBarVisibility="Auto">
- <StackPanel Margin="24,24,24,24">
+    <Grid Background="White">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
- <!-- Header — matches website -->
- <Grid Margin="0,0,0,20">
- <Grid.ColumnDefinitions>
- <ColumnDefinition Width="*" />
- <ColumnDefinition Width="Auto" />
- </Grid.ColumnDefinitions>
- <StackPanel Grid.Column="0" Orientation="Horizontal">
- <StackPanel>
- <TextBlock Text="Orders" FontSize="20" FontWeight="Bold" />
- <TextBlock Text="Manage customer print orders" FontSize="12"
- Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
- </StackPanel>
- </StackPanel>
- <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Refresh"
- Command="{Binding LoadCommand}" Padding="16,8" />
- </Grid>
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="24,24,24,0">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="Orders" FontSize="22" FontWeight="Bold" Foreground="#1F2937"/>
+                <TextBlock Text="Manage customer print orders" FontSize="13" Foreground="#6B7280" Margin="0,2,0,0"/>
+            </StackPanel>
+            <Button Content="Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
+                    HorizontalAlignment="Right" Padding="16,8" FontSize="13"
+                    Background="#F3F4F6" Foreground="#374151" BorderBrush="#E5E7EB"
+                    BorderThickness="1" Cursor="Hand"/>
+        </DockPanel>
 
- <!-- Filter bar — matches website: search + status dropdown -->
- <Border Style="{StaticResource Card}" Margin="0,0,0,16">
- <Grid>
- <Grid.ColumnDefinitions>
- <ColumnDefinition Width="*" />
- <ColumnDefinition Width="160" />
- </Grid.ColumnDefinitions>
- <StackPanel Grid.Column="0" Margin="0,0,12,0">
- <TextBlock Text="Search" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,4" />
- <TextBox Text="{Binding SearchTerm, UpdateSourceTrigger=PropertyChanged}"
- Padding="10,8" FontSize="14" />
- </StackPanel>
- <StackPanel Grid.Column="1">
- <TextBlock Text="Status" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,4" />
- <ComboBox SelectedItem="{Binding StatusFilter}" Padding="8,6" FontSize="14">
- <ComboBoxItem Content="All" />
- <ComboBoxItem Content="Awaiting Payment" />
- <ComboBoxItem Content="Paid" />
- <ComboBoxItem Content="Printing" />
- <ComboBoxItem Content="Ready" />
- <ComboBoxItem Content="Collected" />
- <ComboBoxItem Content="Cancelled" />
- </ComboBox>
- </StackPanel>
- </Grid>
- </Border>
+        <!-- Loading -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Loading orders..." FontSize="14" Foreground="#6B7280"/>
+        </StackPanel>
 
- <!-- Orders table — matches website -->
- <Border Style="{StaticResource Card}">
- <StackPanel>
- <TextBlock Text="Order queue" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4" />
- <TextBlock Text="Click an order to view details" FontSize="11"
- Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,12" />
+        <!-- Error -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="24"
+                    Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="{Binding ErrorMessage}" FontSize="14" Foreground="#DC2626"
+                       TextWrapping="Wrap" TextAlignment="Center"/>
+        </StackPanel>
 
- <ListView ItemsSource="{Binding Orders}"
- Background="Transparent" BorderThickness="0"
- SelectedItem="{Binding Selected}">
- <ListView.View>
- <GridView>
- <GridViewColumn Header="Token" Width="80"
- DisplayMemberBinding="{Binding TokenNumber}" />
- <GridViewColumn Header="Customer" Width="120"
- DisplayMemberBinding="{Binding CustomerPhone}" />
- <GridViewColumn Header="Status" Width="120"
- DisplayMemberBinding="{Binding Status}" />
- <GridViewColumn Header="Amount (₹)" Width="100"
- DisplayMemberBinding="{Binding TotalAmountPaise}" />
- <GridViewColumn Header="Created" Width="140"
- DisplayMemberBinding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" />
- </GridView>
- </ListView.View>
- </ListView>
-
- <TextBlock Text="No orders found" FontSize="13"
- Foreground="{DynamicResource TextFillColorSecondaryBrush}"
- HorizontalAlignment="Center" Margin="0,16"
- Visibility="{Binding Orders.Count, Converter={StaticResource InverseBoolToVis}}" />
- </StackPanel>
- </Border>
- </StackPanel>
- </ScrollViewer>
+        <!-- Orders table -->
+        <Border Grid.Row="1" Background="White" CornerRadius="10" BorderBrush="#E5E7EB"
+                BorderThickness="1" Margin="24" Padding="20"
+                Visibility="{Binding IsLoading, Converter={StaticResource InverseBoolToVis}}">
+            <StackPanel>
+                <TextBlock Text="Order Queue" FontSize="15" FontWeight="SemiBold"
+                           Foreground="#1F2937" Margin="0,0,0,12"/>
+                <ListView ItemsSource="{Binding Orders}" Background="Transparent" BorderThickness="0">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Token" Width="80" DisplayMemberBinding="{Binding TokenNumber}"/>
+                            <GridViewColumn Header="Customer" Width="120" DisplayMemberBinding="{Binding CustomerPhone}"/>
+                            <GridViewColumn Header="Status" Width="100" DisplayMemberBinding="{Binding Status}"/>
+                            <GridViewColumn Header="Amount" Width="100" DisplayMemberBinding="{Binding TotalAmountPaise}"/>
+                            <GridViewColumn Header="Date" Width="120" DisplayMemberBinding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <TextBlock Text="No orders found" FontSize="13" Foreground="#6B7280"
+                           HorizontalAlignment="Center" Margin="0,20"
+                           Visibility="{Binding Orders.Count, Converter={StaticResource InverseBoolToVis}}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
 </UserControl>
