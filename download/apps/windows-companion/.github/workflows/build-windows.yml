@@ -63,6 +63,7 @@ jobs:
 
       - name: Publish app (self-contained, single-file)
         shell: pwsh
+        continue-on-error: true
         run: |
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
             -c Release -r win-x64 --self-contained true `
@@ -77,12 +78,21 @@ jobs:
             -p:PublishSingleFile=false -p:PublishReadyToRun=true `
             -o ./artifacts/app-folder
 
-      - name: Zip the folder distribution
+      - name: Zip the folder distribution (RECOMMENDED — no SxS errors)
         shell: pwsh
         run: |
-          Compress-Archive -Path ./artifacts/app-folder/* -DestinationPath ./installer/build/PrintShopCompanion-portable.zip -Force
+          $src = "$env:GITHUB_WORKSPACE\artifacts\app-folder"
+          $dst = "$env:GITHUB_WORKSPACE\installer\build\PrintShopCompanion-portable.zip"
+          New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+          # Use 7-Zip (pre-installed on GitHub Actions windows-latest runners)
+          $7z = "C:\Program Files\7-Zip\7z.exe"
+          if (Test-Path $7z) {
+            & $7z a -tzip $dst "$src\*"
+          } else {
+            Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
+          }
           Write-Host "Zipped folder distribution:"
-          Get-Item ./installer/build/PrintShopCompanion-portable.zip | Format-List
+          Get-Item $dst | Format-List
 
       - name: Publish worker (self-contained, single-file)
         shell: pwsh
@@ -251,14 +261,20 @@ jobs:
           body: |
             PrintShop Companion ${{ github.event.inputs.release-tag || github.ref_name }}
 
-            Self-contained Windows x64 build. Download PrintShopCompanion.zip,
-            unzip it, and run PrintShopCompanion.exe.
+            ## ⬇️ DOWNLOAD PrintShopCompanion-portable.zip (RECOMMENDED)
+
+            **Do NOT download PrintShopCompanion.exe** — it has a known SxS configuration error on some Windows machines.
+
+            Instead, download **PrintShopCompanion-portable.zip**, unzip it to a folder,
+            and run **PrintShopCompanion.exe** from inside that folder.
+
+            The portable ZIP contains the EXE plus all required DLLs alongside it —
+            no self-extraction, no SxS errors.
 
             Built from commit ${{ github.sha }} on GitHub Actions run #${{ github.run_number }}.
           fail_on_unmatched_files: false
           files: |
+            installer/build/PrintShopCompanion-portable.zip
             installer/build/PrintShopCompanion.msi
             installer/build/PrintShopCompanion.Setup.exe
             installer/build/SHA256SUMS.txt
-            installer/build/PrintShopCompanion-portable.zip
-            artifacts/app-singlefile/PrintShopCompanion.exe
