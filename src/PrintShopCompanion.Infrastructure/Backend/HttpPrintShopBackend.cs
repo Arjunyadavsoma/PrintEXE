@@ -64,7 +64,8 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         }
         _shop = new ShopInfo
         {
-            ShopId = _token.ShopId,
+            Id = _token.ShopId,
+            Slug = _token.ShopId,
             Name = "(restored)",
             BaseUrl = baseUri,
             ApiBasePath = o.ApiBasePath
@@ -115,7 +116,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _token = new DeviceToken
         {
             ShopId = dto.ShopId,
-            AgentId = dto.DeviceId,
+            DeviceId = dto.DeviceId,
             Token = dto.DeviceToken,
             IssuedAt = dto.IssuedAt,
         };
@@ -125,14 +126,14 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
         _shop = new ShopInfo
         {
-            ShopId = dto.ShopId,
+            Id = dto.ShopId, Slug = dto.ShopId,
             Name = dto.ShopName,
             BaseUrl = dto.BaseUrl,
             ApiBasePath = o.ApiBasePath
         };
         _device = new DeviceRegistration
         {
-            AgentId = dto.DeviceId,
+            DeviceId = dto.DeviceId,
             ShopId = dto.ShopId,
             Hostname = req.Hostname,
             OperatingSystem = req.OperatingSystem,
@@ -171,7 +172,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         var dtos = await resp.Content.ReadFromJsonAsync<List<PrintJobDto>>(Json, ct) ?? new();
-        return dtos.Select(MapToRecord).ToList();
+        return dtos.Select(d => MapToRecord(d)).ToList();
     }
 
     public async Task AcknowledgeJobAsync(string jobId, CancellationToken ct = default)
@@ -298,7 +299,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     {
         JobId = dto.JobId,
         Id = "", // The real /agents/jobs/pending doesn't return shopId; the device token is shop-scoped
-        DeviceId = "", // Same for deviceId
+        DeviceDeviceId = "",
         Title = dto.Filename,
         PrinterName = null,
         Copies = dto.Copies,
