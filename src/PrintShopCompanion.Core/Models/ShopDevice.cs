@@ -61,6 +61,14 @@ public sealed record ShopInfo
     public string? PaymentPhone { get; init; }
     public string? PaymentInstructions { get; init; }
     public bool CashOnPickup { get; init; }
+
+    // ── Compatibility aliases for the print-agent backend (HttpPrintShopBackend) ──
+    // The old companion-specific ShopInfo had ShopId/ShopName/BaseUrl/ApiBasePath.
+    // These forward to the new backend-derived fields so old code keeps working.
+    public string ShopId => Id;
+    public string ShopName => Name;
+    public Uri? BaseUrl { get; set; }
+    public string ApiBasePath { get; set; } = "/api/v1";
 }
 
 /// <summary>
@@ -75,6 +83,33 @@ public sealed record DeviceToken
     public required string ShopId { get; init; }
     public required string Token { get; init; }
     public DateTimeOffset IssuedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    // Compatibility alias for the old print-agent backend.
+    public string DeviceId => AgentId;
+}
+
+/// <summary>
+/// Device registration record from the old companion v0.1 flow. Kept for
+/// backward compat with <c>HttpPrintShopBackend.RestoreAsync</c> which constructs
+/// this type. The new shopkeeper app uses the positional record in
+/// <c>Core.Contracts.IShopBackend</c> instead.
+/// </summary>
+public sealed class DeviceRegistration
+{
+    public required string DeviceId { get; init; }
+    public required string ShopId { get; init; }
+    public required string Hostname { get; init; }
+    public required string OperatingSystem { get; init; }
+    public required string AppVersion { get; init; }
+    public DateTimeOffset RegisteredAt { get; init; }
+    public DateTimeOffset LastSeenAt { get; init; }
+    public bool Revoked { get; init; }
+    // New fields from the real backend
+    public string? Name { get; init; }
+    public bool IsOnline { get; init; }
+    public string? PrinterName { get; init; }
+    public string? Version { get; init; }
+    public string? Os { get; init; }
 }
 
 /// <summary>Combined persisted credential bundle. Stored DPAPI-encrypted on disk.</summary>
