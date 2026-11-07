@@ -63,6 +63,38 @@ public partial class MainWindow : Window
         _nav.NavigateToLogin();
     }
 
+    private IUpdateService? _updateService;
+
+    /// <summary>Called by App.OnStartup when a GitHub release newer than the current version is found.</summary>
+    public void ShowUpdateBanner(IUpdateService updateService)
+    {
+        _updateService = updateService;
+        UpdateText.Text = $"Update available: v{updateService.CurrentVersion} → v{updateService.LatestVersion}";
+        UpdateBanner.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updateService is null) return;
+        UpdateButton.Content = "Downloading...";
+        UpdateButton.IsEnabled = false;
+        try
+        {
+            await _updateService.InstallUpdateAsync(new Progress<int>(p =>
+            {
+                UpdateButton.Content = $"Installing... {p}%";
+            }));
+            // The InstallUpdateAsync will shut down the app.
+        }
+        catch (Exception ex)
+        {
+            UpdateButton.Content = "Update failed";
+            MessageBox.Show($"Update failed: {ex.Message}", "Update Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UpdateButton.IsEnabled = true;
+            UpdateButton.Content = "Retry Update";
+        }
+    }
+
     private void OnClosingHandler(object? sender, CancelEventArgs e)
     {
         var opts = _services.GetRequiredService<IOptionsMonitor<AppOptions>>().CurrentValue;

@@ -79,6 +79,9 @@ public static class InfrastructureModule
         // Job processor (started by the App or Worker; not hosted automatically here)
         services.AddSingleton<JobProcessor>();
 
+        // Auto-update — checks GitHub releases for newer versions
+        services.AddHttpClient<IUpdateService, GitHubUpdateService>();
+
         return services;
     }
 }

@@ -69,6 +69,32 @@
         </Border>
 
         <!-- Active screen -->
-        <ContentControl Grid.Column="1" x:Name="ContentArea" />
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Update banner (hidden by default) -->
+            <Border x:Name="UpdateBanner" Grid.Row="0"
+                    Background="#FEF3C7" BorderBrush="#D97706" BorderThickness="0,0,0,2"
+                    Padding="16,8" Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <TextBlock Text="🔄" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock x:Name="UpdateText" FontSize="13" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="UpdateButton" Content="Update Now"
+                            Background="#D97706" Foreground="White" Padding="16,6"
+                            BorderThickness="0" FontWeight="SemiBold" Click="UpdateButton_Click" />
+                </Grid>
+            </Border>
+
+            <ContentControl Grid.Row="1" x:Name="ContentArea" />
+        </Grid>
     </Grid>
 </Window>

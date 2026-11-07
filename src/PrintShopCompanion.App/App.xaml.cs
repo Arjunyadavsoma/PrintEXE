@@ -169,6 +169,24 @@ public partial class App : Application
                 // URI activator.
                 _uriActivator = _host.Services.GetRequiredService<UriActivator>();
 
+                // ── Check for updates (GitHub Releases) ──
+                var updateService = _host.Services.GetRequiredService<IUpdateService>();
+                var updateAvailable = await updateService.CheckForUpdatesAsync();
+                if (updateAvailable)
+                {
+                    Log.Information("Update available: {Current} → {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
+                    // Show the update banner on the MainWindow
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        if (main is MainWindow mw)
+                            mw.ShowUpdateBanner(updateService);
+                    });
+                }
+                else
+                {
+                    Log.LogInformation("App is up to date (v{Version})", updateService.CurrentVersion);
+                }
+
                 // Magic-link URL handling.
                 if (e.Args.Length > 0 && e.Args[0].StartsWith("printshopcompanion://", StringComparison.OrdinalIgnoreCase))
                     await HandleMagicLinkAsync(new Uri(e.Args[0]));
