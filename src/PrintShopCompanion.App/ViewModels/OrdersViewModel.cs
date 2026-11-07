@@ -49,7 +49,7 @@ public partial class OrdersViewModel : ObservableObject
     [RelayCommand]
     public void OpenOrder(OrderRecord order)
     {
-        _nav.NavigateToOrderDetails(order.Id);
+        _nav.NavigateTo("Orders");
     }
 
     partial void OnStatusFilterChanged(OrderStatus? value) => _ = LoadAsync();

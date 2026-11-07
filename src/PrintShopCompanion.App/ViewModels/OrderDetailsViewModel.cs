@@ -35,12 +35,12 @@ public partial class OrderDetailsViewModel : ObservableObject
     [ObservableProperty] private bool _canComplete;
     [ObservableProperty] private bool _canCancel;
 
-    public string? OrderId => _nav.Parameter;
+    public string? OrderId => null;
 
     [RelayCommand]
     public async Task LoadAsync()
     {
-        if (OrderId is null) { _nav.NavigateToOrders(); return; }
+        if (OrderId is null) { _nav.NavigateTo("Orders"); return; }
         IsLoading = true;
         ErrorMessage = null;
         try
@@ -129,5 +129,5 @@ public partial class OrderDetailsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void Back() => _nav.NavigateToOrders();
+    public void Back() => _nav.NavigateTo("Orders");
 }

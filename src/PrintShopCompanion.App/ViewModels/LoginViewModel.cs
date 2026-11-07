@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
 using PrintShopCompanion.App.Services;
+using PrintShopCompanion.Infrastructure.Backend;
 
 public partial class LoginViewModel : ObservableObject
 {
