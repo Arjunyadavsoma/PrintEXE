@@ -68,9 +68,17 @@ public sealed class GitHubUpdateService : IUpdateService
         if (DownloadUrl is null)
             throw new InvalidOperationException("No update available. Call CheckForUpdatesAsync first.");
 
-        // 1. Download the portable ZIP to %TEMP%.
-        var tempDir = Path.Combine(Path.GetTempPath(), "PrintShop-update");
-        if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        // 1. Download the portable ZIP to a unique temp dir.
+        // Use a GUID-based dir name so a leftover from a previous failed update
+        // doesn't prevent the Directory.Delete (file-in-use error).
+        var tempDir = Path.Combine(Path.GetTempPath(), "PrintShop-update-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+        // Best-effort cleanup of OLD update dirs (not the one we're about to use).
+        try
+        {
+            var oldDirs = Directory.GetDirectories(Path.GetTempPath(), "PrintShop-update*");
+            foreach (var d in oldDirs) { try { Directory.Delete(d, true); } catch { } }
+        }
+        catch { }
         Directory.CreateDirectory(tempDir);
 
         var zipPath = Path.Combine(tempDir, PortableZipName);
@@ -91,33 +99,37 @@ public sealed class GitHubUpdateService : IUpdateService
         ZipFile.ExtractToDirectory(zipPath, extractDir, overwriteFiles: true);
         progress?.Report(70);
 
-        // 3. Write the updater .bat script.
+        // 3. Write the updater .bat to the APP directory (not temp dir) so
+        //    the rmdir at the end can actually delete the temp dir.
+        //    The .bat copies itself out, runs from app dir, and cleans up.
         var appDir = AppContext.BaseDirectory;
-        var batPath = Path.Combine(tempDir, "updater.bat");
+        var batPath = Path.Combine(appDir, "_printshop_updater.bat");
         var exeName = Process.GetCurrentProcess().ProcessName + ".exe";
         var exePath = Path.Combine(appDir, exeName);
 
         var batContent = "@echo off\r\n" +
             "echo Updating PrintShop Companion...\r\n" +
-            "timeout /t 2 /nobreak >nul\r\n" +
+            "timeout /t 3 /nobreak >nul\r\n" +
             "echo Copying new files...\r\n" +
             $"xcopy \"{extractDir}\\*\" \"{appDir}\" /E /Y /I /Q\r\n" +
             "echo Starting updated app...\r\n" +
             $"start \"\" \"{exePath}\"\r\n" +
-            "echo Cleaning up...\r\n" +
-            $"rmdir /s /q \"{tempDir}\"\r\n";
+            "echo Cleaning up temp files...\r\n" +
+            $"rmdir /s /q \"{tempDir}\"\r\n" +
+            $"del \"{batPath}\"\r\n";
 
         await File.WriteAllTextAsync(batPath, batContent, ct);
         progress?.Report(90);
 
-        // 4. Launch the updater and exit.
+        // 4. Launch the updater from the APP directory (not temp) so the
+        //    temp dir isn't locked by the process's working directory.
         var psi = new ProcessStartInfo
         {
             FileName = "cmd.exe",
             Arguments = $"/c \"{batPath}\"",
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = tempDir
+            WorkingDirectory = appDir
         };
         Process.Start(psi);
         progress?.Report(100);
