@@ -23,7 +23,7 @@ using PrintShopCompanion.Shared.Dto;
 public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 {
     private readonly HttpClient _http;
-    private readonly IDeviceTokenStore _tokens;
+    private readonly ICredentialStore _store;
     private readonly IOptionsMonitor<BackendOptions> _opts;
     private readonly ILogger<HttpPrintShopBackend> _logger;
     private DeviceToken? _token;
@@ -33,12 +33,12 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     public HttpPrintShopBackend(
         HttpClient http,
-        IDeviceTokenStore tokens,
+        ICredentialStore store,
         IOptionsMonitor<BackendOptions> opts,
         ILogger<HttpPrintShopBackend> logger)
     {
         _http = http;
-        _tokens = tokens;
+        _store = store;
         _opts = opts;
         _logger = logger;
     }
@@ -50,7 +50,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// <summary>Called by the App on startup to restore the saved device token.</summary>
     public async Task<bool> RestoreAsync(CancellationToken ct = default)
     {
-        _token = await _tokens.LoadAsync(ct);
+        var creds = await _store.LoadAsync(ct); _token = creds?.DeviceToken;
         if (_token is null) return false;
         var o = _opts.CurrentValue;
         var baseUri = !string.IsNullOrWhiteSpace(o.BaseUrl)
@@ -121,7 +121,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
             IssuedAt = dto.IssuedAt,
             ExpiresAt = dto.ExpiresAt
         };
-        await _tokens.SaveAsync(_token, ct);
+        await _store.SaveAsync(new StoredCredentials { DeviceToken = _token }, ct);
 
         ThisApp.DeviceId = Guid.Parse(dto.DeviceId);
 
@@ -159,7 +159,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         var dto = await resp.Content.ReadFromJsonAsync<PairingResponseDto>(Json, ct);
         if (dto is null) return false;
         _token = _token with { Token = dto.DeviceToken, RefreshToken = dto.RefreshToken, ExpiresAt = dto.ExpiresAt, IssuedAt = dto.IssuedAt };
-        await _tokens.SaveAsync(_token, ct);
+        await _store.SaveAsync(new StoredCredentials { DeviceToken = _token }, ct);
         return true;
     }
 
@@ -269,7 +269,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     public async Task RevokeDeviceAsync(CancellationToken ct = default)
     {
-        if (_token is null) { await _tokens.ClearAsync(ct); return; }
+        if (_token is null) { await _store.ClearAsync(ct); return; }
         try
         {
             var url = ApiUrl("device/revoke");
@@ -278,7 +278,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
             await _http.SendAsync(req, ct);
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Revoke call to backend failed; clearing local token anyway"); }
-        await _tokens.ClearAsync(ct);
+        await _store.ClearAsync(ct);
         _token = null; _device = null; _shop = null;
     }
 

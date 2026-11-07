@@ -62,14 +62,3 @@ public sealed class DeviceTokenStore : ICredentialStore
         return Task.CompletedTask;
     }
 }
-
-/// <summary>
-/// Renamed from <c>IDeviceTokenStore</c> to <c>ICredentialStore</c> to reflect
-/// that it now stores both the shopkeeper session and the device token.
-/// </summary>
-public interface ICredentialStore
-{
-    Task<StoredCredentials?> LoadAsync(CancellationToken ct = default);
-    Task SaveAsync(StoredCredentials credentials, CancellationToken ct = default);
-    Task ClearAsync(CancellationToken ct = default);
-}

@@ -370,3 +370,37 @@ public sealed class PaginationDto
     [JsonPropertyName("total")]
     public int Total { get; init; }
 }
+
+/// <summary>Wire DTO for a print-agent job (from GET /agents/jobs/pending).</summary>
+public sealed class PrintJobDto
+{
+    [JsonPropertyName("jobId")]
+    public required string JobId { get; init; }
+
+    [JsonPropertyName("fileId")]
+    public required string FileId { get; init; }
+
+    [JsonPropertyName("orderId")]
+    public required string OrderId { get; init; }
+
+    [JsonPropertyName("filename")]
+    public required string Filename { get; init; }
+
+    [JsonPropertyName("downloadUrl")]
+    public required string DownloadUrl { get; init; }
+
+    [JsonPropertyName("copies")]
+    public int Copies { get; init; }
+
+    [JsonPropertyName("colorMode")]
+    public string ColorMode { get; init; } = "bw";
+
+    [JsonPropertyName("duplex")]
+    public bool Duplex { get; init; }
+
+    [JsonPropertyName("paperSize")]
+    public string PaperSize { get; init; } = "a4";
+
+    [JsonPropertyName("pageRange")]
+    public string? PageRange { get; init; }
+}

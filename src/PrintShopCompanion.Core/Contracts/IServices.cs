@@ -39,3 +39,14 @@ public interface IPdfRenderer
         string? duplex = null,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Secure credential storage. Stores the shopkeeper session (access + refresh
+/// token) and the device token (for the background print agent) DPAPI-encrypted.
+/// </summary>
+public interface ICredentialStore
+{
+    Task<StoredCredentials?> LoadAsync(CancellationToken cancellationToken = default);
+    Task SaveAsync(StoredCredentials credentials, CancellationToken cancellationToken = default);
+    Task ClearAsync(CancellationToken cancellationToken = default);
+}
