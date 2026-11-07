@@ -8,6 +8,7 @@ using PrintShopCompanion.Infrastructure.Backend;
 using PrintShopCompanion.Infrastructure.Pairing;
 using PrintShopCompanion.Infrastructure.Printers;
 using PrintShopCompanion.Infrastructure.Update;
+using PrintShopCompanion.Infrastructure.Sync;
 using PrintShopCompanion.Infrastructure.Queue;
 using PrintShopCompanion.Infrastructure.Storage;
 using System.Net.Http;
