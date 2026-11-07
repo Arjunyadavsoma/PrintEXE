@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
+using PrintShopCompanion.Infrastructure.Backend;
 using PrintShopCompanion.App.Services;
 
 /// <summary>

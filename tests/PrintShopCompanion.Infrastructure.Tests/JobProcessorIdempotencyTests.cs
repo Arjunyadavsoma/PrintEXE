@@ -57,8 +57,9 @@ public class JobProcessorIdempotencyTests
         public bool IsAuthenticated => true;
         public ShopInfo? CurrentShop => new ShopInfo
         {
-            ShopId = "shop",
-            ShopName = "Shop",
+            Id = "shop",
+            Name = "Shop",
+            Slug = "shop",
             BaseUrl = new Uri("https://shop.local"),
             ApiBasePath = "/api"
         };
