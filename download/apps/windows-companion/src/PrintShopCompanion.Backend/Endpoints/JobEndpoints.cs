@@ -58,7 +58,7 @@ public static class JobEndpoints
         app.MapPost("/api/companion/v1/jobs/test", (HttpRequest req, MockStore store) =>
         {
             if (!DeviceEndpoints.IsAuthorized(req, store, out var device)) return Results.Unauthorized();
-            var dto = new PrintJobDto
+            var dto = new LegacyPrintJobDto
             {
                 JobId = Guid.NewGuid().ToString("N"),
                 ShopId = device.ShopId,

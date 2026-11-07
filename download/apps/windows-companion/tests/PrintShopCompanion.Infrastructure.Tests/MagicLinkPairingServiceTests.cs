@@ -32,12 +32,10 @@ public class MagicLinkPairingServiceTests
             return Task.FromResult(new PairingResult(
                 new DeviceToken
                 {
+                    AgentId = "dev",
                     ShopId = "shop",
-                    DeviceId = "dev",
                     Token = "tok",
-                    IssuedAt = now,
-                    ExpiresAt = null,
-                    RefreshToken = null
+                    IssuedAt = now
                 },
                 new DeviceRegistration
                 {
@@ -52,8 +50,9 @@ public class MagicLinkPairingServiceTests
                 },
                 new ShopInfo
                 {
-                    ShopId = "shop",
-                    ShopName = "Demo Shop",
+                    Id = "shop",
+                    Name = "Demo Shop",
+                    Slug = "shop",
                     BaseUrl = new Uri("https://shop.local"),
                     ApiBasePath = "/api"
                 }));

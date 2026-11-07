@@ -25,14 +25,6 @@ public interface IPairingService
     Task CancelAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Secure storage for the device token. Encrypts with DPAPI (current-user scope).</summary>
-public interface IDeviceTokenStore
-{
-    Task<DeviceToken?> LoadAsync(CancellationToken cancellationToken = default);
-    Task SaveAsync(DeviceToken token, CancellationToken cancellationToken = default);
-    Task ClearAsync(CancellationToken cancellationToken = default);
-}
-
 /// <summary>Minimal PDF rendering / printing abstraction.</summary>
 public interface IPdfRenderer
 {
@@ -46,4 +38,15 @@ public interface IPdfRenderer
         string? paperSize = null,
         string? duplex = null,
         CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Secure credential storage. Stores the shopkeeper session (access + refresh
+/// token) and the device token (for the background print agent) DPAPI-encrypted.
+/// </summary>
+public interface ICredentialStore
+{
+    Task<StoredCredentials?> LoadAsync(CancellationToken cancellationToken = default);
+    Task SaveAsync(StoredCredentials credentials, CancellationToken cancellationToken = default);
+    Task ClearAsync(CancellationToken cancellationToken = default);
 }

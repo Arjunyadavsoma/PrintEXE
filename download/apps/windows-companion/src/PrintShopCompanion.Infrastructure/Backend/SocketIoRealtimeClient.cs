@@ -66,7 +66,7 @@ public sealed class SocketIoRealtimeClient : IDisposable
         {
             try
             {
-                var dto = ev.GetValue<PrintJobDto>();
+                var dto = ev.GetValue<LegacyPrintJobDto>();
                 var record = new PrintJobRecord
                 {
                     JobId = dto.JobId,

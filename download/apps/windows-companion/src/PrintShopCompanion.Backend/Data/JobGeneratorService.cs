@@ -59,7 +59,7 @@ public sealed class JobGeneratorService : BackgroundService
                 {
                     foreach (var (deviceId, _) in _store.Devices)
                     {
-                        var dto = new Shared.Dto.PrintJobDto
+                        var dto = new Shared.Dto.LegacyPrintJobDto
                         {
                             JobId = Guid.NewGuid().ToString("N"),
                             ShopId = _store.ShopId,

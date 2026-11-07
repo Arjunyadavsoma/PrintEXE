@@ -20,17 +20,12 @@ public static class InfrastructureModule
 {
     public static IServiceCollection AddPrintShopCompanionInfrastructure(this IServiceCollection services)
     {
-        // Backend (HttpClientFactory-backed so we get Polly retries, logging handler, etc.)
-        // Honours BackendOptions.BypassTlsVerification — DEV ONLY. The companion logs
-        // a loud warning if this is enabled.
-        services.AddHttpClient<IPrintShopBackend, HttpPrintShopBackend>((sp, client) =>
+        // Shopkeeper backend (JWT-authed) — for the Dashboard, Orders, Analytics, etc.
+        services.AddHttpClient<IShopBackend, HttpShopBackend>((sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptionsMonitor<BackendOptions>>().CurrentValue;
-            if (opts.BypassTlsVerification && client.BaseAddress is not null)
+            if (opts.BypassTlsVerification)
             {
-                // Bypass handler is wired in the HttpClient factory registration below.
-                // (HttpClient itself does not have a direct TLS-bypass knob; we use
-                //  a custom handler chain.) Just log a loud warning here.
                 Console.Error.WriteLine(
                     "[WARNING] TLS verification is BYPASSED. This is for local mock backend testing only. " +
                     "NEVER enable Backend:BypassTlsVerification in production.");
@@ -39,18 +34,30 @@ public static class InfrastructureModule
         }).ConfigurePrimaryHttpMessageHandler(sp =>
         {
             var opts = sp.GetRequiredService<IOptionsMonitor<BackendOptions>>().CurrentValue;
-            if (!opts.BypassTlsVerification)
-            {
-                return new HttpClientHandler();
-            }
-            // Bypass the TLS cert check — local mock only.
+            if (!opts.BypassTlsVerification) return new HttpClientHandler();
             return new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true
             };
         });
 
-        services.AddSingleton<IDeviceTokenStore, DeviceTokenStore>();
+        // Print-agent backend (device-token-authed) — for the background print engine.
+        services.AddHttpClient<IPrintShopBackend, HttpPrintShopBackend>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptionsMonitor<BackendOptions>>().CurrentValue;
+            client.Timeout = opts.DownloadTimeout;
+        }).ConfigurePrimaryHttpMessageHandler(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptionsMonitor<BackendOptions>>().CurrentValue;
+            if (!opts.BypassTlsVerification) return new HttpClientHandler();
+            return new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+            };
+        });
+
+        // Credential store — DPAPI-encrypted, holds the shopkeeper session + device token.
+        services.AddSingleton<ICredentialStore, DeviceTokenStore>();
         services.AddSingleton<IJobQueue, SqliteJobQueue>();
 
         // Realtime (Socket.IO + HTTP poll fallback)
@@ -58,7 +65,9 @@ public static class InfrastructureModule
         services.AddSingleton<SocketIoRealtimeClient>();
         services.AddSingleton<HttpFallbackPoller>();
 
-        // Pairing
+        // Pairing — kept for backward compat with the v0.1 magic-link flow.
+        // The v0.2 shopkeeper app uses email+password login via IShopBackend.LoginAsync,
+        // but the magic-link flow is still wired so existing paired devices continue to work.
         services.AddSingleton<IPairingService, MagicLinkPairingService>();
 
         // Printers — SumatraPDF (primary, bundled .exe) + raw GDI fallback (ESC/POS / label printers)

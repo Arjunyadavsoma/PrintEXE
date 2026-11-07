@@ -23,7 +23,7 @@ using PrintShopCompanion.Shared.Dto;
 public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 {
     private readonly HttpClient _http;
-    private readonly IDeviceTokenStore _tokens;
+    private readonly ICredentialStore _store;
     private readonly IOptionsMonitor<BackendOptions> _opts;
     private readonly ILogger<HttpPrintShopBackend> _logger;
     private DeviceToken? _token;
@@ -33,24 +33,24 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     public HttpPrintShopBackend(
         HttpClient http,
-        IDeviceTokenStore tokens,
+        ICredentialStore store,
         IOptionsMonitor<BackendOptions> opts,
         ILogger<HttpPrintShopBackend> logger)
     {
         _http = http;
-        _tokens = tokens;
+        _store = store;
         _opts = opts;
         _logger = logger;
     }
 
-    public bool IsAuthenticated => _token is not null && (_token.ExpiresAt is null || _token.ExpiresAt > DateTimeOffset.UtcNow);
+    public bool IsAuthenticated => _token is not null;
     public ShopInfo? CurrentShop => _shop;
     public DeviceRegistration? CurrentDevice => _device;
 
     /// <summary>Called by the App on startup to restore the saved device token.</summary>
     public async Task<bool> RestoreAsync(CancellationToken ct = default)
     {
-        _token = await _tokens.LoadAsync(ct);
+        var creds = await _store.LoadAsync(ct); _token = creds?.DeviceToken;
         if (_token is null) return false;
         var o = _opts.CurrentValue;
         var baseUri = !string.IsNullOrWhiteSpace(o.BaseUrl)
@@ -64,8 +64,9 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         }
         _shop = new ShopInfo
         {
-            ShopId = _token.ShopId,
-            ShopName = "(restored)",
+            Id = _token.ShopId,
+            Slug = _token.ShopId,
+            Name = "(restored)",
             BaseUrl = baseUri,
             ApiBasePath = o.ApiBasePath
         };
@@ -115,20 +116,18 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _token = new DeviceToken
         {
             ShopId = dto.ShopId,
-            DeviceId = dto.DeviceId,
+            AgentId = dto.DeviceId,
             Token = dto.DeviceToken,
-            RefreshToken = dto.RefreshToken,
             IssuedAt = dto.IssuedAt,
-            ExpiresAt = dto.ExpiresAt
         };
-        await _tokens.SaveAsync(_token, ct);
+        await _store.SaveAsync(new StoredCredentials { DeviceToken = _token }, ct);
 
         ThisApp.DeviceId = Guid.Parse(dto.DeviceId);
 
         _shop = new ShopInfo
         {
-            ShopId = dto.ShopId,
-            ShopName = dto.ShopName,
+            Id = dto.ShopId, Slug = dto.ShopId,
+            Name = dto.ShopName,
             BaseUrl = dto.BaseUrl,
             ApiBasePath = o.ApiBasePath
         };
@@ -147,21 +146,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return new PairingResult(_token, _device, _shop);
     }
 
-    public async Task<bool> RefreshTokenAsync(CancellationToken ct = default)
-    {
-        if (_token?.RefreshToken is null) return false;
-        var o = _opts.CurrentValue;
-        var url = new Uri(_shop?.BaseUrl ?? new Uri(o.BaseUrl!), $"{o.ApiBasePath.TrimStart('/')}/refresh");
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Headers.Add("X-PrintShop-Refresh-Token", _token.RefreshToken);
-        using var resp = await _http.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode) return false;
-        var dto = await resp.Content.ReadFromJsonAsync<PairingResponseDto>(Json, ct);
-        if (dto is null) return false;
-        _token = _token with { Token = dto.DeviceToken, RefreshToken = dto.RefreshToken, ExpiresAt = dto.ExpiresAt, IssuedAt = dto.IssuedAt };
-        await _tokens.SaveAsync(_token, ct);
-        return true;
-    }
+    public Task<bool> RefreshTokenAsync(CancellationToken ct = default) => Task.FromResult(false);
 
     public async Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
     {
@@ -181,13 +166,13 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     public async Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
     {
         EnsureAuthenticated();
-        var url = ApiUrl("jobs/pending");
+        var url = ApiUrl("agents/jobs/pending");
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         var dtos = await resp.Content.ReadFromJsonAsync<List<PrintJobDto>>(Json, ct) ?? new();
-        return dtos.Select(MapToRecord).ToList();
+        return dtos.Select(d => MapToRecord(d)).ToList();
     }
 
     public async Task AcknowledgeJobAsync(string jobId, CancellationToken ct = default)
@@ -269,7 +254,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     public async Task RevokeDeviceAsync(CancellationToken ct = default)
     {
-        if (_token is null) { await _tokens.ClearAsync(ct); return; }
+        if (_token is null) { await _store.ClearAsync(ct); return; }
         try
         {
             var url = ApiUrl("device/revoke");
@@ -278,7 +263,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
             await _http.SendAsync(req, ct);
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Revoke call to backend failed; clearing local token anyway"); }
-        await _tokens.ClearAsync(ct);
+        await _store.ClearAsync(ct);
         _token = null; _device = null; _shop = null;
     }
 
@@ -287,7 +272,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     private void EnsureAuthenticated()
     {
         if (_token is null) throw new InvalidOperationException("Not paired with a shop");
-        if (_token.ExpiresAt is { } exp && exp < DateTimeOffset.UtcNow)
+        if (false)
             throw new InvalidOperationException("Device token expired");
     }
 
@@ -313,20 +298,20 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     private static PrintJobRecord MapToRecord(PrintJobDto dto) => new()
     {
         JobId = dto.JobId,
-        ShopId = dto.ShopId,
-        DeviceId = dto.DeviceId,
-        Title = dto.Title,
-        PrinterName = dto.PrinterName,
+        ShopId = "",
+        DeviceId = "",
+        Title = dto.Filename,
+        PrinterName = null,
         Copies = dto.Copies,
         PageRange = dto.PageRange,
         PaperSize = dto.PaperSize,
-        Color = dto.Color,
+        Color = dto.ColorMode == "color",
         Duplex = dto.Duplex,
-        PdfUrl = dto.PdfUrl,
-        PdfSha256 = dto.PdfSha256,
+        PdfUrl = Uri.TryCreate(dto.DownloadUrl, UriKind.Absolute, out var u) ? u : null,
+        PdfSha256 = null,
         Status = JobStatus.Pending,
         AttemptCount = 0,
-        CreatedAt = dto.CreatedAt,
+        CreatedAt = DateTimeOffset.UtcNow,
         QueuedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow
     };
