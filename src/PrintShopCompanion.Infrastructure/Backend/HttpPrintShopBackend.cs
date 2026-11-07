@@ -65,7 +65,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _shop = new ShopInfo
         {
             ShopId = _token.ShopId,
-            ShopName = "(restored)",
+            Name = "(restored)",
             BaseUrl = baseUri,
             ApiBasePath = o.ApiBasePath
         };
@@ -115,9 +115,8 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _token = new DeviceToken
         {
             ShopId = dto.ShopId,
-            DeviceId = dto.DeviceId,
+            AgentId = dto.DeviceId,
             Token = dto.DeviceToken,
-            RefreshToken = dto.RefreshToken,
             IssuedAt = dto.IssuedAt,
         };
         await _store.SaveAsync(new StoredCredentials { DeviceToken = _token }, ct);
@@ -127,13 +126,13 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _shop = new ShopInfo
         {
             ShopId = dto.ShopId,
-            ShopName = dto.ShopName,
+            Name = dto.ShopName,
             BaseUrl = dto.BaseUrl,
             ApiBasePath = o.ApiBasePath
         };
         _device = new DeviceRegistration
         {
-            DeviceId = dto.DeviceId,
+            AgentId = dto.DeviceId,
             ShopId = dto.ShopId,
             Hostname = req.Hostname,
             OperatingSystem = req.OperatingSystem,
@@ -146,21 +145,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return new PairingResult(_token, _device, _shop);
     }
 
-    public async Task<bool> RefreshTokenAsync(CancellationToken ct = default)
-    {
-        if (_token?.RefreshToken is null) return false;
-        var o = _opts.CurrentValue;
-        var url = new Uri(_shop?.BaseUrl ?? new Uri(o.BaseUrl!), $"{o.ApiBasePath.TrimStart('/')}/refresh");
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Headers.Add("X-PrintShop-Refresh-Token", _token.RefreshToken);
-        using var resp = await _http.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode) return false;
-        var dto = await resp.Content.ReadFromJsonAsync<PairingResponseDto>(Json, ct);
-        if (dto is null) return false;
-        _token = _token with { Token = dto.DeviceToken, IssuedAt = dto.IssuedAt };
-        await _store.SaveAsync(new StoredCredentials { DeviceToken = _token }, ct);
-        return true;
-    }
+    public Task<bool> RefreshTokenAsync(CancellationToken ct = default) => Task.FromResult(false);
 
     public async Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
     {
@@ -312,7 +297,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     private static PrintJobRecord MapToRecord(PrintJobDto dto) => new()
     {
         JobId = dto.JobId,
-        ShopId = "", // The real /agents/jobs/pending doesn't return shopId; the device token is shop-scoped
+        Id = "", // The real /agents/jobs/pending doesn't return shopId; the device token is shop-scoped
         DeviceId = "", // Same for deviceId
         Title = dto.Filename,
         PrinterName = null,
