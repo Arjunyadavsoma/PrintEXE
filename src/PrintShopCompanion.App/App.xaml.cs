@@ -5,8 +5,8 @@ using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using PrintShopCompanion.App.Services;
 using PrintShopCompanion.App.Native;
+using PrintShopCompanion.App.Services;
 using PrintShopCompanion.App.Tray;
 using PrintShopCompanion.App.ViewModels;
 using PrintShopCompanion.App.Views;
@@ -16,83 +16,58 @@ using PrintShopCompanion.Infrastructure;
 using PrintShopCompanion.Infrastructure.Backend;
 using PrintShopCompanion.Infrastructure.Diagnostics;
 using PrintShopCompanion.Infrastructure.Queue;
+using PrintShopCompanion.Infrastructure.Sync;
 using Serilog;
 
-/// <summary>
-/// Application entry point. Sets up DI, Serilog, single-instance guard,
-/// magic-link URI handler, tray icon, and the main window.
-/// </summary>
 public partial class App : Application
 {
     private IHost? _host;
     private SingleInstance? _singleInstance;
     private TrayIconHost? _tray;
-    private UriActivator? _uriActivator;
 
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        // ── Headless command-line modes ──
+        // CLI args
         if (e.Args.Length > 0)
         {
-            var first = e.Args[0];
-            if (first.Equals("--register-autostart", StringComparison.OrdinalIgnoreCase))
-            {
-                RegisterAutoStartShortcut();
-                Shutdown(0);
-                return;
-            }
-            if (first.Equals("--unregister-autostart", StringComparison.OrdinalIgnoreCase))
-            {
-                UnregisterAutoStartShortcut();
-                Shutdown(0);
-                return;
-            }
-            if (first.Equals("--version", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine(typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
-                Shutdown(0);
-                return;
-            }
+            if (e.Args[0] == "--register-autostart") { RegisterAutoStart(); Shutdown(0); return; }
+            if (e.Args[0] == "--unregister-autostart") { UnregisterAutoStart(); Shutdown(0); return; }
+            if (e.Args[0] == "--version") { Console.WriteLine("0.4.0"); Shutdown(0); return; }
         }
 
-        // ── Top-level error handler — if ANYTHING in startup fails, show a visible error ──
-        string? startupError = null;
+        // Serilog
+        var logDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PrintShop", "Companion", "logs");
+        Directory.CreateDirectory(logDir);
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .WriteTo.File(Path.Combine(logDir, "companion-.log"),
+                rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14)
+            .CreateLogger();
+
+        Log.Information("=== PrintShop Companion v0.4.0 starting ===");
+
         try
         {
-            // Single-instance guard.
-            _singleInstance = new SingleInstance("PrintShop-Companion-Mutex");
+            // Single instance — acquire mutex
+            _singleInstance = new SingleInstance("PrintShop-Companion-Mutex-v4");
             if (!_singleInstance.AcquireOrForward(e.Args))
             {
+                Log.Information("Another instance is already running — exiting");
                 Shutdown(0);
                 return;
             }
-            _singleInstance.UrlForwarded += (_, url) => _ = HandleMagicLinkAsync(new Uri(url));
 
-            // Serilog bootstrap.
-            var logDir = SystemDiagnostics.CompanionLogDir();
-            Directory.CreateDirectory(logDir);
-            Serilog.Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .Enrich.FromLogContext()
-                .Enrich.With<DeviceTokenRedactor>()
-                .WriteTo.File(
-                    Path.Combine(logDir, "companion-.log"),
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 14,
-                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
-                .CreateLogger();
-
-            Serilog.Log.Information("PrintShop Companion starting up (v{Version})", typeof(App).Assembly.GetName().Version);
-
+            // DI
             _host = Host.CreateDefaultBuilder()
                 .UseSerilog()
                 .ConfigureAppConfiguration((ctx, cfg) =>
                 {
                     cfg.SetBasePath(AppContext.BaseDirectory);
                     cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-                    cfg.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
                 })
                 .ConfigureServices((ctx, services) =>
                 {
@@ -103,250 +78,165 @@ public partial class App : Application
 
                     services.AddPrintShopCompanionInfrastructure();
 
-                    services.AddSingleton<ThemeService>();
-                    services.AddSingleton<AutoStartService>();
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<MainWindow>();
-                    services.AddSingleton<MainViewModel>();
                     services.AddTransient<LoginViewModel>();
                     services.AddTransient<OverviewViewModel>();
                     services.AddTransient<OrdersViewModel>();
-                    services.AddTransient<OrderDetailsViewModel>();
-                    services.AddTransient<SetupViewModel>();
-                    services.AddTransient<DashboardViewModel>();
                     services.AddTransient<PrintersViewModel>();
                     services.AddTransient<PrintQueueViewModel>();
                     services.AddTransient<SettingsViewModel>();
                     services.AddTransient<LoginView>();
                     services.AddTransient<OverviewView>();
                     services.AddTransient<OrdersView>();
-                    services.AddTransient<SetupView>();
-                    services.AddTransient<DashboardView>();
                     services.AddTransient<PrintersView>();
                     services.AddTransient<PrintQueueView>();
                     services.AddTransient<SettingsView>();
-
                     services.AddSingleton<TrayIconHost>();
-                    services.AddSingleton<UriActivator>();
-                    services.AddSingleton<Services.NotificationService>();
                 })
                 .Build();
 
-            await _host.StartAsync();
+            _host.StartAsync().Wait();
+            Log.Information("DI host started");
 
-            // ── Show the window IMMEDIATELY — before any backend/queue setup ──
-            // This ensures the user sees SOMETHING even if backend setup fails.
+            // Restore saved session (check if we have valid credentials)
+            var creds = _host.Services.GetRequiredService<ICredentialStore>().LoadAsync().Result;
+            bool hasSession = creds?.Session != null;
+
+            // Build + show window
+            var nav = _host.Services.GetRequiredService<INavigationService>();
+            if (hasSession)
+            {
+                // Try to restore the session
+                var shopBackend = _host.Services.GetRequiredService<IShopBackend>() as HttpShopBackend;
+                if (shopBackend != null)
+                {
+                    shopBackend.RestoreSession(creds.Session);
+                    nav.NavigateTo("Overview");
+                    Log.Information("Session restored — going to Overview");
+                }
+                else
+                {
+                    nav.NavigateTo("Login");
+                }
+            }
+            else
+            {
+                nav.NavigateTo("Login");
+                Log.Information("No session — going to Login");
+            }
+
             var main = _host.Services.GetRequiredService<MainWindow>();
             main.Show();
+            Log.Information("Main window shown");
 
-            // ── Background setup (non-fatal — if it fails, the window is already showing) ──
+            // Start background services (non-fatal)
             try
             {
-                // Restore device token if we have one.
-                var backend = _host.Services.GetRequiredService<IPrintShopBackend>() as HttpPrintShopBackend;
-                if (backend is not null && await backend.RestoreAsync())
-                    Serilog.Log.Information("Restored device token; companion is paired");
-                else
-                    Serilog.Log.Information("Companion is not paired; will start on Setup screen");
-
-                // Replay any in-flight jobs.
                 var queue = _host.Services.GetRequiredService<IJobQueue>();
-                await queue.ReplayInFlightAsync();
-                await queue.PurgeTerminalAsync(_host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<StorageOptions>>().Value.TerminalJobTtl);
-
-                // Start the job processor.
+                queue.ReplayInFlightAsync().Wait();
                 _host.Services.GetRequiredService<JobProcessor>().StartAsync();
+                Log.Information("JobProcessor started");
 
-                // Apply theme + auto-start.
-                _host.Services.GetRequiredService<ThemeService>().ApplyFromOptions();
-                _host.Services.GetRequiredService<AutoStartService>().SyncFromOptions();
-
-                // Tray icon.
-                _tray = _host.Services.GetRequiredService<TrayIconHost>();
-                _tray.Show();
-
-                // URI activator.
-                _uriActivator = _host.Services.GetRequiredService<UriActivator>();
-
-                // ── Check for updates (GitHub Releases) ──
-                var updateService = _host.Services.GetRequiredService<IUpdateService>();
-                var updateAvailable = await updateService.CheckForUpdatesAsync();
-                if (updateAvailable)
-                {
-                    Serilog.Log.Information("Update available: {Current} to {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        if (main is MainWindow mw)
-                            mw.ShowUpdateBanner(updateService);
-                    });
-                }
-                else
-                {
-                    Serilog.Log.Information("App is up to date (v{Version})", updateService.CurrentVersion);
-                }
-
-                // ── Start the sync engine ──
-                var syncEngine = _host.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Sync.SyncEngine>();
-                syncEngine.Start();
-                Serilog.Log.Information("Sync engine started");
-
-                // Magic-link URL handling.
-                if (e.Args.Length > 0 && e.Args[0].StartsWith("printshopcompanion://", StringComparison.OrdinalIgnoreCase))
-                    await HandleMagicLinkAsync(new Uri(e.Args[0]));
+                var sync = _host.Services.GetRequiredService<SyncEngine>();
+                sync.Start();
+                Log.Information("SyncEngine started");
             }
             catch (Exception bgEx)
             {
-                // Background setup failed — log it but the window is already showing.
-                Serilog.Log.Warning(bgEx, "Background startup step failed (non-fatal — window is showing)");
+                Log.Warning(bgEx, "Background service start failed (non-fatal)");
             }
+
+            // Tray
+            _tray = _host.Services.GetRequiredService<TrayIconHost>();
+            _tray.Show();
+
+            // Auto-start
+            try { _host.Services.GetRequiredService<AutoStartService>().SyncFromOptions(); } catch { }
+
+            // Check for updates
+            try
+            {
+                var update = _host.Services.GetRequiredService<IUpdateService>();
+                if (update.CheckForUpdatesAsync().Result)
+                {
+                    Log.Information("Update available: {Current} -> {Latest}", update.CurrentVersion, update.LatestVersion);
+                    Dispatcher.Invoke(() => main.ShowUpdateBanner(update));
+                }
+            }
+            catch (Exception ex) { Log.Warning(ex, "Update check failed"); }
         }
         catch (Exception ex)
         {
-            startupError = ex.ToString();
-            Serilog.Log.Fatal(ex, "Companion startup failed");
-        }
-
-        // If startup failed, show a VISIBLE error dialog.
-        if (startupError is not null)
-        {
-            MessageBox.Show(
-                "PrintShop Companion could not start.\n\n" +
-                "Error:\n" + startupError.Substring(0, Math.Min(startupError.Length, 500)) + "\n\n" +
-                "Check the log at: %AppData%\\PrintShop\\Companion\\logs\\",
-                "PrintShop Companion — Startup Error",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            Log.Fatal(ex, "Startup failed");
+            MessageBox.Show($"PrintShop Companion could not start.\n\n{ex.Message}\n\nLogs: {logDir}",
+                "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
-        }
-    }
-
-    private async Task HandleMagicLinkAsync(Uri url)
-    {
-        if (_host is null) return;
-        var pairing = _host.Services.GetRequiredService<IPairingService>();
-        var nav = _host.Services.GetRequiredService<INavigationService>();
-        nav.NavigateTo("Setup");
-        var ok = await pairing.HandleMagicLinkAsync(url);
-        if (ok)
-        {
-            nav.NavigateTo("Dashboard");
-            var main = _host.Services.GetRequiredService<MainWindow>();
-            main.Activate();
-            main.Show();
         }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // CRITICAL: This must be SYNCHRONOUS (not async void).
-        // WPF does NOT await async void OnExit — the process can exit before
-        // async cleanup completes, leaving the Mutex unreleased and preventing
-        // the app from being reopened.
-        try
+        Log.Information("=== Shutdown starting ===");
+
+        // 1. Release mutex FIRST — even if everything else hangs, the app can reopen
+        try { _singleInstance?.Dispose(); Log.Information("Mutex released"); } catch { }
+
+        // 2. Stop background services
+        if (_host != null)
         {
-            Serilog.Log.Information("PrintShop Companion shutting down");
-
-            // 1. Release the single-instance mutex FIRST — even if cleanup
-            //    hangs, the next launch can acquire the mutex.
-            Serilog.Log.Information("Releasing single-instance mutex");
-            try { _singleInstance?.Dispose(); } catch { }
-
-            // 2. Stop background services synchronously (with timeout).
-            if (_host is not null)
+            try
             {
-                try
-                {
-                    var syncEngine = _host.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Sync.SyncEngine>();
-                    syncEngine.StopAsync().Wait(TimeSpan.FromSeconds(3));
-                    Serilog.Log.Information("SyncEngine stopped");
-                }
-                catch (Exception ex) { Serilog.Log.Warning(ex, "SyncEngine stop failed"); }
-
-                try
-                {
-                    var processor = _host.Services.GetRequiredService<JobProcessor>();
-                    processor.StopAsync().Wait(TimeSpan.FromSeconds(3));
-                    Serilog.Log.Information("JobProcessor stopped");
-                }
-                catch (Exception ex) { Serilog.Log.Warning(ex, "JobProcessor stop failed"); }
-
-                // 3. Stop and dispose the DI host.
-                try
-                {
-                    _host.StopAsync(TimeSpan.FromSeconds(3)).Wait();
-                    _host.Dispose();
-                    Serilog.Log.Information("DI host disposed");
-                }
-                catch (Exception ex) { Serilog.Log.Warning(ex, "DI host stop failed"); }
+                var sync = _host.Services.GetRequiredService<SyncEngine>();
+                sync.StopAsync().Wait(TimeSpan.FromSeconds(2));
+                Log.Information("SyncEngine stopped");
             }
+            catch { }
 
-            // 4. Hide tray.
-            try { _tray?.Hide(); } catch { }
+            try
+            {
+                var proc = _host.Services.GetRequiredService<JobProcessor>();
+                proc.StopAsync().Wait(TimeSpan.FromSeconds(2));
+                Log.Information("JobProcessor stopped");
+            }
+            catch { }
 
-            Serilog.Log.Information("Shutdown complete");
-            Serilog.Log.CloseAndFlush();
+            try { _host.StopAsync(TimeSpan.FromSeconds(3)).Wait(); _host.Dispose(); Log.Information("Host disposed"); }
+            catch { }
         }
-        catch (Exception ex)
-        {
-            try { Serilog.Log.Error(ex, "Error during shutdown"); } catch { }
-            try { Serilog.Log.CloseAndFlush(); } catch { }
-        }
+
+        // 3. Tray
+        try { _tray?.Hide(); } catch { }
+
+        Log.Information("=== Shutdown complete ===");
+        Log.CloseAndFlush();
         base.OnExit(e);
     }
 
-    /// <summary>
-    /// Drop a per-user shortcut into the Windows Startup folder so the companion
-    /// launches when the shopkeeper signs in. No admin elevation needed.
-    /// Invoked by the WiX installer's <c>--register-autostart</c> argument.
-    /// </summary>
-    private static void RegisterAutoStartShortcut()
+    private static void RegisterAutoStart()
     {
         try
         {
-            var startupDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
-            Directory.CreateDirectory(startupDir);
-            var exePath = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exePath)) return;
-            var shortcutPath = Path.Combine(startupDir, "PrintShop Companion.lnk");
-
-            // Use a tiny PowerShell one-liner to create the .lnk (no COM interop assembly).
-            var script = $"""
-                $s = (New-Object -ComObject WScript.Shell).CreateShortcut("{shortcutPath}")
-                $s.TargetPath = "{exePath}"
-                $s.WorkingDirectory = "{Path.GetDirectoryName(exePath)}"
-                $s.WindowStyle = 7
-                $s.Description = "PrintShop Companion"
-                $s.Save()
-                """;
-            var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
-                $"-NoProfile -Command \"{script.Replace("\"", "`\"")}\"")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            System.Diagnostics.Process.Start(psi)?.WaitForExit(5000);
+            Directory.CreateDirectory(dir);
+            var exe = Environment.ProcessPath;
+            if (exe == null) return;
+            // Simple shortcut via PowerShell
+            var script = $"(New-Object -ComObject WScript.Shell).CreateShortcut(\"{Path.Combine(dir, "PrintShop Companion.lnk")}\");$s.TargetPath=\"{exe}\";$s.Save()";
+            System.Diagnostics.Process.Start("powershell.exe", $"-NoProfile -Command \"{script}\"")?.WaitForExit(3000);
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Could not register autostart: {ex.Message}");
-        }
+        catch { }
     }
 
-    private static void UnregisterAutoStartShortcut()
+    private static void UnregisterAutoStart()
     {
         try
         {
-            var startupDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
-            var shortcutPath = Path.Combine(startupDir, "PrintShop Companion.lnk");
-            if (File.Exists(shortcutPath)) File.Delete(shortcutPath);
+            var p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "PrintShop Companion.lnk");
+            if (File.Exists(p)) File.Delete(p);
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Could not unregister autostart: {ex.Message}");
-        }
+        catch { }
     }
 }

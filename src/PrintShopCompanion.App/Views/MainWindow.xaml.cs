@@ -1,72 +1,63 @@
 namespace PrintShopCompanion.App.Views;
 
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using PrintShopCompanion.App.Services;
 using PrintShopCompanion.Core.Contracts;
-using PrintShopCompanion.Core.Options;
 
 public partial class MainWindow : Window
 {
     private readonly IServiceProvider _services;
     private readonly INavigationService _nav;
+    private IUpdateService? _updateService;
 
     public MainWindow(IServiceProvider services, INavigationService nav)
     {
         _services = services;
         _nav = nav;
         InitializeComponent();
-        VersionLabel.Text = "v" + (typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "0.0.0");
-
         _nav.ViewChanged += OnViewChanged;
         OnViewChanged();
-        Closing += OnClosingHandler;
     }
 
     private void OnViewChanged()
     {
         var current = _nav.CurrentView;
 
-        // Hide sidebar on login screen — full-width centered login
-        var sidebar = FindName("NavPanel") as FrameworkElement;
-        // The main grid is the window's Content (a Grid with 2 columns)
-        if (this.Content is Grid mainGrid && mainGrid.ColumnDefinitions.Count > 0)
+        // Show/hide sidebar based on view
+        if (current == "Login")
         {
-            var sidebarCol = mainGrid.ColumnDefinitions[0];
-            if (current == "Login")
-            {
-                sidebarCol.Width = new GridLength(0);
-                if (sidebar != null) sidebar.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                sidebarCol.Width = new GridLength(240);
-                if (sidebar != null) sidebar.Visibility = Visibility.Visible;
-            }
+            SidebarCol.Width = new GridLength(0);
+            Sidebar.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            SidebarCol.Width = new GridLength(220);
+            Sidebar.Visibility = Visibility.Visible;
         }
 
-        foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "Reports", "Settings", "Account" })
+        // Highlight active nav button
+        foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "Settings" })
         {
-            var btn = (Button)FindName("Nav" + name);
+            var btn = FindName("Nav" + name) as Button;
             if (btn == null) continue;
             btn.FontWeight = name == current ? FontWeights.SemiBold : FontWeights.Normal;
             btn.Background = name == current
-                ? (System.Windows.Media.Brush)FindResource("ControlAltBrush")
+                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFE, 0xF3, 0xC7))
                 : System.Windows.Media.Brushes.Transparent;
         }
 
+        // Show the right view
         ContentArea.Content = current switch
         {
-            "Login"       => _services.GetRequiredService<LoginView>(),
-            "Overview"     => _services.GetRequiredService<OverviewView>(),
-            "Orders"       => _services.GetRequiredService<OrdersView>(),
-            "PrintQueue"   => _services.GetRequiredService<PrintQueueView>(),
-            "Printers"     => _services.GetRequiredService<PrintersView>(),
-            "Settings"     => _services.GetRequiredService<SettingsView>(),
-            _              => _services.GetRequiredService<OverviewView>()
+            "Login" => _services.GetRequiredService<LoginView>(),
+            "Overview" => _services.GetRequiredService<OverviewView>(),
+            "Orders" => _services.GetRequiredService<OrdersView>(),
+            "PrintQueue" => _services.GetRequiredService<PrintQueueView>(),
+            "Printers" => _services.GetRequiredService<PrintersView>(),
+            "Settings" => _services.GetRequiredService<SettingsView>(),
+            _ => _services.GetRequiredService<OverviewView>()
         };
     }
 
@@ -75,65 +66,30 @@ public partial class MainWindow : Window
         if (sender is Button b && b.Tag is string s) _nav.NavigateTo(s);
     }
 
-    private void LogoutButton_Click(object sender, RoutedEventArgs e)
+    private void Logout_Click(object sender, RoutedEventArgs e)
     {
         var backend = _services.GetService<IShopBackend>();
         backend?.SignOutAsync();
-        _nav.NavigateToLogin();
+        _nav.NavigateTo("Login");
     }
 
-    private IUpdateService? _updateService;
-
-    /// <summary>Called by App.OnStartup when a GitHub release newer than the current version is found.</summary>
     public void ShowUpdateBanner(IUpdateService updateService)
     {
         _updateService = updateService;
-        UpdateText.Text = $"Update available: v{updateService.CurrentVersion} → v{updateService.LatestVersion}";
+        UpdateText.Text = $"Update available: v{updateService.CurrentVersion} -> v{updateService.LatestVersion}";
         UpdateBanner.Visibility = Visibility.Visible;
     }
 
-    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
+    private async void Update_Click(object sender, RoutedEventArgs e)
     {
-        if (_updateService is null) return;
-        UpdateButton.Content = "Downloading...";
-        UpdateButton.IsEnabled = false;
+        if (_updateService == null) return;
         try
         {
-            await _updateService.InstallUpdateAsync(new Progress<int>(p =>
-            {
-                UpdateButton.Content = $"Installing... {p}%";
-            }));
-            // The InstallUpdateAsync will shut down the app.
+            await _updateService.InstallUpdateAsync();
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
-            UpdateButton.Content = "Update failed";
-            MessageBox.Show($"Update failed: {ex.Message}", "Update Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            UpdateButton.IsEnabled = true;
-            UpdateButton.Content = "Retry Update";
+            MessageBox.Show($"Update failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
-
-    private void OnClosingHandler(object? sender, CancelEventArgs e)
-    {
-        var opts = _services.GetRequiredService<IOptionsMonitor<AppOptions>>().CurrentValue;
-        if (opts.MinimizeToTrayOnClose && !RealClose)
-        {
-            e.Cancel = true;
-            Hide();
-        }
-    }
-
-    /// <summary>Responsive: collapse the sidebar when the window gets narrow.</summary>
-    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        if (e.NewSize.Width < 700)
-            SidebarColumn.Width = new GridLength(60);
-        else if (e.NewSize.Width < 900)
-            SidebarColumn.Width = new GridLength(180);
-        else
-            SidebarColumn.Width = new GridLength(240);
-    }
-
-    public bool RealClose { get; set; }
 }
