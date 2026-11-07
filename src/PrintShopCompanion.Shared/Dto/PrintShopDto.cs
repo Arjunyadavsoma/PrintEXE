@@ -1,7 +1,6 @@
 namespace PrintShopCompanion.Shared.Dto;
 
 using System.Text.Json.Serialization;
-using PrintShopCompanion.Core.Models;
 
 /// <summary>Wire DTO for the data field of POST /api/v1/auth/login.</summary>
 public sealed class LoginResponseDto
