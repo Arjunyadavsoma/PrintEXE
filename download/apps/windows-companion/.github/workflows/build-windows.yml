@@ -67,7 +67,22 @@ jobs:
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -o ./artifacts/app
+            -o ./artifacts/app-singlefile
+
+      - name: Publish app (folder distribution — more reliable, no self-extraction)
+        shell: pwsh
+        run: |
+          dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false -p:PublishReadyToRun=true `
+            -o ./artifacts/app-folder
+
+      - name: Zip the folder distribution
+        shell: pwsh
+        run: |
+          Compress-Archive -Path ./artifacts/app-folder/* -DestinationPath ./installer/build/PrintShopCompanion-portable.zip -Force
+          Write-Host "Zipped folder distribution:"
+          Get-Item ./installer/build/PrintShopCompanion-portable.zip | Format-List
 
       - name: Publish worker (self-contained, single-file)
         shell: pwsh
@@ -212,12 +227,12 @@ jobs:
           path: installer/build/PrintShopCompanion.Setup.exe
           if-no-files-found: ignore
 
-      - name: Upload published app
+      - name: Upload published app (folder distribution)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: PrintShopCompanion-app
-          path: artifacts/app/
+          path: artifacts/app-folder/
           if-no-files-found: warn
 
       - name: Upload test results
@@ -245,4 +260,5 @@ jobs:
             installer/build/PrintShopCompanion.msi
             installer/build/PrintShopCompanion.Setup.exe
             installer/build/SHA256SUMS.txt
-            artifacts/app/PrintShopCompanion.exe
+            installer/build/PrintShopCompanion-portable.zip
+            artifacts/app-singlefile/PrintShopCompanion.exe
