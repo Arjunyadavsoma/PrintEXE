@@ -115,12 +115,11 @@ public sealed class JobProcessor
 
         using var scope = _logger.BeginScope("Job {JobId} attempt {Attempt}", job.JobId, job.AttemptCount);
 
-        // Re-delivered terminal jobs: ack-and-skip. This is the "never print twice" guard.
+        // Re-delivered terminal jobs: skip. This is the "never print twice" guard.
         // UncertainSpooled and OutcomeUnknown are NOT terminal — they require operator action.
         if (job.Status is JobStatus.Printed or JobStatus.ReportedPrinted or JobStatus.Cancelled)
         {
             _logger.LogInformation("Skipping already-terminal job");
-            await _backend.AcknowledgeJobAsync(job.JobId, ct);
             return;
         }
 
@@ -157,17 +156,35 @@ public sealed class JobProcessor
             }
         }
 
-        // 2. Acknowledge the job BEFORE submitting to the spooler. The backend will not
-        //    redeliver an acked job; if we crash between here and Submit, the queue's
-        //    in-flight replay will resubmit on next start.
+        // 2. ATOMIC CLAIM: send status:"printing" to the backend. This is a
+        //    conditional UPDATE (WHERE status='queued') — if another agent
+        //    already claimed it, the response has skipped:true and we move on.
+        //    Per the integration guide section 3.1, this replaces the old
+        //    ack+report two-step pattern.
+        var printerName = _options.Value.SelectedPrinter ?? "(default)";
+        JobStatusReport claim;
         try
         {
-            await _backend.AcknowledgeJobAsync(job.JobId, ct);
+            claim = await _backend.ReportJobStatusAsync(job.JobId, "printing", printerName, errorMessage: null, ct);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Ack failed; will retry on next delivery");
+            _logger.LogWarning(ex, "Atomic claim failed; will retry on next iteration");
+            return;
         }
+        if (claim.Skipped)
+        {
+            _logger.LogInformation("Job {JobId} skipped: {Reason} — another agent got it", job.JobId, claim.Reason);
+            // Mark as cancelled locally so we don't keep retrying.
+            await _queue.CancelAsync(job.JobId, ct);
+            return;
+        }
+        if (!claim.Applied)
+        {
+            _logger.LogWarning("Job {JobId} status report not applied: {Reason}", job.JobId, claim.Reason);
+            return;
+        }
+        _logger.LogInformation("Claimed job {JobId} on printer {Printer}", job.JobId, printerName);
 
         // 3. Submit to the spooler.
         SpoolSubmission sub;
@@ -205,6 +222,13 @@ public sealed class JobProcessor
                 "Spooler did not confirm physical print within timeout; outcome uncertain",
                 ct);
             _logger.LogWarning("Job {JobId} marked UncertainSpooled — operator reconciliation required", job.JobId);
+            // Also report failure to the backend so it knows the claim didn't result in a print.
+            try
+            {
+                await _backend.ReportJobStatusAsync(job.JobId, "failed", printerName,
+                    errorMessage: "Spooler did not confirm physical print within timeout", ct);
+            }
+            catch { /* swallow — already marked uncertain locally */ }
             return;
         }
 
@@ -214,12 +238,12 @@ public sealed class JobProcessor
         await _queue.MarkPrintedAsync(job.JobId, printedAt, sub.SpoolerJobId, ct);
         _logger.LogInformation("Spooler confirmed physical print at {Time}", printedAt);
 
-        // 6. Report to the backend.
+        // 6. Report completion to the backend.
         try
         {
-            await _backend.ReportJobStatusAsync(job.JobId, printedAt, failedAt: null, errorMessage: null, ct);
+            await _backend.ReportJobStatusAsync(job.JobId, "completed", printerName, errorMessage: null, ct);
             await _queue.MarkReportedPrintedAsync(job.JobId, ct);
-            _logger.LogInformation("Reported Printed to backend");
+            _logger.LogInformation("Reported completed to backend");
         }
         catch (Exception ex)
         {
@@ -237,7 +261,8 @@ public sealed class JobProcessor
 
         try
         {
-            await _backend.ReportJobStatusAsync(job.JobId, printedAt: null, failedAt: DateTimeOffset.UtcNow, errorMessage: error, ct);
+            var printerName = _options.Value.SelectedPrinter ?? "(default)";
+            await _backend.ReportJobStatusAsync(job.JobId, "failed", printerName, errorMessage: error, ct);
         }
         catch (Exception ex)
         {

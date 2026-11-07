@@ -25,46 +25,30 @@ public class MagicLinkPairingServiceTests
         public DeviceRegistration? CurrentDevice { get; set; }
         public List<string> PairCalls { get; } = new();
 
-        public Task<PairingResult> PairAsync(string pairingToken, CancellationToken ct = default)
+        // v0.4.7+ contract — paste-token pairing, JWT exchange, sync endpoints
+        public Task PairWithDeviceTokenAsync(string deviceToken, CancellationToken ct = default)
         {
-            PairCalls.Add(pairingToken);
-            var now = DateTimeOffset.UtcNow;
-            return Task.FromResult(new PairingResult(
-                new DeviceToken
-                {
-                    AgentId = "dev",
-                    ShopId = "shop",
-                    Token = "tok",
-                    IssuedAt = now
-                },
-                new DeviceRegistration
-                {
-                    DeviceId = "dev",
-                    ShopId = "shop",
-                    Hostname = "h",
-                    OperatingSystem = "os",
-                    AppVersion = "0",
-                    RegisteredAt = now,
-                    LastSeenAt = now,
-                    Revoked = false
-                },
-                new ShopInfo
-                {
-                    Id = "shop",
-                    Name = "Demo Shop",
-                    Slug = "shop",
-                    BaseUrl = new Uri("https://shop.local"),
-                    ApiBasePath = "/api"
-                }));
+            PairCalls.Add(deviceToken);
+            IsAuthenticated = true;
+            return Task.CompletedTask;
         }
-
-        public Task<bool> RefreshTokenAsync(CancellationToken ct = default) => Task.FromResult(false);
-        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default) => throw new NotImplementedException();
-        public Task AcknowledgeJobAsync(string jobId, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task ReportJobStatusAsync(string jobId, DateTimeOffset? printedAt, DateTimeOffset? failedAt, string? errorMessage, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<DownloadedPdf> DownloadPdfAsync(string jobId, Uri pdfUrl, string? expectedSha256, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task RevokeDeviceAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default)
+            => Task.FromResult("test-jwt");
+        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
+            => Task.FromResult(new HeartbeatResult(DateTimeOffset.UtcNow, TokenStillValid: true, RecommendedBackendVersion: null));
+        public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PrintJobRecord>>(new List<PrintJobRecord>());
+        public Task<JobStatusReport> ReportJobStatusAsync(string jobId, string status, string? printerName, string? errorMessage, CancellationToken ct = default)
+            => Task.FromResult(new JobStatusReport(jobId, status, Applied: true, Skipped: false, Reason: null));
+        public Task<DownloadedPdf> DownloadPdfAsync(string jobId, Uri pdfUrl, string? expectedSha256, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task RevokeDeviceAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<SyncPullResult> SyncPullAsync(string? cursor, int limit, CancellationToken ct = default)
+            => Task.FromResult(new SyncPullResult(new List<SyncChange>(), null, false));
+        public Task<SyncPushResult> SyncPushAsync(object changes, CancellationToken ct = default)
+            => Task.FromResult(new SyncPushResult(new List<SyncPushResultItem>()));
+        public Task<SyncStatusResult> SyncStatusAsync(CancellationToken ct = default)
+            => Task.FromResult(new SyncStatusResult("dev", "shop", null, null, null, true));
     }
 
     private static MagicLinkPairingService Make(out FakeBackend backend)

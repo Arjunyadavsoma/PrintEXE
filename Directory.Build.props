@@ -29,7 +29,7 @@
       updater kept reporting "update available".
     -->
     <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
-    <Version Condition="'$(BUILD_VERSION)' == ''">0.4.3</Version>
+    <Version Condition="'$(BUILD_VERSION)' == ''">0.4.7</Version>
 
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>

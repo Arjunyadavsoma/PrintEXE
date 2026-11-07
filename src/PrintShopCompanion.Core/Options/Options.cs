@@ -8,17 +8,34 @@ public sealed class BackendOptions
     /// <summary>Base URL of the PrintShop website. Set during pairing or via appsettings.</summary>
     public string? BaseUrl { get; set; }
 
-    /// <summary>API base path under <see cref="BaseUrl"/>.</summary>
-    public string ApiBasePath { get; set; } = "/api/companion/v1";
+    /// <summary>API base path under <see cref="BaseUrl"/>. Default <c>/api/v1</c> per the production backend.</summary>
+    public string ApiBasePath { get; set; } = "/api/v1";
 
-    /// <summary>Socket.IO / SignalR endpoint path under <see cref="BaseUrl"/>.</summary>
-    public string HubPath { get; set; } = "/companion-hub";
+    /// <summary>
+    /// Full Socket.IO URL including the Caddy gateway query parameter.
+    /// Default <c>https://printshop-saas-three.vercel.app/?XTransformPort=3003</c>.
+    /// The <c>XTransformPort=3003</c> query is REQUIRED — without it Caddy routes
+    /// to the Next.js app (port 3000) which doesn't serve Socket.IO.
+    /// </summary>
+    public string? SocketIoUrl { get; set; } = "https://printshop-saas-three.vercel.app/?XTransformPort=3003";
 
-    /// <summary>Heartbeat interval.</summary>
+    /// <summary>
+    /// Socket.IO path. Kept for backward compatibility — prefer <see cref="SocketIoUrl"/>.
+    /// If <see cref="SocketIoUrl"/> is set, it wins.
+    /// </summary>
+    public string HubPath { get; set; } = "/?XTransformPort=3003";
+
+    /// <summary>Heartbeat interval (POST /agents/heartbeat). Default 60s per the integration guide.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromMinutes(1);
 
-    /// <summary>HTTP long-poll interval used as a fallback when the realtime socket is down.</summary>
+    /// <summary>Heartbeat interval in seconds. Used by code that prefers seconds over TimeSpan.</summary>
+    public int HeartbeatIntervalSeconds { get; set; } = 60;
+
+    /// <summary>HTTP long-poll interval used as a fallback when the realtime socket is down. Default 2s.</summary>
     public TimeSpan PollFallbackInterval { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Poll interval in seconds. Used by code that prefers seconds over TimeSpan.</summary>
+    public int PollIntervalSeconds { get; set; } = 2;
 
     /// <summary>Allowed origin(s) for the companion's local API (CORS).</summary>
     public string[] AllowedWebOrigins { get; set; } = Array.Empty<string>();
@@ -26,8 +43,14 @@ public sealed class BackendOptions
     /// <summary>JWT validation parameters for pairing tokens. Set from backend public key.</summary>
     public string? PairingIssuer { get; set; }
 
-    /// <summary>Maximum time a single PDF download is allowed to take.</summary>
-    public TimeSpan DownloadTimeout { get; set; } = TimeSpan.FromMinutes(2);
+    /// <summary>Maximum time a single PDF download is allowed to take. Default 5 minutes per integration guide.</summary>
+    public TimeSpan DownloadTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Download timeout in seconds. Used by code that prefers seconds over TimeSpan.</summary>
+    public int DownloadTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>Maximum number of attempts per print job before marking it Failed. Default 5.</summary>
+    public int MaxPrintAttempts { get; set; } = 5;
 
     /// <summary>True to skip TLS verification. Local mock only. Never enable in production.</summary>
     public bool BypassTlsVerification { get; set; } = false;
@@ -70,6 +93,13 @@ public sealed class StorageOptions
 
     /// <summary>Path to the directory used for Serilog rolling files.</summary>
     public string? LogDir { get; set; }
+
+    /// <summary>
+    /// Path to the DPAPI-encrypted file that stores the device token (the
+    /// Bearer credential for /agents/* endpoints). Defaults to
+    /// <c>%AppData%\PrintShop\Companion\device.dat</c>.
+    /// </summary>
+    public string? DeviceTokenPath { get; set; }
 
     /// <summary>Jobs older than this in a terminal state are purged on startup.</summary>
     public TimeSpan TerminalJobTtl { get; set; } = TimeSpan.FromDays(7);

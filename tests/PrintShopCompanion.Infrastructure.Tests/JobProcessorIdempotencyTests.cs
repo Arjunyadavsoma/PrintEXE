@@ -75,26 +75,36 @@ public class JobProcessorIdempotencyTests
             Revoked = false
         };
 
-        public int AckCount { get; private set; }
         public int ReportCount { get; private set; }
-        public bool ReportCalledWithPrinted { get; private set; }
+        public bool ReportCalledWithCompleted { get; private set; }
         public bool ReportCalledWithFailed { get; private set; }
+        public bool ReportCalledWithPrinting { get; private set; }
 
-        public Task<PairingResult> PairAsync(string pairingToken, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<bool> RefreshTokenAsync(CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default) => throw new NotImplementedException();
-        public Task AcknowledgeJobAsync(string jobId, CancellationToken ct = default) { AckCount++; return Task.CompletedTask; }
-        public Task ReportJobStatusAsync(string jobId, DateTimeOffset? printedAt, DateTimeOffset? failedAt, string? errorMessage, CancellationToken ct = default)
+        // v0.4.7+ contract — paste-token pairing, JWT exchange, sync endpoints
+        public Task PairWithDeviceTokenAsync(string deviceToken, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default) => Task.FromResult("test-jwt");
+        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
+            => Task.FromResult(new HeartbeatResult(DateTimeOffset.UtcNow, TokenStillValid: true, RecommendedBackendVersion: null));
+        public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PrintJobRecord>>(new List<PrintJobRecord>());
+        public Task<JobStatusReport> ReportJobStatusAsync(string jobId, string status, string? printerName, string? errorMessage, CancellationToken ct = default)
         {
             ReportCount++;
-            ReportCalledWithPrinted = printedAt.HasValue;
-            ReportCalledWithFailed = failedAt.HasValue;
-            return Task.CompletedTask;
+            ReportCalledWithPrinting = status == "printing";
+            ReportCalledWithCompleted = status == "completed";
+            ReportCalledWithFailed = status == "failed";
+            return Task.FromResult(new JobStatusReport(
+                JobId: jobId, Status: status, Applied: true, Skipped: false, Reason: null));
         }
         public Task<DownloadedPdf> DownloadPdfAsync(string jobId, Uri pdfUrl, string? expectedSha256, CancellationToken ct = default)
             => Task.FromResult(new DownloadedPdf("test.pdf", "sha", 1));
-        public Task RevokeDeviceAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task RevokeDeviceAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<SyncPullResult> SyncPullAsync(string? cursor, int limit, CancellationToken ct = default)
+            => Task.FromResult(new SyncPullResult(new List<SyncChange>(), NextCursor: null, HasMore: false));
+        public Task<SyncPushResult> SyncPushAsync(object changes, CancellationToken ct = default)
+            => Task.FromResult(new SyncPushResult(new List<SyncPushResultItem>()));
+        public Task<SyncStatusResult> SyncStatusAsync(CancellationToken ct = default)
+            => Task.FromResult(new SyncStatusResult("dev", "shop", null, null, null, IsOnline: true));
     }
 
     private sealed class FakePrinter : IPrinterService
@@ -156,10 +166,11 @@ public class JobProcessorIdempotencyTests
         var printed = await pr.HasPrintedAsync(sub.SpoolerJobId, cts.Token);
         printed.Should().BeTrue();
         await q.MarkPrintedAsync(one!.JobId, DateTimeOffset.UtcNow, sub.SpoolerJobId, cts.Token);
-        await be.ReportJobStatusAsync(one.JobId, DateTimeOffset.UtcNow, null, null, cts.Token);
+        // v0.4.7+ contract: status is the string "completed" or "failed" or "printing"
+        await be.ReportJobStatusAsync(one.JobId, "completed", printerName: null, errorMessage: null, cts.Token);
         await q.MarkReportedPrintedAsync(one.JobId, cts.Token);
 
-        be.ReportCalledWithPrinted.Should().BeTrue();
+        be.ReportCalledWithCompleted.Should().BeTrue();
         be.ReportCalledWithFailed.Should().BeFalse();
         pr.SubmitCalls.Should().Be(1, "the job should have been printed exactly once");
     }

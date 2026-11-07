@@ -10,8 +10,13 @@ using PrintShopCompanion.Shared.Constants;
 /// When the OS launches the companion with a URL of the form
 /// <c>printshopcompanion://pair?token=…&amp;shop=…&amp;expires=…</c>, the App's
 /// <c>Startup.UriActivation</c> handler routes it to <see cref="HandleMagicLinkAsync"/>
-/// which exchanges the one-time token for a long-lived device token via
-/// <see cref="IPrintShopBackend.PairAsync"/>.
+/// which uses the token as a device token via
+/// <see cref="IPrintShopBackend.PairWithDeviceTokenAsync"/>.
+/// <para><b>v0.4.7+:</b> the production backend uses paste-token pairing (the
+/// shopkeeper copies the device token from the web dashboard and pastes it
+/// into PrintEXE). The magic-link flow is kept for backward compatibility
+/// with shops that still use the legacy <c>printshopcompanion://</c> URL
+/// scheme — the token from the URL is treated as a device token.</para>
 /// </summary>
 public sealed class MagicLinkPairingService : IPairingService
 {
@@ -72,10 +77,18 @@ public sealed class MagicLinkPairingService : IPairingService
         await _awaitingGate.WaitAsync(cancellationToken);
         try
         {
-            var result = await _backend.PairAsync(token, cancellationToken);
+            // v0.4.7+: the IPrintShopBackend contract changed from
+            // PairAsync(token) → PairWithDeviceTokenAsync(token). The
+            // production backend uses paste-token pairing (the shopkeeper
+            // copies the device token from the web dashboard and pastes it
+            // into PrintEXE), so the magic-link flow is now mostly obsolete.
+            // We keep it for backward compatibility with shops that still
+            // use the legacy printshopcompanion:// URL scheme — the token
+            // from the URL is treated as a device token.
+            await _backend.PairWithDeviceTokenAsync(token, cancellationToken);
             _awaiting = false;
             _pairingTcs?.TrySetResult(true);
-            _logger.LogInformation("Paired with shop {ShopId} ({Shop})", result.Shop.ShopId, result.Shop.ShopName);
+            _logger.LogInformation("Paired with shop via magic-link token (treated as device token)");
             return true;
         }
         catch (Exception ex)

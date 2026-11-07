@@ -404,3 +404,189 @@ public sealed class PrintJobDto
     [JsonPropertyName("pageRange")]
     public string? PageRange { get; init; }
 }
+
+/// <summary>Response envelope for GET /agents/jobs/pending (envelope-wrapped).</summary>
+public sealed class PendingJobsEnvelopeDto
+{
+    [JsonPropertyName("jobs")]
+    public required List<PrintJobDto> Jobs { get; init; }
+
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; init; }
+}
+
+/// <summary>
+/// Wire DTO for POST /api/v1/agents/token response body (inside the
+/// envelope's <c>data</c> field). Used to exchange a device token for a
+/// short-lived JWT for Socket.IO auth.
+/// </summary>
+public sealed class AgentTokenResponseDto
+{
+    [JsonPropertyName("accessToken")]
+    public required string AccessToken { get; init; }
+
+    [JsonPropertyName("expiresIn")]
+    public int ExpiresIn { get; init; }
+
+    [JsonPropertyName("shopId")]
+    public string? ShopId { get; init; }
+}
+
+/// <summary>Wire DTO for POST /api/v1/agents/heartbeat response body.</summary>
+public sealed class AgentHeartbeatResponseDto
+{
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; init; }
+
+    [JsonPropertyName("online")]
+    public bool Online { get; init; }
+
+    [JsonPropertyName("ts")]
+    public DateTimeOffset? Ts { get; init; }
+}
+
+/// <summary>
+/// Wire DTO for POST /api/v1/agents/jobs/{id}/status request body.
+/// <para><see cref="Status"/> is the string <c>"printing"</c>, <c>"completed"</c>, or <c>"failed"</c>.</para>
+/// <para><see cref="PrinterName"/> is required when claiming (status = "printing").</para>
+/// <para><see cref="LastError"/> is required when failing (status = "failed").</para>
+/// </summary>
+public sealed class AgentJobStatusRequestDto
+{
+    [JsonPropertyName("status")]
+    public required string Status { get; init; }
+
+    [JsonPropertyName("printerName")]
+    public string? PrinterName { get; init; }
+
+    [JsonPropertyName("lastError")]
+    public string? LastError { get; init; }
+}
+
+/// <summary>
+/// Wire DTO for POST /api/v1/agents/jobs/{id}/status response body.
+/// <para><see cref="Applied"/> is true if the status change was applied. False if skipped (e.g. another agent claimed it first).</para>
+/// <para><see cref="Skipped"/> is true if the status change was a no-op (already in the target state, or the precondition didn't hold).</para>
+/// </summary>
+public sealed class AgentJobStatusResponseDto
+{
+    [JsonPropertyName("jobId")]
+    public string? JobId { get; init; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; init; }
+
+    [JsonPropertyName("applied")]
+    public bool Applied { get; init; }
+
+    [JsonPropertyName("skipped")]
+    public bool Skipped { get; init; }
+
+    [JsonPropertyName("reason")]
+    public string? Reason { get; init; }
+}
+
+/// <summary>Wire DTO for GET /api/v1/sync/pull response body.</summary>
+public sealed class SyncPullResponseDto
+{
+    [JsonPropertyName("changes")]
+    public required List<SyncChangeDto> Changes { get; init; }
+
+    [JsonPropertyName("nextCursor")]
+    public string? NextCursor { get; init; }
+
+    [JsonPropertyName("hasMore")]
+    public bool HasMore { get; init; }
+}
+
+public sealed class SyncChangeDto
+{
+    [JsonPropertyName("entity")]
+    public required string Entity { get; init; }
+
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("action")]
+    public required string Action { get; init; }
+
+    [JsonPropertyName("data")]
+    public System.Text.Json.JsonElement Data { get; init; }
+
+    [JsonPropertyName("revision")]
+    public int Revision { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; init; }
+}
+
+/// <summary>Wire DTO for POST /api/v1/sync/push request body.</summary>
+public sealed class SyncPushRequestDto
+{
+    [JsonPropertyName("changes")]
+    public required List<SyncPushChangeDto> Changes { get; init; }
+}
+
+public sealed class SyncPushChangeDto
+{
+    [JsonPropertyName("entity")]
+    public required string Entity { get; init; }
+
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("action")]
+    public required string Action { get; init; }
+
+    [JsonPropertyName("data")]
+    public System.Text.Json.JsonElement Data { get; init; }
+
+    [JsonPropertyName("clientRevision")]
+    public int ClientRevision { get; init; }
+
+    [JsonPropertyName("baseRevision")]
+    public int BaseRevision { get; init; }
+}
+
+public sealed class SyncPushResponseDto
+{
+    [JsonPropertyName("results")]
+    public required List<SyncPushResultDto> Results { get; init; }
+}
+
+public sealed class SyncPushResultDto
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    [JsonPropertyName("accepted")]
+    public bool Accepted { get; init; }
+
+    [JsonPropertyName("serverRevision")]
+    public int? ServerRevision { get; init; }
+
+    [JsonPropertyName("conflict")]
+    public bool Conflict { get; init; }
+}
+
+/// <summary>Wire DTO for GET /api/v1/sync/status response body.</summary>
+public sealed class SyncStatusResponseDto
+{
+    [JsonPropertyName("deviceId")]
+    public string? DeviceId { get; init; }
+
+    [JsonPropertyName("shopId")]
+    public string? ShopId { get; init; }
+
+    [JsonPropertyName("syncCursor")]
+    public string? SyncCursor { get; init; }
+
+    [JsonPropertyName("lastSyncAt")]
+    public DateTimeOffset? LastSyncAt { get; init; }
+
+    [JsonPropertyName("agentName")]
+    public string? AgentName { get; init; }
+
+    [JsonPropertyName("isOnline")]
+    public bool IsOnline { get; init; }
+}

@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
 using PrintShopCompanion.App.Services;
+using PrintShopCompanion.App.Tray;
 using PrintShopCompanion.Core.Contracts;
 
 public partial class MainWindow : Window
@@ -31,6 +32,61 @@ public partial class MainWindow : Window
 
         _nav.ViewChanged += OnViewChanged;
         OnViewChanged();
+
+        // CRITICAL: App.xaml sets ShutdownMode="OnExplicitShutdown" so the
+        // process keeps running when the window closes (intentional — the
+        // tray icon keeps the app alive). But this means clicking the X
+        // button just hides the window without releasing the single-instance
+        // mutex. The next launch hits "Another instance is already running"
+        // and the user has to kill the process from Task Manager.
+        //
+        // Fix: wire the Closing event. When the user clicks X:
+        //   - If MinimizeToTrayOnClose is true (the App option), minimize to
+        //     tray instead of shutting down. This is the "app lives in tray"
+        //     behavior some users want.
+        //   - Otherwise, call Application.Shutdown() so OnExit fires, the
+        //     mutex is released, and the process exits cleanly. The user
+        //     can immediately relaunch.
+        //
+        // The default is to shut down — this fixes the "cannot reopen after
+        // closing" bug. Users who want tray behavior can enable it in
+        // Settings → Application → Minimize to tray on close.
+        Closing += OnMainWindowClosing;
+    }
+
+    private void OnMainWindowClosing(object? sender, CancelEventArgs e)
+    {
+        // Read the MinimizeToTrayOnClose option from the App options.
+        // Default is false (close = exit), which fixes the "cannot reopen"
+        // bug. If the user opts in, close = minimize to tray.
+        try
+        {
+            var opts = _services.GetService<Microsoft.Extensions.Options.IOptionsMonitor<PrintShopCompanion.Core.Options.AppOptions>>();
+            if (opts?.CurrentValue?.MinimizeToTrayOnClose == true)
+            {
+                // Minimize to tray instead of closing.
+                e.Cancel = true;
+                Hide();
+                var tray = _services.GetService<TrayIconHost>();
+                tray?.ShowBalloon("PrintShop Companion",
+                    "Still running in the background. Click the tray icon to reopen.",
+                    PrintShopCompanion.App.Services.NotificationService.Severity.Success);
+                return;
+            }
+        }
+        catch
+        {
+            // If option-reading fails, fall through to the default (close =
+            // exit). Don't keep the user's window stuck open.
+        }
+
+        // Default: actually shut down the app so the mutex is released and
+        // the user can reopen immediately.
+        // We DON'T cancel the close — the window will close, but because
+        // ShutdownMode is OnExplicitShutdown, the process would stay alive.
+        // So we explicitly call Shutdown() here, which fires OnExit, which
+        // releases the mutex.
+        System.Windows.Application.Current.Shutdown();
     }
 
     private void OnViewChanged()

@@ -65,4 +65,28 @@ public partial class LoginView : UserControl
     {
         await _vm.SignInAsync();
     }
+
+    /// <summary>
+    /// Pair with the device token. The recommended flow per the integration
+    /// guide section 2.1: the shopkeeper generates a device token on the
+    /// web dashboard's Printer Setup page, copies it, and pastes it here.
+    /// </summary>
+    private async void PairWithToken_Click(object sender, RoutedEventArgs e)
+    {
+        ConnectButton.Content = "Connecting...";
+        ConnectButton.IsEnabled = false;
+        try
+        {
+            await _vm.PairWithTokenAsync();
+        }
+        finally
+        {
+            ConnectButton.Content = "Connect this PC";
+            // The ViewModel sets IsPairing=true while pairing is in flight;
+            // the XAML binds IsEnabled to !IsPairing. We don't need to
+            // re-enable here because if pairing succeeded, we navigate to
+            // Overview and this view is gone. If pairing failed, IsPairing
+            // flips back to false and the binding re-enables the button.
+        }
+    }
 }

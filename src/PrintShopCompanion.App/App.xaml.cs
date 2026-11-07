@@ -153,26 +153,63 @@ public partial class App : Application
             {
                 try
                 {
-                    // Restore credentials
+                    // Restore credentials — try BOTH paths:
+                    //   1. The v0.4.7+ device-token flow (HttpPrintShopBackend.RestoreAsync)
+                    //   2. The legacy shopkeeper session flow (HttpShopBackend.RestoreSession)
+                    // If neither succeeds, the user lands on the Login page.
+                    bool restored = false;
+
+                    // Path 1: device-token restore (the recommended v0.4.7+ flow).
                     if (hasSavedCredentials)
                     {
-                        var store = _host.Services.GetRequiredService<ICredentialStore>();
-                        var creds = await store.LoadAsync();
-                        if (creds?.Session != null)
+                        try
                         {
-                            var shopBackend = _host.Services.GetRequiredService<IShopBackend>() as HttpShopBackend;
-                            if (shopBackend != null)
+                            var printShopBackend = _host.Services.GetRequiredService<IPrintShopBackend>() as HttpPrintShopBackend;
+                            if (printShopBackend != null)
                             {
-                                shopBackend.RestoreSession(creds.Session);
-                                Log.Information("Session restored in background");
+                                restored = await printShopBackend.RestoreAsync();
+                                if (restored)
+                                {
+                                    Log.Information("Device token restored in background");
+                                }
                             }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            // Credentials file exists but is corrupt/empty — go to login
-                            Dispatcher.Invoke(() => nav.NavigateTo("Login"));
-                            Log.Information("Credentials invalid — redirected to Login");
+                            Log.Warning(ex, "Device token restore failed; trying legacy shopkeeper session");
                         }
+                    }
+
+                    // Path 2: legacy shopkeeper session (kept for backward compat with shops
+                    // that haven't set up a print agent yet — they used email+password login).
+                    if (!restored && hasSavedCredentials)
+                    {
+                        try
+                        {
+                            var store = _host.Services.GetRequiredService<ICredentialStore>();
+                            var creds = await store.LoadAsync();
+                            if (creds?.Session != null)
+                            {
+                                var shopBackend = _host.Services.GetRequiredService<IShopBackend>() as HttpShopBackend;
+                                if (shopBackend != null)
+                                {
+                                    shopBackend.RestoreSession(creds.Session);
+                                    restored = true;
+                                    Log.Information("Legacy shopkeeper session restored in background");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "Legacy shopkeeper session restore failed");
+                        }
+                    }
+
+                    if (!restored && hasSavedCredentials)
+                    {
+                        // Both restore paths failed — go to login so the user can re-pair.
+                        Dispatcher.Invoke(() => nav.NavigateTo("Login"));
+                        Log.Information("Credentials invalid — redirected to Login");
                     }
 
                     // Start background services — pass the shared token so they
@@ -325,6 +362,27 @@ public partial class App : Application
         Log.Information("=== Shutdown complete ===");
         Log.CloseAndFlush();
         base.OnExit(e);
+
+        // 8. Final safety net: if the process is still alive 3 seconds after
+        //    OnExit returns (because some background thread is hung), force
+        //    the process to exit. This is the LAST line of defense against
+        //    the "cannot reopen after closing" bug — if the process is still
+        //    alive, the single-instance mutex stays held and the user can't
+        //    reopen. A forced Environment.Exit() releases all OS resources
+        //    including the mutex.
+        //
+        //    We schedule the kill on a background thread so the current
+        //    thread can finish flushing the log file before the process dies.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            // If we're still alive, something is hung. Force exit.
+            try
+            {
+                System.Diagnostics.Process.GetCurrentProcess().Kill();
+            }
+            catch { }
+        });
     }
 
     private static void RegisterAutoStart()
