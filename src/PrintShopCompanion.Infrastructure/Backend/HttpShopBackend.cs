@@ -130,8 +130,8 @@ public sealed class HttpShopBackend : IShopBackend, IDisposable
         var q = $"?limit={limit}&offset={offset}";
         if (status is { } s) q += $"&status={s.ToWire()}";
         var resp = await SendAuthedAsync(HttpMethod.Get, $"shops/me/orders{q}", ct);
-        var envelope = await ReadEnvelopeWithPaginationAsync<OrderDto>(resp, ct);
-        var orders = envelope.Data?.Select(d => MapOrder(d)).ToList() ?? new();
+        var envelope = await ReadEnvelopeWithPaginationAsync<List<OrderDto>>(resp, ct);
+        var orders = (envelope.Data ?? new List<OrderDto>()).Select(d => MapOrder(d)).ToList();
         return (orders, envelope.Pagination?.Total ?? orders.Count);
     }
 
