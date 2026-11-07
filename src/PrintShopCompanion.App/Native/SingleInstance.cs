@@ -1,6 +1,7 @@
 namespace PrintShopCompanion.App.Native;
 
 using System.Threading;
+using System.IO.Pipes;
 
 /// <summary>
 /// Single-instance guard using a named Mutex.
