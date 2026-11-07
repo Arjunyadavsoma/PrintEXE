@@ -78,7 +78,7 @@ public sealed class FileRetentionManager : IDisposable
             var freedBytes = 0L;
 
             // 1. Delete files whose localDeleteAfter has passed.
-            var jobs = await _queue.ListAsync(ct: ct);
+            var jobs = await _queue.ListAsync(cancellationToken: ct);
             foreach (var job in jobs)
             {
                 if (ct.IsCancellationRequested) break;
