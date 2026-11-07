@@ -84,7 +84,7 @@ public partial class App : Application
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
                 .CreateLogger();
 
-            Log.Information("PrintShop Companion starting up (v{Version})", typeof(App).Assembly.GetName().Version);
+            Serilog.Log.Information("PrintShop Companion starting up (v{Version})", typeof(App).Assembly.GetName().Version);
 
             _host = Host.CreateDefaultBuilder()
                 .UseSerilog()
@@ -145,9 +145,9 @@ public partial class App : Application
                 // Restore device token if we have one.
                 var backend = _host.Services.GetRequiredService<IPrintShopBackend>() as HttpPrintShopBackend;
                 if (backend is not null && await backend.RestoreAsync())
-                    Log.Information("Restored device token; companion is paired");
+                    Serilog.Log.Information("Restored device token; companion is paired");
                 else
-                    Log.Information("Companion is not paired; will start on Setup screen");
+                    Serilog.Log.Information("Companion is not paired; will start on Setup screen");
 
                 // Replay any in-flight jobs.
                 var queue = _host.Services.GetRequiredService<IJobQueue>();
@@ -173,7 +173,7 @@ public partial class App : Application
                 var updateAvailable = await updateService.CheckForUpdatesAsync();
                 if (updateAvailable)
                 {
-                    Log.Information("Update available: {Current} to {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
+                    Serilog.Log.Information("Update available: {Current} to {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
                     // Show the update banner on the MainWindow
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
@@ -193,13 +193,13 @@ public partial class App : Application
             catch (Exception bgEx)
             {
                 // Background setup failed — log it but the window is already showing.
-                Log.Warning(bgEx, "Background startup step failed (non-fatal — window is showing)");
+                Serilog.Log.Warning(bgEx, "Background startup step failed (non-fatal — window is showing)");
             }
         }
         catch (Exception ex)
         {
             startupError = ex.ToString();
-            Log.Fatal(ex, "Companion startup failed");
+            Serilog.Log.Fatal(ex, "Companion startup failed");
         }
 
         // If startup failed, show a VISIBLE error dialog.
@@ -244,12 +244,12 @@ public partial class App : Application
             }
             _tray?.Hide();
             _singleInstance?.Dispose();
-            Log.Information("PrintShop Companion shutting down");
-            Log.CloseAndFlush();
+            Serilog.Log.Information("PrintShop Companion shutting down");
+            Serilog.Log.CloseAndFlush();
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error during shutdown");
+            Serilog.Log.Error(ex, "Error during shutdown");
         }
         base.OnExit(e);
     }
