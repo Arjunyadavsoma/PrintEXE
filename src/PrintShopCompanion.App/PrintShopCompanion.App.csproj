@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>PrintShopCompanion.App</RootNamespace>
+    <AssemblyName>PrintShopCompanion</AssemblyName>
+    <UseWPF>true</UseWPF>
+    <!-- No ApplicationManifest — the manifest triggers SxS assembly lookups
+         that fail on machines without the exact VC++ runtime. Let .NET use
+         its default (no manifest = no SxS dependency). -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- No ReadyToRun — R2R native code references specific VC++ runtime
+         versions via SxS. JIT compilation avoids the dependency entirely. -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.2" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.EventLog" Version="4.0.0" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+
+    <!-- Tray icon. H.NotifyIcon.Wpf is the maintained successor to the
+         abandoned Hardcodet.NotifyIcon.Wpf. The codebase uses H.NotifyIcon
+         exclusively (Tray/TrayIcon.cs uses `using H.NotifyIcon;`). The old
+         Hardcodet reference was unused dead weight and has been removed. -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+
+    <!-- WPF-UI removed — caused FileNotFoundException on machines where the
+         assembly didn't load. Using standard WPF styles in Themes/Fluent.xaml instead. -->
+
+    <!-- Vulnerable-transitive overrides. The App pulls Infrastructure transitively,
+         so it inherits the vulnerable transitive deps. Pinning them at safe versions
+         here too ensures the publish output bundles the fixed versions. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PrintShopCompanion.Core\PrintShopCompanion.Core.csproj" />
+    <ProjectReference Include="..\PrintShopCompanion.Infrastructure\PrintShopCompanion.Infrastructure.csproj" />
+    <ProjectReference Include="..\PrintShopCompanion.Shared\PrintShopCompanion.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Icons\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WiX v5 Bundle (bootstrapper) for PrintShop Companion.
+
+  Chains:
+    1. The .NET 10 Desktop Runtime (x64) — installs silently if missing.
+    2. The PrintShopCompanion.msi (built from PrintShopCompanion.Installer.wxs).
+
+  Builds with: wix build PrintShopCompanion.Bundle.wxs -o PrintShopCompanion.Setup.exe
+  (Run after install-on-windows.ps1 has produced the .msi.)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+
+  <Bundle Name="PrintShop Companion"
+          Version="0.1.0.0"
+          Manufacturer="PrintShop"
+          UpgradeCode="C0FFEE00-1234-5678-9ABC-DEADBEEF0001">
+
+    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense">
+      <bal:WixStandardBootstrapperApplication
+          LicenseFile="$(var.RepoRoot)\installer\redist\LICENSE.txt"
+          ShowVersion="yes"
+          SuppressRepair="yes" />
+    </BootstrapperApplicationRef>
+
+    <Chain>
+      <!-- .NET 10 Desktop Runtime — install silently if not already present. -->
+      <PackageGroupRef Id="NetDesktopRuntime_x64" />
+
+      <!-- The MSI built from PrintShopCompanion.Installer.wxs -->
+      <MsiPackage Id="CompanionMsi"
+                  Compressed="yes"
+                  SourceFile="$(var.RepoRoot)\installer\build\PrintShopCompanion.msi"
+                  Vital="yes" />
+    </Chain>
+  </Bundle>
+
+  <Fragment>
+    <!--
+      .NET 10 Desktop Runtime package group. Uses the official Microsoft
+      redist .exe (downloaded at build time by install-on-windows.ps1 and
+      the GitHub Actions workflow into installer\redist\).
+      If the file is missing, the bundle build fails fast.
+    -->
+    <PackageGroup Id="NetDesktopRuntime_x64">
+      <ExePackage Id="NetDesktopRuntime_x64"
+                  DisplayName=".NET 10 Desktop Runtime (x64)"
+                  Compressed="no"
+                  DownloadUrl="https://download.visualstudio.microsoft.com/download/pr/dotnet-runtime-10.0.0-win-x64.exe"
+                  InstallCommand="/quiet /norestart"
+                  RepairCommand="/quiet /norestart"
+                  UninstallCommand="/uninstall /quiet /norestart"
+                  SourceFile="$(var.RepoRoot)\installer\redist\dotnet-runtime-10-win-x64.exe"
+                  DetectCondition="NetDesktopRuntime10_x64"
+                  Vital="yes" />
+      <!--
+        DetectCondition uses a registry search declared in the bundle.
+        The .NET 10 Desktop Runtime writes its version to
+        HKLM\Software\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App 10.x
+      -->
+      <bal:Condition Message=".NET 10 Desktop Runtime is required. The installer will download and install it automatically.">
+        Installed OR NetDesktopRuntime10_x64
+      </bal:Condition>
+    </PackageGroup>
+  </Fragment>
+</Wix>

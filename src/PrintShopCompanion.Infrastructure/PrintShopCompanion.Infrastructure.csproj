@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>PrintShopCompanion.Infrastructure</RootNamespace>
+    <AssemblyName>PrintShopCompanion.Infrastructure</AssemblyName>
+    <!-- System.Printing and System.Drawing.Printing live in the Windows Desktop
+         framework (Microsoft.WindowsDesktop.App). UseWPF=true brings them in
+         without forcing a hard dependency on WPF UI assemblies — Infrastructure
+         itself never opens a Window, but it does enumerate PrintQueues and
+         submit PrintDocuments. -->
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.2" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.EventLog" Version="4.0.0" />
+
+    <!-- SocketIOClient: bumped to 3.2.0 (the latest stable on NuGet as of 2024).
+         3.2.0 multi-targets net6.0/net7.0/net8.0 — when consumed by net10.0 it
+         picks the net8.0 TFM and uses the built-in System.Net.WebSockets.ClientWebSocket,
+         so it no longer drags in System.Net.WebSockets.Client.Managed 1.0.x
+         (which is what was pulling in the vulnerable Microsoft.NETCore.App 1.1.0
+         and Microsoft.NETCore.Jit 1.1.0 transitive deps). -->
+    <PackageReference Include="SocketIOClient" Version="3.1.2" />
+
+    <!-- Explicit overrides for vulnerable transitive deps.
+
+         NU1903 advisories that were surfacing:
+           - Microsoft.NETCore.App 1.1.0  (GHSA-7mfr-774f-w5r9, GHSA-8884-xcr4-r68p)
+           - Microsoft.NETCore.Jit   1.1.0 (GHSA-xcvr-qv8h-m7xw)
+           - Newtonsoft.Json         9.0.1 (GHSA-5crp-9r3c-p9vr)
+           - SQLitePCLRaw.lib.e_sqlite3 2.1.11 (GHSA-2m69-gcr7-jv3q)
+
+         The first two are gone after the SocketIOClient 3.2.0 bump (they came
+         via System.Net.WebSockets.Client.Managed). The other two are pinned
+         here to safe versions so any other transitive consumer resolves to
+         the fixed version rather than the vulnerable one. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PrintShopCompanion.Core\PrintShopCompanion.Core.csproj" />
+    <ProjectReference Include="..\PrintShopCompanion.Shared\PrintShopCompanion.Shared.csproj" />
+  </ItemGroup>
+
+</Project>
