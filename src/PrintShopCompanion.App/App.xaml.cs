@@ -109,11 +109,18 @@ public partial class App : Application
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<MainWindow>();
                     services.AddSingleton<MainViewModel>();
+                    services.AddTransient<LoginViewModel>();
+                    services.AddTransient<OverviewViewModel>();
+                    services.AddTransient<OrdersViewModel>();
+                    services.AddTransient<OrderDetailsViewModel>();
                     services.AddTransient<SetupViewModel>();
                     services.AddTransient<DashboardViewModel>();
                     services.AddTransient<PrintersViewModel>();
                     services.AddTransient<PrintQueueViewModel>();
                     services.AddTransient<SettingsViewModel>();
+                    services.AddTransient<LoginView>();
+                    services.AddTransient<OverviewView>();
+                    services.AddTransient<OrdersView>();
                     services.AddTransient<SetupView>();
                     services.AddTransient<DashboardView>();
                     services.AddTransient<PrintersView>();
