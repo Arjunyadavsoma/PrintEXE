@@ -2,12 +2,18 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <ResourceDictionary.MergedDictionaries>
-        <!-- Light theme: pull WPF-UI's light resources and then layer our overrides. -->
-        <ResourceDictionary Source="pack://application:,,,/WPF-UI;component/Themes/Light.xaml" />
-    </ResourceDictionary.MergedDictionaries>
-
+    <!-- Light theme — no external dependencies. Uses standard WPF colors. -->
     <Color x:Key="SystemAccentColor">#0F7B6C</Color>
+
+    <SolidColorBrush x:Key="BrandPrimaryBrush"  Color="#0F7B6C" />
+    <SolidColorBrush x:Key="BrandAccentBrush"   Color="#1AB8A4" />
+    <SolidColorBrush x:Key="BrandDangerBrush"   Color="#D13438" />
+    <SolidColorBrush x:Key="BrandWarningBrush"  Color="#FFA62D" />
+    <SolidColorBrush x:Key="BrandSuccessBrush"  Color="#2E9C53" />
+    <SolidColorBrush x:Key="StatusPendingBrush"   Color="#FFA62D" />
+    <SolidColorBrush x:Key="StatusPrintingBrush"  Color="#0F7B6C" />
+    <SolidColorBrush x:Key="StatusCompletedBrush" Color="#2E9C53" />
+    <SolidColorBrush x:Key="StatusFailedBrush"    Color="#D13438" />
 
     <SolidColorBrush x:Key="ApplicationBackgroundBrush"  Color="#FAFAFA" />
     <SolidColorBrush x:Key="CardBackgroundBrush"         Color="#FFFFFF" />

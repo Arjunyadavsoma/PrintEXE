@@ -33,8 +33,8 @@
          Hardcodet reference was unused dead weight and has been removed. -->
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
 
-    <!-- WPF-UI 4.3.0 explicitly targets net10.0-windows7.0; 4.0.0 does not. -->
-    <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <!-- WPF-UI removed — caused FileNotFoundException on machines where the
+         assembly didn't load. Using standard WPF styles in Themes/Fluent.xaml instead. -->
 
     <!-- Vulnerable-transitive overrides. The App pulls Infrastructure transitively,
          so it inherits the vulnerable transitive deps. Pinning them at safe versions

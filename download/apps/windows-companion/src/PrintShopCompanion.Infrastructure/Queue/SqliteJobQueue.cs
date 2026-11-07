@@ -238,7 +238,8 @@ public sealed class SqliteJobQueue : IJobQueue
             sel.CommandText = """
                 SELECT * FROM jobs
                  WHERE status = @pending
-                    OR status = @downloaded
+                    OR status = @downloading
+                    OR status = @rendering
                     OR status = @spooled
                     OR (status = @failed AND next_attempt_at IS NOT NULL
                         AND next_attempt_at <= @now)
