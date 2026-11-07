@@ -4,14 +4,24 @@ using System.Threading;
 
 /// <summary>
 /// Single-instance guard. Acquires a named mutex at startup; if another
-/// instance already holds it, this instance forwards its arguments to
-/// the existing instance (via a hidden window message pump) and exits.
+/// instance already holds it, this instance forwards its arguments to the
+/// existing instance (via a named pipe) and exits.
+///
+/// <para><b>Mutex lifecycle:</b> The Mutex is created with <c>owns=true</c> if
+/// we're the first instance. On <see cref="Dispose"/>, we release and dispose
+/// the Mutex so the OS frees it immediately — the next launch can acquire it.</para>
+///
+/// <para><b>Pipe lifecycle:</b> The receiver loop runs on a background thread
+/// with a <see cref="CancellationTokenSource"/>. On dispose, we cancel the token
+/// and dispose the pipe server so the thread exits cleanly.</para>
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
     private readonly string _mutexName;
     private Mutex? _mutex;
     private bool _owns;
+    private CancellationTokenSource? _cts;
+    private Task? _receiverTask;
 
     public event EventHandler<string>? UrlForwarded;
 
@@ -19,11 +29,13 @@ public sealed class SingleInstance : IDisposable
 
     public bool AcquireOrForward(string[] args)
     {
+        // Try to create the mutex. If we get ownership, we're the first instance.
         _mutex = new Mutex(true, _mutexName, out _owns);
         if (_owns)
         {
             // Start the IPC receiver that listens for forwarded URLs from later launches.
-            _ = Task.Run(ReceiverLoop);
+            _cts = new CancellationTokenSource();
+            _receiverTask = Task.Run(() => ReceiverLoop(_cts.Token), _cts.Token);
             return true;
         }
         // We're a second instance — try to forward args to the first one.
@@ -34,39 +46,76 @@ public sealed class SingleInstance : IDisposable
 
     private static void ForwardUrl(string url)
     {
-        // Production: writes to the named pipe \\.\pipe\PrintShopCompanion that the
-        // first instance is listening on. Stubbed here for the first delivery; the
-        // full implementation lives in docs/ARCHITECTURE.md "Single-instance IPC".
         try
         {
-            using var client = new System.IO.Pipes.NamedPipeClientStream(".", "PrintShopCompanion", System.IO.Pipes.PipeDirection.Out);
+            using var client = new System.IO.Pipes.NamedPipeClientStream(
+                ".", "PrintShopCompanion",
+                System.IO.Pipes.PipeDirection.Out,
+                System.IO.Pipes.PipeOptions.None,
+                System.Security.Principal.TokenImpersonationLevel.None);
             client.Connect(1000);
             using var w = new System.IO.StreamWriter(client);
             w.WriteLine(url);
             w.Flush();
         }
-        catch { /* best-effort; the OS will just open the existing instance */ }
+        catch { /* best-effort */ }
     }
 
-    private void ReceiverLoop()
+    private void ReceiverLoop(CancellationToken ct)
     {
         try
         {
-            using var server = new System.IO.Pipes.NamedPipeServerStream("PrintShopCompanion", System.IO.Pipes.PipeDirection.In);
-            while (true)
+            var server = new System.IO.Pipes.NamedPipeServerStream(
+                "PrintShopCompanion",
+                System.IO.Pipes.PipeDirection.In,
+                1,
+                System.IO.Pipes.PipeTransmissionMode.Byte,
+                System.IO.Pipes.PipeOptions.None);
+
+            while (!ct.IsCancellationRequested)
             {
-                server.WaitForConnection();
-                using var r = new System.IO.StreamReader(server);
-                var line = r.ReadLine();
-                if (!string.IsNullOrEmpty(line)) UrlForwarded?.Invoke(this, line);
+                // Wait for a connection with cancellation support.
+                var waitTask = Task.Run(() => server.WaitForConnection(), ct);
+                try { waitTask.Wait(ct); }
+                catch (OperationCanceledException) { break; }
+
+                if (!server.IsConnected) continue;
+
+                try
+                {
+                    using var r = new System.IO.StreamReader(server);
+                    var line = r.ReadLine();
+                    if (!string.IsNullOrEmpty(line))
+                        UrlForwarded?.Invoke(this, line);
+                }
+                catch { /* ignore read errors */ }
+
                 server.Disconnect();
             }
+
+            server.Dispose();
         }
-        catch { /* shut down */ }
+        catch (OperationCanceledException) { /* normal shutdown */ }
+        catch (Exception) { /* pipe error — exit silently */ }
     }
 
     public void Dispose()
     {
-        try { if (_owns) _mutex?.ReleaseMutex(); _mutex?.Dispose(); } catch { }
+        // 1. Cancel the receiver loop.
+        try { _cts?.Cancel(); } catch { }
+        // 2. Wait briefly for the receiver task to exit (max 2 seconds).
+        try { _receiverTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
+        // 3. Dispose the cancellation token source.
+        _cts?.Dispose();
+        _cts = null;
+        // 4. Release and dispose the Mutex so the OS frees it immediately.
+        try
+        {
+            if (_owns && _mutex is not null)
+                _mutex.ReleaseMutex();
+        }
+        catch { /* already released */ }
+        try { _mutex?.Dispose(); } catch { }
+        _mutex = null;
     }
 }

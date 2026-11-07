@@ -240,20 +240,48 @@ public partial class App : Application
     {
         try
         {
+            Serilog.Log.Information("PrintShop Companion shutting down — stopping services");
+
             if (_host is not null)
             {
-                var processor = _host.Services.GetRequiredService<JobProcessor>();
-                await processor.StopAsync();
+                // Stop the sync engine first (it uses the backend HTTP client).
+                try
+                {
+                    var syncEngine = _host.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Sync.SyncEngine>();
+                    await syncEngine.StopAsync();
+                    Serilog.Log.Information("SyncEngine stopped");
+                }
+                catch (Exception ex) { Serilog.Log.Warning(ex, "SyncEngine stop failed"); }
+
+                // Stop the job processor.
+                try
+                {
+                    var processor = _host.Services.GetRequiredService<JobProcessor>();
+                    await processor.StopAsync();
+                    Serilog.Log.Information("JobProcessor stopped");
+                }
+                catch (Exception ex) { Serilog.Log.Warning(ex, "JobProcessor stop failed"); }
+
+                // Stop the DI host (disposes all IDisposable services).
                 await _host.StopAsync(TimeSpan.FromSeconds(5));
+                _host.Dispose();
+                Serilog.Log.Information("DI host stopped and disposed");
             }
+
+            // Hide tray icon.
             _tray?.Hide();
+
+            // Release the single-instance mutex (CRITICAL for reopening).
+            Serilog.Log.Information("Releasing single-instance mutex");
             _singleInstance?.Dispose();
-            Serilog.Log.Information("PrintShop Companion shutting down");
+
+            Serilog.Log.Information("PrintShop Companion shutdown complete");
             Serilog.Log.CloseAndFlush();
         }
         catch (Exception ex)
         {
             Serilog.Log.Error(ex, "Error during shutdown");
+            try { Serilog.Log.CloseAndFlush(); } catch { }
         }
         base.OnExit(e);
     }

@@ -31,15 +31,28 @@ public sealed class GitHubUpdateService : IUpdateService
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PrintShopCompanion", CurrentVersion));
     }
 
-    public string CurrentVersion =>
-        // Read from the App assembly (not this Infrastructure assembly) since
-        // Directory.Build.props sets the version on all projects but the App
-        // is the one the user runs. We look for the App assembly by name.
-        AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => a.GetName().Name == "PrintShopCompanion")
-            ?.GetName().Version?.ToString()
-        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
-        ?? "0.0.0.0";
+    public string CurrentVersion
+    {
+        get
+        {
+            // Try the App assembly first, then this assembly, then a hardcoded fallback.
+            try
+            {
+                var appAsm = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "PrintShopCompanion");
+                if (appAsm != null && appAsm.GetName().Version != null)
+                    return appAsm.GetName().Version!.ToString();
+            }
+            catch { }
+            try
+            {
+                var ver = Assembly.GetExecutingAssembly().GetName().Version;
+                if (ver != null) return ver.ToString();
+            }
+            catch { }
+            return "0.0.0.0";
+        }
+    }
 
     public string? LatestVersion => _latestRelease?.TagName?.TrimStart('v');
     public bool UpdateAvailable => _latestRelease is not null && IsNewer(LatestVersion, CurrentVersion);
@@ -116,7 +129,11 @@ public sealed class GitHubUpdateService : IUpdateService
 
         var batContent = "@echo off\r\n" +
             "echo Updating PrintShop Companion...\r\n" +
-            "timeout /t 3 /nobreak >nul\r\n" +
+            "echo Waiting for app to exit...\r\n" +
+            "timeout /t 5 /nobreak >nul\r\n" +
+            "echo Ensuring app is stopped...\r\n" +
+            $"taskkill /f /im \"{exeName}\" 2>nul\r\n" +
+            "timeout /t 2 /nobreak >nul\r\n" +
             "echo Copying new files...\r\n" +
             $"xcopy \"{extractDir}\\*\" \"{appDir}\" /E /Y /I /Q\r\n" +
             "echo Starting updated app...\r\n" +
