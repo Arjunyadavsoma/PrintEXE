@@ -13,10 +13,6 @@ using PrintShopCompanion.App.Views;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure;
-using PrintShopCompanion.Infrastructure.Backend;
-using PrintShopCompanion.Infrastructure.Diagnostics;
-using PrintShopCompanion.Infrastructure.Queue;
-using PrintShopCompanion.Infrastructure.Sync;
 using Serilog;
 
 public partial class App : Application
@@ -34,7 +30,7 @@ public partial class App : Application
         {
             if (e.Args[0] == "--register-autostart") { RegisterAutoStart(); Shutdown(0); return; }
             if (e.Args[0] == "--unregister-autostart") { UnregisterAutoStart(); Shutdown(0); return; }
-            if (e.Args[0] == "--version") { Console.WriteLine("0.4.0"); Shutdown(0); return; }
+            if (e.Args[0] == "--version") { Console.WriteLine("0.4.1"); Shutdown(0); return; }
         }
 
         // Serilog
@@ -48,7 +44,7 @@ public partial class App : Application
                 rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14)
             .CreateLogger();
 
-        Log.Information("=== PrintShop Companion v0.4.0 starting ===");
+        Log.Information("=== PrintShop Companion v0.4.1 starting ===");
 
         try
         {
@@ -60,8 +56,9 @@ public partial class App : Application
                 Shutdown(0);
                 return;
             }
+            Log.Information("Mutex acquired");
 
-            // DI
+            // DI — build synchronously, no async calls here
             _host = Host.CreateDefaultBuilder()
                 .UseSerilog()
                 .ConfigureAppConfiguration((ctx, cfg) =>
@@ -96,75 +93,102 @@ public partial class App : Application
                 })
                 .Build();
 
+            // StartAsync is synchronous-safe (it doesn't use the Dispatcher)
             _host.StartAsync().Wait();
             Log.Information("DI host started");
 
-            // Restore saved session (check if we have valid credentials)
-            var creds = _host.Services.GetRequiredService<ICredentialStore>().LoadAsync().Result;
-            bool hasSession = creds?.Session != null;
+            // CHECK for saved credentials SYNCHRONOUSLY (no async, no .Result, no deadlock)
+            // Just check if the file exists — we'll load it in the background after the window shows
+            var credPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "PrintShop", "Companion", "device.dat");
+            bool hasSavedCredentials = File.Exists(credPath);
+            Log.Information("Saved credentials: {Has}", hasSavedCredentials ? "FOUND" : "NOT FOUND");
 
-            // Build + show window
+            // Navigate to the right view
             var nav = _host.Services.GetRequiredService<INavigationService>();
-            if (hasSession)
-            {
-                // Try to restore the session
-                var shopBackend = _host.Services.GetRequiredService<IShopBackend>() as HttpShopBackend;
-                if (shopBackend != null)
-                {
-                    shopBackend.RestoreSession(creds.Session);
-                    nav.NavigateTo("Overview");
-                    Log.Information("Session restored — going to Overview");
-                }
-                else
-                {
-                    nav.NavigateTo("Login");
-                }
-            }
+            if (hasSavedCredentials)
+                nav.NavigateTo("Overview");  // Will try to restore session in background
             else
-            {
                 nav.NavigateTo("Login");
-                Log.Information("No session — going to Login");
-            }
+            Log.Information("Navigated to: {View}", nav.CurrentView);
 
+            // SHOW THE WINDOW IMMEDIATELY — before any async work
             var main = _host.Services.GetRequiredService<MainWindow>();
             main.Show();
             Log.Information("Main window shown");
 
-            // Start background services (non-fatal)
+            // ALL ASYNC WORK happens AFTER the window is shown (fire-and-forget, no blocking)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Restore credentials
+                    if (hasSavedCredentials)
+                    {
+                        var store = _host.Services.GetRequiredService<ICredentialStore>();
+                        var creds = await store.LoadAsync();
+                        if (creds?.Session != null)
+                        {
+                            var shopBackend = _host.Services.GetRequiredService<IShopBackend>() as HttpShopBackend;
+                            if (shopBackend != null)
+                            {
+                                shopBackend.RestoreSession(creds.Session);
+                                Log.Information("Session restored in background");
+                            }
+                        }
+                        else
+                        {
+                            // Credentials file exists but is corrupt/empty — go to login
+                            Dispatcher.Invoke(() => nav.NavigateTo("Login"));
+                            Log.Information("Credentials invalid — redirected to Login");
+                        }
+                    }
+
+                    // Start background services
+                    var queue = _host.Services.GetRequiredService<IJobQueue>();
+                    await queue.ReplayInFlightAsync();
+                    _host.Services.GetRequiredService<JobProcessor>().StartAsync();
+                    Log.Information("JobProcessor started");
+
+                    var sync = _host.Services.GetRequiredService<Infrastructure.Sync.SyncEngine>();
+                    sync.Start();
+                    Log.Information("SyncEngine started");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Background startup failed (non-fatal)");
+                }
+            });
+
+            // Tray (synchronous — safe)
             try
             {
-                var queue = _host.Services.GetRequiredService<IJobQueue>();
-                queue.ReplayInFlightAsync().Wait();
-                _host.Services.GetRequiredService<JobProcessor>().StartAsync();
-                Log.Information("JobProcessor started");
-
-                var sync = _host.Services.GetRequiredService<SyncEngine>();
-                sync.Start();
-                Log.Information("SyncEngine started");
+                _tray = _host.Services.GetRequiredService<TrayIconHost>();
+                _tray.Show();
+                Log.Information("Tray shown");
             }
-            catch (Exception bgEx)
-            {
-                Log.Warning(bgEx, "Background service start failed (non-fatal)");
-            }
+            catch (Exception ex) { Log.Warning(ex, "Tray setup failed"); }
 
-            // Tray
-            _tray = _host.Services.GetRequiredService<TrayIconHost>();
-            _tray.Show();
-
-            // Auto-start
+            // Auto-start (synchronous — safe)
             try { _host.Services.GetRequiredService<AutoStartService>().SyncFromOptions(); } catch { }
 
-            // Check for updates
-            try
+            // Update check (fire-and-forget — no blocking)
+            _ = Task.Run(async () =>
             {
-                var update = _host.Services.GetRequiredService<IUpdateService>();
-                if (update.CheckForUpdatesAsync().Result)
+                try
                 {
-                    Log.Information("Update available: {Current} -> {Latest}", update.CurrentVersion, update.LatestVersion);
-                    Dispatcher.Invoke(() => main.ShowUpdateBanner(update));
+                    var update = _host.Services.GetRequiredService<IUpdateService>();
+                    if (await update.CheckForUpdatesAsync())
+                    {
+                        Log.Information("Update available: {Current} -> {Latest}", update.CurrentVersion, update.LatestVersion);
+                        Dispatcher.Invoke(() => main.ShowUpdateBanner(update));
+                    }
                 }
-            }
-            catch (Exception ex) { Log.Warning(ex, "Update check failed"); }
+                catch (Exception ex) { Log.Warning(ex, "Update check failed"); }
+            });
+
+            Log.Information("=== Startup complete ===");
         }
         catch (Exception ex)
         {
@@ -179,7 +203,7 @@ public partial class App : Application
     {
         Log.Information("=== Shutdown starting ===");
 
-        // 1. Release mutex FIRST — even if everything else hangs, the app can reopen
+        // 1. Release mutex FIRST
         try { _singleInstance?.Dispose(); Log.Information("Mutex released"); } catch { }
 
         // 2. Stop background services
@@ -187,9 +211,8 @@ public partial class App : Application
         {
             try
             {
-                var sync = _host.Services.GetRequiredService<SyncEngine>();
+                var sync = _host.Services.GetRequiredService<Infrastructure.Sync.SyncEngine>();
                 sync.StopAsync().Wait(TimeSpan.FromSeconds(2));
-                Log.Information("SyncEngine stopped");
             }
             catch { }
 
@@ -197,15 +220,13 @@ public partial class App : Application
             {
                 var proc = _host.Services.GetRequiredService<JobProcessor>();
                 proc.StopAsync().Wait(TimeSpan.FromSeconds(2));
-                Log.Information("JobProcessor stopped");
             }
             catch { }
 
-            try { _host.StopAsync(TimeSpan.FromSeconds(3)).Wait(); _host.Dispose(); Log.Information("Host disposed"); }
+            try { _host.StopAsync(TimeSpan.FromSeconds(3)).Wait(); _host.Dispose(); }
             catch { }
         }
 
-        // 3. Tray
         try { _tray?.Hide(); } catch { }
 
         Log.Information("=== Shutdown complete ===");
@@ -222,8 +243,7 @@ public partial class App : Application
             Directory.CreateDirectory(dir);
             var exe = Environment.ProcessPath;
             if (exe == null) return;
-            // Simple shortcut via PowerShell
-            var script = $"(New-Object -ComObject WScript.Shell).CreateShortcut(\"{Path.Combine(dir, "PrintShop Companion.lnk")}\");$s.TargetPath=\"{exe}\";$s.Save()";
+            var script = $"$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"{Path.Combine(dir, "PrintShop Companion.lnk")}\");$s.TargetPath=\"{exe}\";$s.Save()";
             System.Diagnostics.Process.Start("powershell.exe", $"-NoProfile -Command \"{script}\"")?.WaitForExit(3000);
         }
         catch { }

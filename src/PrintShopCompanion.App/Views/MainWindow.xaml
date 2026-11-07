@@ -24,7 +24,7 @@
                         <TextBlock Text="P" FontSize="18" FontWeight="Bold" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBlock x:Name="VersionLabel" Text="v0.4.0" FontSize="10" Foreground="#9CA3AF" Margin="0,8,0,0"/>
+                    <TextBlock x:Name="VersionLabel" Text="v0.4.1" FontSize="10" Foreground="#9CA3AF" Margin="0,8,0,0"/>
                 </StackPanel>
 
                 <!-- Logout -->
