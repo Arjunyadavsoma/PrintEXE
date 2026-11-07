@@ -174,7 +174,7 @@ public partial class App : Application
                 var updateAvailable = await updateService.CheckForUpdatesAsync();
                 if (updateAvailable)
                 {
-                    Log.Information("Update available: {Current} → {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
+                    Log.Information("Update available: {Current} to {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
                     // Show the update banner on the MainWindow
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
