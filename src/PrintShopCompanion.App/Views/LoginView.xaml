@@ -13,20 +13,20 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="1" MaxWidth="400" HorizontalAlignment="Center" Margin="20">
+        <StackPanel Grid.Row="1" MaxWidth="420" HorizontalAlignment="Center" Margin="24">
 
-            <!-- Logo + title (matches website) -->
-            <StackPanel HorizontalAlignment="Center" Margin="0,0,0,24">
-                <Border Width="48" Height="48" CornerRadius="12"
+            <!-- Logo + title -->
+            <StackPanel HorizontalAlignment="Center" Margin="0,0,0,28">
+                <Border Width="52" Height="52" CornerRadius="13"
                         Background="{DynamicResource BrandPrimaryBrush}"
-                        HorizontalAlignment="Center" Margin="0,0,0,12">
-                    <TextBlock Text="🖨" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        HorizontalAlignment="Center" Margin="0,0,0,14">
+                    <TextBlock Text="P" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
                                Foreground="{DynamicResource BrandForegroundBrush}" />
                 </Border>
-                <TextBlock Text="Shopkeeper Portal" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" />
-                <TextBlock Text="Sign in to your print shop account" FontSize="13"
+                <TextBlock Text="Shopkeeper Portal" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" />
+                <TextBlock Text="Sign in to your print shop account" FontSize="14"
                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                           HorizontalAlignment="Center" Margin="0,4,0,0" />
+                           HorizontalAlignment="Center" Margin="0,6,0,0" />
             </StackPanel>
 
             <!-- Login card -->
@@ -34,21 +34,21 @@
                 <StackPanel>
                     <TextBlock Text="Sign In" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
                     <TextBlock Text="Enter your shop credentials to continue" FontSize="12"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,16" />
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,20" />
 
                     <!-- Email -->
-                    <TextBlock Text="Email" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
+                    <TextBlock Text="Email" FontSize="12" FontWeight="Medium" Margin="0,0,0,6" />
                     <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="10,8" FontSize="14" Margin="0,0,0,12" />
+                             Style="{StaticResource InputField}" Margin="0,0,0,16" />
 
                     <!-- Password -->
-                    <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Margin="0,0,0,4" />
-                    <PasswordBox x:Name="PasswordBox" Padding="10,8" FontSize="14" Margin="0,0,0,16"
+                    <TextBlock Text="Password" FontSize="12" FontWeight="Medium" Margin="0,0,0,6" />
+                    <PasswordBox x:Name="PasswordBox" Style="{StaticResource InputField}" Margin="0,0,0,16"
                                  PasswordChanged="PasswordBox_PasswordChanged" />
 
                     <!-- Error -->
-                    <Border Background="{DynamicResource DangerSoftBrush}" CornerRadius="6"
-                            Padding="12,8" Margin="0,0,0,12"
+                    <Border Background="{DynamicResource DangerSoftBrush}" CornerRadius="8"
+                            Padding="12,10" Margin="0,0,0,16"
                             Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="{Binding ErrorMessage}" FontSize="13"
                                    Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
@@ -59,9 +59,9 @@
                             Content="Sign In"
                             Command="{Binding SignInCommand}"
                             IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBool}}"
-                            Height="40" Margin="0,0,0,0" />
+                            Width="200" HorizontalAlignment="Center" />
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
                         <TextBlock Text="Don't have a shop account? " FontSize="12"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                         <TextBlock Text="Register" FontSize="12" FontWeight="Medium"

@@ -32,7 +32,14 @@ public sealed class GitHubUpdateService : IUpdateService
     }
 
     public string CurrentVersion =>
-        Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";
+        // Read from the App assembly (not this Infrastructure assembly) since
+        // Directory.Build.props sets the version on all projects but the App
+        // is the one the user runs. We look for the App assembly by name.
+        AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(a => a.GetName().Name == "PrintShopCompanion")
+            ?.GetName().Version?.ToString()
+        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+        ?? "0.0.0.0";
 
     public string? LatestVersion => _latestRelease?.TagName?.TrimStart('v');
     public bool UpdateAvailable => _latestRelease is not null && IsNewer(LatestVersion, CurrentVersion);

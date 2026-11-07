@@ -105,5 +105,16 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Responsive: collapse the sidebar when the window gets narrow.</summary>
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.NewSize.Width < 700)
+            SidebarColumn.Width = new GridLength(60);
+        else if (e.NewSize.Width < 900)
+            SidebarColumn.Width = new GridLength(180);
+        else
+            SidebarColumn.Width = new GridLength(240);
+    }
+
     public bool RealClose { get; set; }
 }

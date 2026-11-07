@@ -6,113 +6,67 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     mc:Ignorable="d">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,24,24,24">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24">
 
-            <!-- Header — matches website: shop name + refresh -->
-            <Grid Margin="0,0,0,20">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <TextBlock Text="📊" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <StackPanel>
-                        <TextBlock Text="{Binding ShopName}" FontSize="20" FontWeight="Bold" />
-                        <TextBlock Text="Dashboard overview" FontSize="12"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                    </StackPanel>
+            <!-- Header -->
+            <DockPanel Margin="0,0,0,24">
+                <StackPanel DockPanel.Dock="Left">
+                    <TextBlock Text="{Binding ShopName}" Style="{StaticResource SectionHeading}" />
+                    <TextBlock Text="Dashboard overview" Style="{StaticResource BodyText}" />
                 </StackPanel>
-                <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="🔄 Refresh"
-                        Command="{Binding LoadCommand}" Padding="16,8" />
-            </Grid>
+                <Button DockPanel.Dock="Right" Style="{StaticResource SecondaryButton}" Content="Refresh"
+                        Command="{Binding LoadCommand}" HorizontalAlignment="Right" />
+            </DockPanel>
 
             <!-- Error -->
-            <Border Background="{DynamicResource DangerSoftBrush}" CornerRadius="8"
+            <Border Background="{DynamicResource DangerSoftBrush}" CornerRadius="10"
                     Padding="16,10" Margin="0,0,0,16"
                     Visibility="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="⚠ " FontSize="14" Foreground="{DynamicResource DangerBrush}" />
-                    <TextBlock Text="{Binding ErrorMessage}" FontSize="13"
-                               Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
-                </StackPanel>
+                <TextBlock Text="{Binding ErrorMessage}" FontSize="13"
+                           Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
             </Border>
 
-            <!-- Stats grid — 5 cards matching website -->
-            <Grid Margin="0,0,0,20">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.Resources>
-                    <Style TargetType="Border">
-                        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
-                        <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
-                        <Setter Property="BorderThickness" Value="1" />
-                        <Setter Property="CornerRadius" Value="8" />
-                        <Setter Property="Padding" Value="16,12" />
-                        <Setter Property="Margin" Value="0,0,8,0" />
-                    </Style>
-                </Grid.Resources>
-
-                <!-- Revenue -->
-                <Border Grid.Column="0">
+            <!-- Stats — WrapPanel for responsive layout -->
+            <WrapPanel Orientation="Horizontal" Margin="0,0,0,20">
+                <Border Style="{StaticResource StatCard}" Width="200">
                     <StackPanel>
-                        <TextBlock Text="💰" FontSize="16" Margin="0,0,0,4" />
-                        <TextBlock Text="Revenue" FontSize="11"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{Binding RevenueFormatted}" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Revenue" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding RevenueFormatted}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
-
-                <!-- Total Orders -->
-                <Border Grid.Column="1">
+                <Border Style="{StaticResource StatCard}" Width="200">
                     <StackPanel>
-                        <TextBlock Text="📦" FontSize="16" Margin="0,0,0,4" />
-                        <TextBlock Text="Total Orders" FontSize="11"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{Binding TotalOrders}" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Total Orders" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding TotalOrders}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
-
-                <!-- Paid Orders -->
-                <Border Grid.Column="2">
+                <Border Style="{StaticResource StatCard}" Width="200">
                     <StackPanel>
-                        <TextBlock Text="✅" FontSize="16" Margin="0,0,0,4" />
-                        <TextBlock Text="Paid" FontSize="11"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{Binding PaidOrders}" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Paid" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding PaidOrders}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
-
-                <!-- Printing -->
-                <Border Grid.Column="3">
+                <Border Style="{StaticResource StatCard}" Width="200">
                     <StackPanel>
-                        <TextBlock Text="🖨" FontSize="16" Margin="0,0,0,4" />
-                        <TextBlock Text="Printing" FontSize="11"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{Binding Printing}" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Printing" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding Printing}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
-
-                <!-- Ready -->
-                <Border Grid.Column="4" Margin="0">
+                <Border Style="{StaticResource StatCard}" Width="200">
                     <StackPanel>
-                        <TextBlock Text="📋" FontSize="16" Margin="0,0,0,4" />
-                        <TextBlock Text="Ready" FontSize="11"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{Binding Ready}" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Ready" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding Ready}" FontSize="22" FontWeight="Bold" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
-            </Grid>
+            </WrapPanel>
 
-            <!-- Recent orders — matches website table -->
+            <!-- Recent orders -->
             <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock Text="Recent Orders" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <DockPanel Margin="0,0,0,12">
+                        <TextBlock Text="Recent Orders" FontSize="15" FontWeight="SemiBold" DockPanel.Dock="Left" />
+                    </DockPanel>
 
                     <ListView ItemsSource="{Binding RecentOrders}"
                               Background="Transparent" BorderThickness="0">
@@ -120,21 +74,21 @@
                             <GridView>
                                 <GridViewColumn Header="Token" Width="80"
                                                 DisplayMemberBinding="{Binding TokenNumber}" />
-                                <GridViewColumn Header="Customer" Width="140"
+                                <GridViewColumn Header="Customer" Width="120"
                                                 DisplayMemberBinding="{Binding CustomerPhone}" />
-                                <GridViewColumn Header="Status" Width="100"
+                                <GridViewColumn Header="Status" Width="120"
                                                 DisplayMemberBinding="{Binding Status}" />
                                 <GridViewColumn Header="Amount" Width="100"
                                                 DisplayMemberBinding="{Binding TotalAmountPaise}" />
-                                <GridViewColumn Header="Created" Width="140"
+                                <GridViewColumn Header="Date" Width="120"
                                                 DisplayMemberBinding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" />
                             </GridView>
                         </ListView.View>
                     </ListView>
 
-                    <TextBlock Text="No orders yet" FontSize="13"
+                    <TextBlock Text="No orders yet" FontSize="13" Margin="0,20"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               HorizontalAlignment="Center" Margin="0,16"
+                               HorizontalAlignment="Center"
                                Visibility="{Binding RecentOrders.Count, Converter={StaticResource InverseBoolToVis}}" />
                 </StackPanel>
             </Border>
