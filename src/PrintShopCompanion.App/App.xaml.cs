@@ -174,7 +174,6 @@ public partial class App : Application
                 if (updateAvailable)
                 {
                     Serilog.Log.Information("Update available: {Current} to {Latest}", updateService.CurrentVersion, updateService.LatestVersion);
-                    // Show the update banner on the MainWindow
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
                         if (main is MainWindow mw)
@@ -185,6 +184,11 @@ public partial class App : Application
                 {
                     Serilog.Log.Information("App is up to date (v{Version})", updateService.CurrentVersion);
                 }
+
+                // ── Start the sync engine ──
+                var syncEngine = _host.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Sync.SyncEngine>();
+                syncEngine.Start();
+                Serilog.Log.Information("Sync engine started");
 
                 // Magic-link URL handling.
                 if (e.Args.Length > 0 && e.Args[0].StartsWith("printshopcompanion://", StringComparison.OrdinalIgnoreCase))

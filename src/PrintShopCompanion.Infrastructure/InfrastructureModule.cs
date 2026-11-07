@@ -83,6 +83,10 @@ public static class InfrastructureModule
         // Auto-update — checks GitHub releases for newer versions
         services.AddHttpClient<IUpdateService, GitHubUpdateService>();
 
+        // Sync engine — pushes pending ops, pulls updates
+        services.AddSingleton<IPendingOpsQueue, SqlitePendingOpsQueue>();
+        services.AddSingleton<SyncEngine>();
+
         return services;
     }
 }
