@@ -591,37 +591,52 @@ public sealed class SyncStatusResponseDto
     public bool IsOnline { get; init; }
 }
 
-/// <summary>Wire DTO for POST /api/v1/agents/jobs/{id}/received request body.</summary>
+/// <summary>
+/// Wire DTO for POST /api/v1/agents/jobs/{jobId}/received request body.
+/// Per the actual backend zod schema:
+///   checksum: SHA-256 hex string (64 hex chars, NO 'sha256:' prefix) — optional
+///   fileSize: positive int — optional
+///   receivedAt: ISO datetime string — optional (defaults to now on server)
+///   deliveryAttemptId: UUID — optional
+///   transferId: UUID — optional (for future WebRTC)
+/// </summary>
 public sealed class JobReceivedRequestDto
 {
     [JsonPropertyName("checksum")]
-    public required string Checksum { get; init; }
+    public string? Checksum { get; init; }
 
     [JsonPropertyName("fileSize")]
-    public long FileSize { get; init; }
+    public long? FileSize { get; init; }
 
     [JsonPropertyName("receivedAt")]
-    public required string ReceivedAt { get; init; }
+    public string? ReceivedAt { get; init; }
+
+    [JsonPropertyName("deliveryAttemptId")]
+    public string? DeliveryAttemptId { get; init; }
+
+    [JsonPropertyName("transferId")]
+    public string? TransferId { get; init; }
 }
 
-/// <summary>Wire DTO for POST /api/v1/agents/jobs/{id}/received response body (envelope-wrapped).</summary>
+/// <summary>
+/// Wire DTO for POST /api/v1/agents/jobs/{jobId}/received response body.
+/// Per the actual backend response:
+///   { jobId, received, cleanupScheduled, cleanupScheduledAt?, message }
+/// </summary>
 public sealed class JobReceivedResponseDto
 {
     [JsonPropertyName("jobId")]
     public string? JobId { get; init; }
 
-    [JsonPropertyName("deliveryStatus")]
-    public string? DeliveryStatus { get; init; }
+    [JsonPropertyName("received")]
+    public bool Received { get; init; }
 
-    [JsonPropertyName("storageStatus")]
-    public string? StorageStatus { get; init; }
+    [JsonPropertyName("cleanupScheduled")]
+    public bool CleanupScheduled { get; init; }
 
-    [JsonPropertyName("cloudDeleteAfter")]
-    public DateTimeOffset? CloudDeleteAfter { get; init; }
+    [JsonPropertyName("cleanupScheduledAt")]
+    public DateTimeOffset? CleanupScheduledAt { get; init; }
 
-    [JsonPropertyName("skipped")]
-    public bool Skipped { get; init; }
-
-    [JsonPropertyName("reason")]
-    public string? Reason { get; init; }
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
 }

@@ -3,6 +3,7 @@ namespace PrintShopCompanion.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Contracts;
+using PrintShopCompanion.Infrastructure.Storage;
 using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure.Backend;
 using PrintShopCompanion.Infrastructure.Pairing;
@@ -60,6 +61,14 @@ public static class InfrastructureModule
 
         // Credential store — DPAPI-encrypted, holds the shopkeeper session + device token.
         services.AddSingleton<ICredentialStore, DeviceTokenStore>();
+
+        // v0.5: Local storage layout + SQLCipher key store + file retention manager.
+        // These must be registered BEFORE SqliteJobQueue because SqliteJobQueue
+        // depends on QueueKeyStore for its encryption key.
+        services.AddSingleton<LocalStorageLayout>();
+        services.AddSingleton<QueueKeyStore>();
+        services.AddSingleton<FileRetentionManager>();
+
         services.AddSingleton<IJobQueue, SqliteJobQueue>();
 
         // Realtime (Socket.IO + HTTP poll fallback)

@@ -7,6 +7,7 @@ using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
 using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure.Queue;
+using PrintShopCompanion.Infrastructure.Storage;
 using Xunit;
 
 /// <summary>
@@ -28,7 +29,11 @@ public class SqliteJobQueueTests : IDisposable
             TerminalJobTtl = TimeSpan.FromDays(7)
         });
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<SqliteJobQueue>();
-        _queue = new SqliteJobQueue(opts, logger);
+        // v0.5: SqliteJobQueue now takes LocalStorageLayout + QueueKeyStore?.
+        // For tests we pass null for the key store (no encryption) and a
+        // minimal LocalStorageLayout pointing at the temp dir.
+        var layout = new LocalStorageLayout(opts);
+        _queue = new SqliteJobQueue(opts, layout, keyStore: null, logger);
     }
 
     [Fact]

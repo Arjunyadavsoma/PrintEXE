@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
 using PrintShopCompanion.Core.Options;
+using PrintShopCompanion.Infrastructure.Storage;
 using PrintShopCompanion.Shared.Dto;
 
 /// <summary>
@@ -26,9 +27,9 @@ using PrintShopCompanion.Shared.Dto;
 public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 {
     private readonly HttpClient _http;
-    private readonly ICredentialStore _store;
     private readonly IOptionsMonitor<BackendOptions> _opts;
     private readonly ILogger<HttpPrintShopBackend> _logger;
+    private readonly LocalStorageLayout? _layout;
     private DeviceToken? _token;
     private DeviceRegistration? _device;
     private ShopInfo? _shop;
@@ -36,27 +37,14 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     public HttpPrintShopBackend(
         HttpClient http,
-        ICredentialStore _unusedStore,  // kept for DI compatibility — we use the static DeviceTokenStore path
         IOptionsMonitor<BackendOptions> opts,
-        ILogger<HttpPrintShopBackend> logger)
+        ILogger<HttpPrintShopBackend> logger,
+        LocalStorageLayout? layout = null)
     {
         _http = http;
         _opts = opts;
         _logger = logger;
-        _store = null!;  // not used — see DeviceTokenStore
-    }
-
-    // Second constructor without the store parameter (kept for backward compat
-    // with InfrastructureModule which may not register a credential store).
-    public HttpPrintShopBackend(
-        HttpClient http,
-        IOptionsMonitor<BackendOptions> opts,
-        ILogger<HttpPrintShopBackend> logger)
-    {
-        _http = http;
-        _opts = opts;
-        _logger = logger;
-        _store = null!;
+        _layout = layout;
     }
 
     public bool IsAuthenticated => _token is not null;
@@ -290,36 +278,85 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// </summary>
     public async Task<DownloadedPdf> DownloadPdfAsync(string jobId, Uri pdfUrl, string? expectedSha256, CancellationToken ct = default)
     {
-        var cacheDir = Path.Combine(Path.GetTempPath(), "PrintShop", "Companion", "pdfs");
-        Directory.CreateDirectory(cacheDir);
-        var path = Path.Combine(cacheDir, $"{jobId}.pdf");
+        // v0.5: use LocalStorageLayout for managed paths with atomic rename.
+        // Fall back to the old %Temp% path if layout is not injected (Linux build
+        // without the DI registration, or backward compat).
+        string finalPath;
+        string tempPath;
 
-        // If we already have the file and the hash matches, skip download.
-        if (File.Exists(path) && !string.IsNullOrEmpty(expectedSha256))
+        if (_layout is not null)
         {
-            var actual = await Sha256Async(path, ct);
-            if (string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
-                return new DownloadedPdf(path, actual, new FileInfo(path).Length);
+            _layout.EnsureDirectories();
+            finalPath = _layout.GetPdfPath(jobId, "queued");
+            tempPath = _layout.GetIncomingTempPath(jobId);
+        }
+        else
+        {
+            var cacheDir = Path.Combine(Path.GetTempPath(), "PrintShop", "Companion", "pdfs");
+            Directory.CreateDirectory(cacheDir);
+            finalPath = Path.Combine(cacheDir, $"{jobId}.pdf");
+            tempPath = finalPath + ".tmp";
         }
 
-        // Presigned URL — no auth header needed. The signature is in the URL.
+        // If we already have the FINAL file and the hash matches, skip download.
+        if (File.Exists(finalPath) && !string.IsNullOrEmpty(expectedSha256))
+        {
+            var actual = await Sha256Async(finalPath, ct);
+            if (string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                return new DownloadedPdf(finalPath, actual, new FileInfo(finalPath).Length);
+        }
+
+        // Download to .tmp file (NOT the final path). If the download crashes
+        // midway, the .tmp file is incomplete but the final path is untouched.
+        // On next run, we detect the stale .tmp + re-download.
         using var req = new HttpRequestMessage(HttpMethod.Get, pdfUrl);
+        // Presigned URL — no auth header needed (the signature is in the URL).
         using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         resp.EnsureSuccessStatusCode();
 
-        await using (var fs = File.Create(path))
+        // Refuse oversized PDFs.
+        if (resp.Content.Headers.ContentLength is { } len && len > 100 * 1024 * 1024)
+            throw new InvalidOperationException($"PDF exceeds the 100 MB limit (got {len} bytes)");
+
+        await using (var fs = File.Create(tempPath))
         {
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             await stream.CopyToAsync(fs, 81920, ct);
         }
-        var sha = await Sha256Async(path, ct);
+
+        // Verify SHA-256 of the .tmp file BEFORE atomic rename.
+        var sha = await Sha256Async(tempPath, ct);
         if (!string.IsNullOrEmpty(expectedSha256) &&
             !string.Equals(sha, expectedSha256, StringComparison.OrdinalIgnoreCase))
         {
-            File.Delete(path);
+            // Hash mismatch — delete the .tmp and throw. The cloud copy is NOT
+            // deleted (the companion never called /received for this file).
+            try { File.Delete(tempPath); } catch { }
             throw new InvalidOperationException($"PDF hash mismatch (expected {expectedSha256}, got {sha})");
         }
-        return new DownloadedPdf(path, sha, new FileInfo(path).Length);
+
+        // ATOMIC RENAME: .tmp → .pdf. On Windows, File.Move is atomic when both
+        // paths are on the same volume (which they are — both under %LocalAppData%
+        // or both under %Temp%). If the final file already exists (e.g. from a
+        // previous run), delete it first.
+        if (File.Exists(finalPath))
+        {
+            try { File.Delete(finalPath); } catch { /* may be locked — rename will fail below */ }
+        }
+        try
+        {
+            File.Move(tempPath, finalPath);
+        }
+        catch (IOException)
+        {
+            // If the rename fails (e.g. final file is locked by the spooler),
+            // fall back to copy + delete. This is NOT atomic but is the best
+            // we can do on Windows when the target is locked.
+            File.Copy(tempPath, finalPath, overwrite: true);
+            try { File.Delete(tempPath); } catch { }
+        }
+
+        return new DownloadedPdf(finalPath, sha, new FileInfo(finalPath).Length);
     }
 
     /// <summary>Revoke the device token locally. Clears the in-memory + persisted credentials.</summary>
@@ -399,11 +436,10 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     }
 
     /// <summary>
-    /// Durable receipt acknowledgement — POST /api/v1/agents/jobs/{id}/received.
+    /// Durable receipt acknowledgement — POST /api/v1/agents/jobs/{jobId}/received.
     /// Confirms the PDF is on the shop PC + SHA-256 verified + atomically persisted.
-    /// The backend sets deliveryStatus=received, storageStatus=local_verified,
-    /// and schedules cloud cleanup (cloudDeleteAfter = now + 15 min).
-    /// Idempotent on (jobId, checksum).
+    /// The backend records the receipt + schedules cloud cleanup (15-min grace).
+    /// Idempotent: calling twice returns success without re-scheduling.
     /// </summary>
     public async Task<ReceiptAcknowledgement> MarkJobReceivedAsync(
         string jobId, string checksum, long fileSize, DateTimeOffset receivedAt,
@@ -411,11 +447,19 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     {
         EnsureAuthenticated();
         var url = ApiUrl($"agents/jobs/{jobId}/received");
+
+        // The backend zod schema expects checksum as a pure hex string
+        // matching /^[a-f0-9]{64}$/i — NOT "sha256:" prefixed. Strip the
+        // prefix if present (our internal code uses "sha256:" prefixed format).
+        var hexChecksum = checksum.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+            ? checksum.Substring("sha256:".Length)
+            : checksum;
+
         var body = new JobReceivedRequestDto
         {
-            Checksum = checksum,
+            Checksum = hexChecksum,           // pure hex, no prefix
             FileSize = fileSize,
-            ReceivedAt = receivedAt.ToString("O")
+            ReceivedAt = receivedAt.ToString("O"),
         };
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -425,20 +469,23 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
-        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
-            throw new InvalidOperationException("Checksum mismatch — the file may have been tampered with");
+        // 404 = job not found or not in this shop (tenant isolation)
+        // 409 = job already in terminal state (completed/cancelled)
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<JobReceivedResponseDto>>(Json, ct)
             ?? throw new InvalidOperationException("Empty received response");
         var dto = envelope.Data;
+
+        // Map the backend's actual response shape to our ReceiptAcknowledgement.
+        // The backend returns { jobId, received, cleanupScheduled, cleanupScheduledAt?, message }
         return new ReceiptAcknowledgement(
             JobId: dto?.JobId,
-            DeliveryStatus: dto?.DeliveryStatus,
-            StorageStatus: dto?.StorageStatus,
-            CloudDeleteAfter: dto?.CloudDeleteAfter,
-            Skipped: dto?.Skipped ?? false,
-            Reason: dto?.Reason);
+            DeliveryStatus: dto?.Received == true ? "received" : null,
+            StorageStatus: dto?.Received == true ? "local_verified" : null,
+            CloudDeleteAfter: dto?.CleanupScheduledAt,
+            Skipped: dto?.Received == true && dto?.CleanupScheduled == false,
+            Reason: dto?.Message);
     }
 
     // ────────────────────────── helpers ──────────────────────────

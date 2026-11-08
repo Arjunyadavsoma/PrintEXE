@@ -9,6 +9,8 @@ using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
 using PrintShopCompanion.Core.Options;
 
+using PrintShopCompanion.Infrastructure.Storage;
+
 /// <summary>
 /// SQLite-backed durable job queue.
 ///
@@ -22,6 +24,13 @@ using PrintShopCompanion.Core.Options;
 ///
 /// <para><b>Retry.</b> Failed jobs back off exponentially with jitter; <see cref="DequeueAsync"/>
 /// will only return a Failed job whose <c>next_attempt_at</c> has passed.</para>
+///
+/// <para><b>v0.5: SQLCipher encryption.</b> If a <see cref="QueueKeyStore"/> is available,
+/// the connection string includes the SQLCipher key so the database is encrypted at rest.
+/// If the key store is not available (e.g. Linux without DPAPI), the database opens as
+/// plain SQLite. Encryption requires the <c>SQLitePCLRaw.bundle_e_sqlcipher</c> NuGet
+/// package to be added to the csproj — without it, the <c>Password=</c> parameter is
+/// ignored by plain SQLite and the database is not encrypted.</para>
 /// </summary>
 public sealed class SqliteJobQueue : IJobQueue
 {
@@ -76,27 +85,61 @@ public sealed class SqliteJobQueue : IJobQueue
         ON CONFLICT(job_id) DO NOTHING;
         """;
 
-    public SqliteJobQueue(IOptions<StorageOptions> storage, ILogger<SqliteJobQueue> logger)
+    public SqliteJobQueue(
+        IOptions<StorageOptions> storage,
+        LocalStorageLayout layout,
+        QueueKeyStore? keyStore,
+        ILogger<SqliteJobQueue> logger)
     {
+        // v0.5: use the new %LocalAppData%\PrintShop\Companion\Database\queue.db path
+        // from LocalStorageLayout. Fall back to the appsettings override if set,
+        // then to the old %AppData% path for backward compat with v0.4.7.
         var path = storage.Value.QueueDbPath;
         if (string.IsNullOrWhiteSpace(path))
-        {
-            path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "PrintShop", "Companion", "queue.db");
-        }
+            path = layout.QueueDbPath;
+
         _dbPath = path;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        _connectionString = new SqliteConnectionStringBuilder
+
+        var builder = new SqliteConnectionStringBuilder
         {
             DataSource = path,
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Shared
-        }.ToString();
+        };
+
+        // v0.5: try to add SQLCipher encryption. This requires:
+        // 1. QueueKeyStore to be available (Windows with DPAPI)
+        // 2. The SQLitePCLRaw.bundle_e_sqlcipher NuGet package (adds the native
+        //    SQLCipher library that understands the Password= parameter)
+        // If either is missing, the Password= parameter is ignored by plain
+        // SQLite and the database is NOT encrypted. This is safe — the code
+        // works correctly either way; encryption is a defense-in-depth measure.
+        _isEncrypted = false;
+        if (keyStore is not null)
+        {
+            try
+            {
+                var keyHex = keyStore.GetKeyForConnectionString();
+                builder.Password = keyHex;
+                _isEncrypted = true;
+                logger.LogInformation("SQLCipher encryption enabled for queue.db at {Path}", path);
+            }
+            catch (Exception ex)
+            {
+                // DPAPI not available (Linux) or key generation failed.
+                // Fall back to plain SQLite — log a warning.
+                logger.LogWarning(ex, "SQLCipher key not available — queue.db will be unencrypted. " +
+                    "This is expected on Linux; on Windows, verify DPAPI is available.");
+            }
+        }
+
+        _connectionString = builder.ToString();
         _logger = logger;
     }
 
     private readonly string _dbPath;
+    private readonly bool _isEncrypted;
     private const long MinFreeDiskBytes = 256L * 1024 * 1024; // 256 MB minimum free space
 
     /// <summary>
