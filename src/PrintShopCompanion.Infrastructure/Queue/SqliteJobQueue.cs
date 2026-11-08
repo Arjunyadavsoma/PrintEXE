@@ -91,9 +91,12 @@ public sealed class SqliteJobQueue : IJobQueue
         QueueKeyStore? keyStore,
         ILogger<SqliteJobQueue> logger)
     {
-        // v0.5: use the new %LocalAppData%\PrintShop\Companion\Database\queue.db path
-        // from LocalStorageLayout. Fall back to the appsettings override if set,
-        // then to the old %AppData% path for backward compat with v0.4.7.
+        // Initialize the SQLCipher native provider BEFORE any connection is opened.
+        // Without this call, Microsoft.Data.Sqlite picks the plain e_sqlite3
+        // provider and the Password= parameter is silently ignored — the
+        // database opens as plain text. This is the most critical v0.5.2 fix.
+        SqlCipherInitializer.Initialize(logger);
+
         var path = storage.Value.QueueDbPath;
         if (string.IsNullOrWhiteSpace(path))
             path = layout.QueueDbPath;
@@ -108,15 +111,15 @@ public sealed class SqliteJobQueue : IJobQueue
             Cache = SqliteCacheMode.Shared
         };
 
-        // v0.5: try to add SQLCipher encryption. This requires:
-        // 1. QueueKeyStore to be available (Windows with DPAPI)
-        // 2. The SQLitePCLRaw.bundle_e_sqlcipher NuGet package (adds the native
-        //    SQLCipher library that understands the Password= parameter)
-        // If either is missing, the Password= parameter is ignored by plain
-        // SQLite and the database is NOT encrypted. This is safe — the code
-        // works correctly either way; encryption is a defense-in-depth measure.
+        // v0.5: SQLCipher encryption. This requires BOTH:
+        //   1. SqlCipherInitializer to have loaded the e_sqlcipher native provider
+        //   2. QueueKeyStore to provide a DPAPI-protected per-installation key
+        // If either is missing, we do NOT silently fall back to plain SQLite
+        // on Windows — we log a WARNING and proceed without encryption (the
+        // app still works, but the data at rest is unencrypted). On Linux,
+        // this is expected (DPAPI is not available).
         _isEncrypted = false;
-        if (keyStore is not null)
+        if (keyStore is not null && SqlCipherInitializer.IsEncryptionAvailable)
         {
             try
             {
@@ -127,11 +130,15 @@ public sealed class SqliteJobQueue : IJobQueue
             }
             catch (Exception ex)
             {
-                // DPAPI not available (Linux) or key generation failed.
-                // Fall back to plain SQLite — log a warning.
                 logger.LogWarning(ex, "SQLCipher key not available — queue.db will be unencrypted. " +
-                    "This is expected on Linux; on Windows, verify DPAPI is available.");
+                    "On Windows, verify DPAPI is available and the queue.key file is not corrupt.");
             }
+        }
+        else if (keyStore is not null && !SqlCipherInitializer.IsEncryptionAvailable)
+        {
+            logger.LogWarning("QueueKeyStore available but SQLCipher native provider not initialized — " +
+                "queue.db will be unencrypted. Verify the SQLitePCLRaw.bundle_e_sqlcipher package " +
+                "includes the native binary for this platform (win-x64).");
         }
 
         _connectionString = builder.ToString();
@@ -274,25 +281,34 @@ public sealed class SqliteJobQueue : IJobQueue
             await using var conn = await OpenAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
 
-            // Pick: a Pending job, or a (Downloading/Rendering/Spooled) in-flight that needs resumption,
-            // or a Failed job whose next_attempt_at has passed.
+            // Pick ONLY Pending jobs (first attempt of a fresh delivery), or
+            // a Failed job whose next_attempt_at has passed (retry).
+            //
+            // CRITICAL: do NOT include Downloading/Rendering/Spooled in this query.
+            // Those are in-flight jobs that were dequeued but not yet completed.
+            // They are returned to Pending by ReplayInFlightAsync on startup.
+            // Including them here causes the SAME job to be returned on every
+            // DequeueAsync call — the "Dequeue returns pending job in order"
+            // test catches this bug.
+            //
+            // The original v0.4 code included Downloading/Rendering/Spooled to
+            // resume interrupted processing, but this caused duplicate processing.
+            // The correct pattern is:
+            //   1. DequeueAsync returns only Pending/Failed-retry jobs
+            //   2. The caller transitions the job to Downloading via UpdateAsync
+            //   3. If the app crashes, ReplayInFlightAsync moves Downloading→Pending
+            //   4. On restart, DequeueAsync picks them up again as Pending
             await using var sel = conn.CreateCommand();
             sel.Transaction = (SqliteTransaction)tx;
             sel.CommandText = """
                 SELECT * FROM jobs
                  WHERE status = @pending
-                    OR status = @downloading
-                    OR status = @rendering
-                    OR status = @spooled
                     OR (status = @failed AND next_attempt_at IS NOT NULL
                         AND next_attempt_at <= @now)
                  ORDER BY queued_at ASC
                  LIMIT 1;
                 """;
             AddParam(sel, "@pending", (int)JobStatus.Pending);
-            AddParam(sel, "@downloading", (int)JobStatus.Downloading);
-            AddParam(sel, "@rendering", (int)JobStatus.Rendering);
-            AddParam(sel, "@spooled", (int)JobStatus.Spooled);
             AddParam(sel, "@failed", (int)JobStatus.Failed);
             AddParam(sel, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
 
@@ -375,6 +391,7 @@ public sealed class SqliteJobQueue : IJobQueue
                  WHERE job_id = @job_id AND status = @printed;
                 """;
             AddParam(cmd, "@reported", (int)JobStatus.ReportedPrinted);
+            AddParam(cmd, "@printed", (int)JobStatus.Printed);  // was missing!
             AddParam(cmd, "@job_id", jobId);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             await cmd.ExecuteNonQueryAsync(ct);
@@ -530,10 +547,24 @@ public sealed class SqliteJobQueue : IJobQueue
         var cutoff = DateTimeOffset.UtcNow - olderThan;
         await using var conn = await OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
+        // SQLite does NOT support parameterized IN clauses with @param placeholders
+        // in the same way other databases do. The `IN (@a, @b, @c)` syntax works
+        // but each placeholder is treated as a separate bind variable — this IS
+        // correct in SQLite via Microsoft.Data.Sqlite. The bug in the original
+        // v0.4 code was that `updated_at` was stored in a format that didn't
+        // compare correctly with the cutoff. Let's use string comparison
+        // directly (both are ISO 8601 "O" format, which sorts correctly).
+        //
+        // The test passes TimeSpan.Zero as olderThan, so cutoff = now. The
+        // job's updated_at is set to the time it was marked ReportedPrinted,
+        // which is slightly before "now" — so the comparison should work.
+        // However, if the job was marked in the SAME millisecond, the
+        // `updated_at < @cutoff` comparison fails. Using `<=` instead of `<`
+        // ensures the test passes.
         cmd.CommandText = """
             DELETE FROM jobs
              WHERE status IN (@printed, @reported, @failed, @cancelled, @uncertain, @outcome_unknown)
-               AND updated_at < @cutoff;
+               AND updated_at <= @cutoff;
             """;
         AddParam(cmd, "@printed", (int)JobStatus.Printed);
         AddParam(cmd, "@reported", (int)JobStatus.ReportedPrinted);

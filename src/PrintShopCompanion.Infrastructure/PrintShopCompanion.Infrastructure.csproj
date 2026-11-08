@@ -45,6 +45,12 @@
          here to safe versions so any other transitive consumer resolves to
          the fixed version rather than the vulnerable one. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <!-- v0.5: SQLCipher for at-rest encryption of queue.db. The bundle_e_sqlcipher
+         package includes BOTH the e_sqlite3 native library AND the SQLCipher
+         encryption extension. It registers via SQLitePCL.Batteries_V2.Init().
+         Version 2.1.11 is the latest stable on NuGet (the 3.x line is for
+         SQLitePCLRaw.lib.e_sqlite3 only, not the bundle packages). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
   </ItemGroup>
 

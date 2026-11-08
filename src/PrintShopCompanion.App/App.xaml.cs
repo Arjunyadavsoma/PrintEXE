@@ -15,6 +15,7 @@ using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure;
 using PrintShopCompanion.Infrastructure.Backend;
 using PrintShopCompanion.Infrastructure.Queue;
+using PrintShopCompanion.Infrastructure.Storage;
 using PrintShopCompanion.Infrastructure.Sync;
 using PrintShopCompanion.Infrastructure.Update;
 using Serilog;
@@ -222,6 +223,13 @@ public partial class App : Application
                     var sync = _host.Services.GetRequiredService<SyncEngine>();
                     sync.Start(_appCts.Token);
                     Log.Information("SyncEngine started");
+
+                    // v0.5: Start the FileRetentionManager — deletes completed/failed
+                    // PDFs after 60 min (configurable). Runs on startup (catch-up from
+                    // crash) then every 60 seconds. Stopped via shared _appCts.Token.
+                    var retention = _host.Services.GetRequiredService<FileRetentionManager>();
+                    retention.Start(_appCts.Token);
+                    Log.Information("FileRetentionManager started");
                 }
                 catch (OperationCanceledException) when (_appCts.IsCancellationRequested)
                 {
@@ -345,6 +353,14 @@ public partial class App : Application
             {
                 var sync = _host.Services.GetRequiredService<SyncEngine>();
                 sync.StopAsync().Wait(TimeSpan.FromSeconds(2));
+            }
+            catch { }
+
+            // v0.5: Stop the FileRetentionManager (dispose its timer).
+            try
+            {
+                var retention = _host.Services.GetRequiredService<FileRetentionManager>();
+                retention.StopAsync().Wait(TimeSpan.FromSeconds(2));
             }
             catch { }
 
