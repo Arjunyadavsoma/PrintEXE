@@ -50,6 +50,7 @@ public sealed class SqliteJobQueue : IJobQueue
             page_range          TEXT,
             paper_size          TEXT,
             color               INTEGER,
+            color_mode          TEXT,
             duplex              TEXT,
             pdf_url             TEXT,
             local_pdf_path      TEXT,
@@ -62,16 +63,30 @@ public sealed class SqliteJobQueue : IJobQueue
             queued_at           TEXT    NOT NULL,
             updated_at          TEXT    NOT NULL,
             printed_at          TEXT,
-            next_attempt_at     TEXT
+            next_attempt_at     TEXT,
+            -- v0.5 columns (additive; existing rows get defaults)
+            delivery_status     INTEGER NOT NULL DEFAULT 0,
+            storage_status      INTEGER NOT NULL DEFAULT 0,
+            checksum            TEXT,
+            file_size           INTEGER,
+            received_at         TEXT,
+            cloud_delete_after  TEXT,
+            local_delete_after  TEXT,
+            delivery_attempt_count INTEGER NOT NULL DEFAULT 0,
+            last_delivery_error TEXT,
+            original_filename   TEXT,
+            order_token          TEXT,
+            page_count          INTEGER
         );
 
         CREATE INDEX IF NOT EXISTS ix_jobs_status      ON jobs (status);
         CREATE INDEX IF NOT EXISTS ix_jobs_next_retry  ON jobs (next_attempt_at);
+        CREATE INDEX IF NOT EXISTS ix_jobs_delivery    ON jobs (delivery_status);
 
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
         );
-        INSERT OR IGNORE INTO schema_version (version) VALUES (1);
+        INSERT OR IGNORE INTO schema_version (version) VALUES (2);
         """;
 
     private const string EnqueueSql = """
@@ -143,10 +158,12 @@ public sealed class SqliteJobQueue : IJobQueue
 
         _connectionString = builder.ToString();
         _logger = logger;
+        _layout = layout;
     }
 
     private readonly string _dbPath;
     private readonly bool _isEncrypted;
+    private readonly LocalStorageLayout _layout;
     private const long MinFreeDiskBytes = 256L * 1024 * 1024; // 256 MB minimum free space
 
     /// <summary>
@@ -154,12 +171,23 @@ public sealed class SqliteJobQueue : IJobQueue
     /// Includes crash-safety: if the on-disk DB is corrupt (PRAGMA integrity_check fails),
     /// it is quarantined to <c>queue.db.corrupt-YYYYMMDD</c> and a fresh empty DB is created.
     /// This is the project's "corrupt database recovery strategy".
+    ///
+    /// <para><b>v0.5.3: migration from v0.4.7.</b> If the old plain SQLite DB
+    /// exists at <c>%AppData%\PrintShop\Companion\queue.db</c> and the new
+    /// encrypted DB does NOT exist, the old DB is backed up and its rows are
+    /// copied into the new encrypted DB. The old file is renamed to
+    /// <c>queue.db.v047.bak</c> (NOT deleted — rollback path). A sentinel
+    /// file <c>.migrated</c> is written to prevent re-migration.</para>
     /// </summary>
     private async Task<SqliteConnection> OpenAsync(CancellationToken ct)
     {
         if (Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {
             await EnsureDiskSpaceAsync(ct);
+
+            // v0.5.3: migrate from v0.4.7 if needed (before creating the schema).
+            await MigrateFromV047Async(ct);
+
             await EnsureSchemaOrRecoverAsync(ct);
         }
 
@@ -199,12 +227,54 @@ public sealed class SqliteJobQueue : IJobQueue
             {
                 _logger.LogError("SQLite integrity_check returned {Result}; quarantining corrupt DB", result);
                 QuarantineCorruptDb();
+                // Re-open the fresh DB.
+                await using var c2 = new SqliteConnection(_connectionString);
+                await c2.OpenAsync(ct);
+                await using var cmd2 = c2.CreateCommand();
+                cmd2.CommandText = InitSql;
+                await cmd2.ExecuteNonQueryAsync(ct);
+                return;
             }
-            else
+
+            // Run the CREATE TABLE (creates if not exists, no-op if exists).
+            await using var cmd = c.CreateCommand();
+            cmd.CommandText = InitSql;
+            await cmd.ExecuteNonQueryAsync(ct);
+
+            // v0.5: add new columns to existing v0.4.7 tables (additive ALTER TABLE).
+            // These are safe — SQLite ALTER TABLE ADD COLUMN with a DEFAULT is
+            // non-destructive. If the column already exists, the ALTER fails
+            // with "duplicate column name" which we catch and ignore.
+            var v05Columns = new[]
             {
-                await using var cmd = c.CreateCommand();
-                cmd.CommandText = InitSql;
-                await cmd.ExecuteNonQueryAsync(ct);
+                ("delivery_status", "INTEGER NOT NULL DEFAULT 0"),
+                ("storage_status", "INTEGER NOT NULL DEFAULT 0"),
+                ("checksum", "TEXT"),
+                ("file_size", "INTEGER"),
+                ("received_at", "TEXT"),
+                ("cloud_delete_after", "TEXT"),
+                ("local_delete_after", "TEXT"),
+                ("delivery_attempt_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("last_delivery_error", "TEXT"),
+                ("color_mode", "TEXT"),
+                ("original_filename", "TEXT"),
+                ("order_token", "TEXT"),
+                ("page_count", "INTEGER"),
+            };
+
+            foreach (var (col, type) in v05Columns)
+            {
+                try
+                {
+                    await using var alterCmd = c.CreateCommand();
+                    alterCmd.CommandText = $"ALTER TABLE jobs ADD COLUMN {col} {type};";
+                    await alterCmd.ExecuteNonQueryAsync(ct);
+                    _logger.LogInformation("Added column {Column} to jobs table", col);
+                }
+                catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Column already exists — this is expected on v0.5+ databases.
+                }
             }
         }
         catch (SqliteException ex) when (ex.Message.Contains("database disk image is malformed", StringComparison.OrdinalIgnoreCase)
@@ -213,6 +283,183 @@ public sealed class SqliteJobQueue : IJobQueue
             _logger.LogError(ex, "SQLite database is corrupt or unreadable; quarantining");
             QuarantineCorruptDb();
         }
+    }
+
+    /// <summary>
+    /// v0.5.3: Migrate the v0.4.7 plain SQLite queue.db to the new encrypted
+    /// SQLCipher queue.db. Steps:
+    ///   1. Check if migration is needed (old DB exists, new DB doesn't, sentinel not present)
+    ///   2. Prepare migration: rename old DB to queue.db.v047.bak
+    ///   3. Create the new encrypted DB + schema
+    ///   4. Read all rows from the old DB (plain connection, no password)
+    ///   5. Insert rows into the new encrypted DB
+    ///   6. Verify row count matches
+    ///   7. Write the .migrated sentinel file
+    /// If migration fails at any step, the old backup is preserved for manual recovery.
+    /// </summary>
+    private async Task MigrateFromV047Async(CancellationToken ct)
+    {
+        if (_layout.IsMigrationComplete()) return;
+
+        var backupPath = _layout.PrepareQueueMigration();
+        if (backupPath is null) return;  // no migration needed
+
+        _logger.LogInformation("Starting v0.4.7 → v0.5 migration: backing up old queue.db to {Backup}", backupPath);
+
+        try
+        {
+            // Open the OLD plain DB (no password) and read all jobs.
+            var oldConnStr = new SqliteConnectionStringBuilder
+            {
+                DataSource = backupPath,
+                Mode = SqliteOpenMode.ReadOnly,
+            }.ToString();
+
+            int oldCount = 0;
+            var jobsToMigrate = new List<PrintJobRecord>();
+
+            await using (var oldConn = new SqliteConnection(oldConnStr))
+            {
+                await oldConn.OpenAsync(ct);
+                await using var checkCmd = oldConn.CreateCommand();
+                checkCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='jobs';";
+                var tableExists = await checkCmd.ExecuteScalarAsync(ct);
+                if (tableExists is not null)
+                {
+                    await using var countCmd = oldConn.CreateCommand();
+                    countCmd.CommandText = "SELECT COUNT(*) FROM jobs;";
+                    oldCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync(ct));
+
+                    await using var selCmd = oldConn.CreateCommand();
+                    selCmd.CommandText = "SELECT * FROM jobs ORDER BY queued_at ASC;";
+                    await using var reader = await selCmd.ExecuteReaderAsync(ct);
+                    while (await reader.ReadAsync(ct))
+                    {
+                        try { jobsToMigrate.Add(ReadRecord(reader)); } catch { /* skip bad rows */ }
+                    }
+                }
+            }
+
+            _logger.LogInformation("Migration: read {Count} jobs from v0.4.7 queue.db (reported count: {OldCount})",
+                jobsToMigrate.Count, oldCount);
+
+            // The new encrypted DB will be created by EnsureSchemaOrRecoverAsync
+            // (called after this method). We just need to make sure the schema
+            // exists + insert the migrated rows.
+            await using var newConn = new SqliteConnection(_connectionString);
+            await newConn.OpenAsync(ct);
+
+            // Create the schema.
+            await using var schemaCmd = newConn.CreateCommand();
+            schemaCmd.CommandText = InitSql;
+            await schemaCmd.ExecuteNonQueryAsync(ct);
+
+            // Insert all migrated jobs.
+            int inserted = 0;
+            foreach (var job in jobsToMigrate)
+            {
+                try
+                {
+                    await EnqueueWithExistingConnectionAsync(newConn, job, ct);
+                    inserted++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Migration: failed to insert job {JobId}, skipping", job.JobId);
+                }
+            }
+
+            // Verify row count.
+            await using var verifyCmd = newConn.CreateCommand();
+            verifyCmd.CommandText = "SELECT COUNT(*) FROM jobs;";
+            var newCount = Convert.ToInt32(await verifyCmd.ExecuteScalarAsync(ct));
+
+            if (newCount != inserted)
+            {
+                _logger.LogWarning("Migration: row count mismatch — inserted {Inserted}, new DB has {NewCount}. " +
+                    "Some jobs may have been skipped (duplicate IDs). The backup is preserved at {Backup}.",
+                    inserted, newCount, backupPath);
+            }
+
+            _logger.LogInformation("Migration complete: {Inserted} jobs migrated from v0.4.7 to v0.5 encrypted queue.db. " +
+                "Backup preserved at {Backup}", inserted, backupPath);
+
+            // Mark migration as complete.
+            _layout.MarkMigrationComplete();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Migration from v0.4.7 failed. The backup is preserved at {Backup}. " +
+                "The app will start with a fresh empty queue.db. To recover, manually restore the backup.",
+                backupPath);
+            // Don't rethrow — the app should still start (with an empty queue).
+            // The user can manually recover from the backup.
+        }
+    }
+
+    /// <summary>
+    /// Enqueue a job using an existing open connection (no semaphore — caller
+    /// must handle concurrency). Used by the migration path.
+    /// </summary>
+    private async Task EnqueueWithExistingConnectionAsync(SqliteConnection conn, PrintJobRecord job, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO jobs (
+                job_id, shop_id, device_id, title, printer_name, copies,
+                page_range, paper_size, color, color_mode, duplex,
+                pdf_url, pdf_sha256, local_pdf_path, status,
+                spooler_job_id, attempt_count, last_error,
+                created_at, queued_at, updated_at, printed_at,
+                next_attempt_at,
+                delivery_status, storage_status, checksum, file_size,
+                received_at, cloud_delete_after, local_delete_after,
+                delivery_attempt_count, last_delivery_error
+            ) VALUES (
+                @job_id, @shop_id, @device_id, @title, @printer_name, @copies,
+                @page_range, @paper_size, @color, @color_mode, @duplex,
+                @pdf_url, @pdf_sha256, @local_pdf_path, @status,
+                @spooler_job_id, @attempt_count, @last_error,
+                @created_at, @queued_at, @updated_at, @printed_at,
+                @next_attempt_at,
+                @delivery_status, @storage_status, @checksum, @file_size,
+                @received_at, @cloud_delete_after, @local_delete_after,
+                @delivery_attempt_count, @last_delivery_error
+            );
+            """;
+        AddParam(cmd, "@job_id", job.JobId);
+        AddParam(cmd, "@shop_id", job.ShopId);
+        AddParam(cmd, "@device_id", job.DeviceId);
+        AddParam(cmd, "@title", job.Title);
+        AddParam(cmd, "@printer_name", job.PrinterName);
+        AddParam(cmd, "@copies", job.Copies);
+        AddParam(cmd, "@page_range", job.PageRange);
+        AddParam(cmd, "@paper_size", job.PaperSize);
+        AddParam(cmd, "@color", job.Color);
+        AddParam(cmd, "@color_mode", job.ColorMode);
+        AddParam(cmd, "@duplex", job.Duplex);
+        AddParam(cmd, "@pdf_url", job.PdfUrl?.ToString());
+        AddParam(cmd, "@pdf_sha256", job.PdfSha256);
+        AddParam(cmd, "@local_pdf_path", job.LocalPdfPath);
+        AddParam(cmd, "@status", (int)job.Status);
+        AddParam(cmd, "@spooler_job_id", job.SpoolerJobId);
+        AddParam(cmd, "@attempt_count", job.AttemptCount);
+        AddParam(cmd, "@last_error", job.LastError);
+        AddParam(cmd, "@created_at", job.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@queued_at", job.QueuedAt.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@updated_at", job.UpdatedAt.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@printed_at", job.PrintedAt?.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@next_attempt_at", null);
+        AddParam(cmd, "@delivery_status", (int)job.DeliveryStatus);
+        AddParam(cmd, "@storage_status", (int)job.StorageStatus);
+        AddParam(cmd, "@checksum", job.Checksum);
+        AddParam(cmd, "@file_size", job.FileSize);
+        AddParam(cmd, "@received_at", job.ReceivedAt?.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@cloud_delete_after", job.CloudDeleteAfter?.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@local_delete_after", job.LocalDeleteAfter?.ToString("O", CultureInfo.InvariantCulture));
+        AddParam(cmd, "@delivery_attempt_count", job.DeliveryAttemptCount);
+        AddParam(cmd, "@last_delivery_error", job.LastDeliveryError);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private void QuarantineCorruptDb()

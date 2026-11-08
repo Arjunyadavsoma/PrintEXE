@@ -519,9 +519,14 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// </summary>
     private string ResolveDeviceTokenPath()
     {
+        // v0.5: use LocalStorageLayout.DeviceTokenPath if the layout is
+        // available (the new %LocalAppData%\PrintShop\Companion\Security\
+        // device.dat path). Fall back to the old %AppData% path for
+        // backward compat with tests that don't inject the layout.
+        if (_layout is not null)
+            return _layout.DeviceTokenPath;
+
         var o = _opts.CurrentValue;
-        // The StorageOptions are separate from BackendOptions, but for the
-        // token path we use a sensible default if the caller hasn't set one.
         var path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PrintShop", "Companion", "device.dat");

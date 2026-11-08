@@ -3,13 +3,20 @@ namespace PrintShopCompanion.Infrastructure.Storage;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
+using PrintShopCompanion.Core.Options;
 
 /// <summary>
 /// Stores the shopkeeper's session (access + refresh token) and the device
 /// token (for the background print agent) encrypted with Windows DPAPI
 /// (current-user scope). The credentials never touch disk in cleartext.
+///
+/// <para><b>v0.5: uses LocalStorageLayout paths.</b> The device token is
+/// stored at <c>%LocalAppData%\PrintShop\Companion\Security\device.dat</c>.
+/// On first run, if the old v0.4.7 file at <c>%AppData%\PrintShop\Companion\
+/// device.dat</c> exists, it is automatically moved to the new location.</para>
 /// </summary>
 public sealed class DeviceTokenStore : ICredentialStore
 {
@@ -17,12 +24,16 @@ public sealed class DeviceTokenStore : ICredentialStore
     private readonly ILogger<DeviceTokenStore> _logger;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public DeviceTokenStore(ILogger<DeviceTokenStore> logger)
+    public DeviceTokenStore(LocalStorageLayout layout, ILogger<DeviceTokenStore> logger)
     {
-        _path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "PrintShop", "Companion", "device.dat");
+        _path = layout.DeviceTokenPath;
         _logger = logger;
+
+        // v0.5 migration: move the old device.dat from %AppData% to the new
+        // %LocalAppData%\...\Security\ location if it exists and the new
+        // location doesn't.
+        layout.EnsureDirectories();
+        layout.MigrateDeviceToken();
     }
 
     public async Task<StoredCredentials?> LoadAsync(CancellationToken ct = default)

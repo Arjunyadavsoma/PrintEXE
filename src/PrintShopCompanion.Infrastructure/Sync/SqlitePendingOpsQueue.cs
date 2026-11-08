@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Options;
+using PrintShopCompanion.Infrastructure.Storage;
 
 /// <summary>
 /// SQLite-backed pending operations queue. Stores operations that need to be
@@ -17,15 +18,16 @@ public sealed class SqlitePendingOpsQueue : IPendingOpsQueue
     private readonly ILogger<SqlitePendingOpsQueue> _logger;
     private int _initialized;
 
-    public SqlitePendingOpsQueue(IOptions<StorageOptions> storage, ILogger<SqlitePendingOpsQueue> logger)
+    public SqlitePendingOpsQueue(IOptions<StorageOptions> storage, LocalStorageLayout layout, ILogger<SqlitePendingOpsQueue> logger)
     {
+        // v0.5: use LocalStorageLayout.QueueDbPath (new %LocalAppData% path).
+        // The pending ops queue shares the same SQLite DB as the job queue
+        // (they use the same connection string + the same SQLCipher key).
+        // Fall back to appsettings override or the old %AppData% path.
         var path = storage.Value.QueueDbPath;
         if (string.IsNullOrWhiteSpace(path))
-        {
-            path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "PrintShop", "Companion", "queue.db");
-        }
+            path = layout.QueueDbPath;
+
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _connectionString = new SqliteConnectionStringBuilder
         {

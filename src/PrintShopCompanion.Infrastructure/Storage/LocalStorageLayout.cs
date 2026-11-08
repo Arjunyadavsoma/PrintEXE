@@ -187,4 +187,64 @@ public sealed class LocalStorageLayout
         // No-op: old logs stay in %AppData%\PrintShop\Companion\logs\
         // for reference; new logs go to %LocalAppData%\PrintShop\Companion\Logs\
     }
+
+    /// <summary>
+    /// Check if the legacy v0.4.7 queue.db exists at the old %AppData%
+    /// location and the new encrypted queue.db does NOT exist at the
+    /// new %LocalAppData% location. This means a migration is needed.
+    /// </summary>
+    public bool NeedsQueueMigration()
+    {
+        if (string.IsNullOrEmpty(LegacyQueueDbPath) || !File.Exists(LegacyQueueDbPath))
+            return false;
+        if (File.Exists(QueueDbPath))
+            return false;  // already migrated (new DB exists)
+        return true;
+    }
+
+    /// <summary>
+    /// Migrate the legacy v0.4.7 queue.db (plain SQLite at %AppData%) to
+    /// the new location at %LocalAppData%\...\Database\queue.db. The
+    /// actual data migration (reading rows from the old DB and inserting
+    /// into the new encrypted DB) is handled by SqliteJobQueue because it
+    /// has the SQLCipher key. This method just:
+    ///   1. Renames the old queue.db to queue.db.v047.bak (backup)
+    ///   2. Returns the backup path so SqliteJobQueue can read it
+    /// </summary>
+    /// <returns>The path to the backup file, or null if no migration needed.</returns>
+    public string? PrepareQueueMigration()
+    {
+        if (!NeedsQueueMigration()) return null;
+
+        EnsureDirectories();
+        var backupPath = LegacyQueueDbPath + ".v047.bak";
+
+        // If a backup already exists (interrupted migration), don't overwrite it.
+        if (!File.Exists(backupPath))
+        {
+            File.Move(LegacyQueueDbPath, backupPath);
+        }
+
+        return backupPath;
+    }
+
+    /// <summary>
+    /// Mark the migration as complete by creating a sentinel file. This
+    /// prevents re-migration on subsequent startups.
+    /// </summary>
+    public void MarkMigrationComplete()
+    {
+        EnsureDirectories();
+        var markerPath = Path.Combine(DatabaseDir, ".migrated");
+        File.WriteAllText(markerPath, DateTimeOffset.UtcNow.ToString("O"));
+    }
+
+    /// <summary>
+    /// Check if migration has been completed (sentinel file exists).
+    /// </summary>
+    public bool IsMigrationComplete()
+    {
+        var markerPath = Path.Combine(DatabaseDir, ".migrated");
+        return File.Exists(markerPath);
+    }
 }

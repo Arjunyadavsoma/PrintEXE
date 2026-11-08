@@ -8,6 +8,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Options;
+using PrintShopCompanion.Infrastructure.Storage;
 using PrintShopCompanion.Infrastructure.Sync;
 using Xunit;
 
@@ -28,7 +29,8 @@ public class SqlitePendingOpsQueueTests : IDisposable
         Directory.CreateDirectory(_tempDir);
         var dbPath = Path.Combine(_tempDir, "queue.db");
         var options = Options.Create(new StorageOptions { QueueDbPath = dbPath });
-        _queue = new SqlitePendingOpsQueue(options, NullLogger<SqlitePendingOpsQueue>.Instance);
+        var layout = new LocalStorageLayout(options);
+        _queue = new SqlitePendingOpsQueue(options, layout, NullLogger<SqlitePendingOpsQueue>.Instance);
     }
 
     public void Dispose()
