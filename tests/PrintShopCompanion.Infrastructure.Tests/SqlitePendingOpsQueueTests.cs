@@ -30,7 +30,7 @@ public class SqlitePendingOpsQueueTests : IDisposable
         var dbPath = Path.Combine(_tempDir, "queue.db");
         var options = Options.Create(new StorageOptions { QueueDbPath = dbPath });
         var layout = new LocalStorageLayout(options);
-        _queue = new SqlitePendingOpsQueue(options, layout, NullLogger<SqlitePendingOpsQueue>.Instance);
+        _queue = new SqlitePendingOpsQueue(options, layout, keyStore: null, NullLogger<SqlitePendingOpsQueue>.Instance);
     }
 
     public void Dispose()

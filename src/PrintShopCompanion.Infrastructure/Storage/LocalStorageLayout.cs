@@ -230,21 +230,26 @@ public sealed class LocalStorageLayout
 
     /// <summary>
     /// Mark the migration as complete by creating a sentinel file. This
-    /// prevents re-migration on subsequent startups.
+    /// prevents re-migration on subsequent startups. The sentinel is placed
+    /// in the same directory as QueueDbPath (which may be overridden by
+    /// appsettings.json), NOT the layout's computed DatabaseDir.
     /// </summary>
     public void MarkMigrationComplete()
     {
-        EnsureDirectories();
-        var markerPath = Path.Combine(DatabaseDir, ".migrated");
+        var markerDir = Path.GetDirectoryName(QueueDbPath) ?? DatabaseDir;
+        Directory.CreateDirectory(markerDir);
+        var markerPath = Path.Combine(markerDir, ".migrated");
         File.WriteAllText(markerPath, DateTimeOffset.UtcNow.ToString("O"));
     }
 
     /// <summary>
-    /// Check if migration has been completed (sentinel file exists).
+    /// Check if migration has been completed (sentinel file exists next to
+    /// the actual queue.db, not the layout's computed DatabaseDir).
     /// </summary>
     public bool IsMigrationComplete()
     {
-        var markerPath = Path.Combine(DatabaseDir, ".migrated");
+        var markerDir = Path.GetDirectoryName(QueueDbPath) ?? DatabaseDir;
+        var markerPath = Path.Combine(markerDir, ".migrated");
         return File.Exists(markerPath);
     }
 }

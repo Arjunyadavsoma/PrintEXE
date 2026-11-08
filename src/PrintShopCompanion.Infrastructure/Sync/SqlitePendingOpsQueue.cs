@@ -18,23 +18,60 @@ public sealed class SqlitePendingOpsQueue : IPendingOpsQueue
     private readonly ILogger<SqlitePendingOpsQueue> _logger;
     private int _initialized;
 
-    public SqlitePendingOpsQueue(IOptions<StorageOptions> storage, LocalStorageLayout layout, ILogger<SqlitePendingOpsQueue> logger)
+    public SqlitePendingOpsQueue(
+        IOptions<StorageOptions> storage,
+        LocalStorageLayout layout,
+        QueueKeyStore? keyStore,
+        ILogger<SqlitePendingOpsQueue> logger)
     {
         // v0.5: use LocalStorageLayout.QueueDbPath (new %LocalAppData% path).
-        // The pending ops queue shares the same SQLite DB as the job queue
-        // (they use the same connection string + the same SQLCipher key).
-        // Fall back to appsettings override or the old %AppData% path.
+        // The pending ops queue shares the SAME SQLite DB as the job queue
+        // (same file, same SQLCipher key, same connection string). They are
+        // separate tables within the same database file: `jobs` for the job
+        // queue, `pending_ops` for the pending operations queue. This is safe
+        // because SQLite supports concurrent access to the same file with
+        // Cache=Shared + WAL mode.
         var path = storage.Value.QueueDbPath;
         if (string.IsNullOrWhiteSpace(path))
             path = layout.QueueDbPath;
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        _connectionString = new SqliteConnectionStringBuilder
+
+        var builder = new SqliteConnectionStringBuilder
         {
             DataSource = path,
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Shared
-        }.ToString();
+        };
+
+        // v0.5: SQLCipher encryption — same fail-closed logic as SqliteJobQueue.
+        // The pending ops queue MUST use the same encryption key as the job
+        // queue because they share the same database file. If the key store
+        // is provided, we set the password; if not (tests), we proceed without
+        // encryption.
+        if (keyStore is not null && SqlCipherInitializer.IsEncryptionAvailable)
+        {
+            try
+            {
+                var keyHex = keyStore.GetKeyForConnectionString();
+                builder.Password = keyHex;
+                logger.LogInformation("SQLCipher encryption enabled for pending_ops in queue.db at {Path}", path);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Failed to load the SQLCipher encryption key for the pending ops queue. " +
+                    "The queue database cannot be opened without encryption.", ex);
+            }
+        }
+        else if (keyStore is not null && !SqlCipherInitializer.IsEncryptionAvailable)
+        {
+            throw new InvalidOperationException(
+                "SQLCipher native provider is not available. The pending ops " +
+                "queue database cannot be opened without encryption.");
+        }
+
+        _connectionString = builder.ToString();
         _logger = logger;
     }
 

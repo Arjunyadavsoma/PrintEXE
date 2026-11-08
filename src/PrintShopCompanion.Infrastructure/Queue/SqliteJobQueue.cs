@@ -129,10 +129,18 @@ public sealed class SqliteJobQueue : IJobQueue
         // v0.5: SQLCipher encryption. This requires BOTH:
         //   1. SqlCipherInitializer to have loaded the e_sqlcipher native provider
         //   2. QueueKeyStore to provide a DPAPI-protected per-installation key
-        // If either is missing, we do NOT silently fall back to plain SQLite
-        // on Windows — we log a WARNING and proceed without encryption (the
-        // app still works, but the data at rest is unencrypted). On Linux,
-        // this is expected (DPAPI is not available).
+        //
+        // FAIL-CLOSED: if either is missing, we THROW — we do NOT silently
+        // fall back to plain SQLite. Plain SQLite would expose job metadata
+        // (filenames, printer names, error messages, timestamps) to anyone
+        // with file-system access. That is unacceptable in production.
+        //
+        // On Linux (where DPAPI is unavailable), the QueueKeyStore will throw
+        // when it tries to call ProtectedData. We catch that and throw a
+        // clear InvalidOperationException explaining the problem.
+        //
+        // Tests that intentionally use unencrypted SQLite pass keyStore: null
+        // AND must be explicitly constructed without the production DI path.
         _isEncrypted = false;
         if (keyStore is not null && SqlCipherInitializer.IsEncryptionAvailable)
         {
@@ -145,16 +153,24 @@ public sealed class SqliteJobQueue : IJobQueue
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "SQLCipher key not available — queue.db will be unencrypted. " +
-                    "On Windows, verify DPAPI is available and the queue.key file is not corrupt.");
+                throw new InvalidOperationException(
+                    "Failed to generate or load the SQLCipher encryption key. " +
+                    "The queue database cannot be opened without encryption. " +
+                    "If this is a new installation, delete the queue.db file and restart. " +
+                    "If this is an upgrade, verify the queue.key file is not corrupt. " +
+                    "See docs/UPGRADE_FROM_V047.md for recovery instructions.", ex);
             }
         }
         else if (keyStore is not null && !SqlCipherInitializer.IsEncryptionAvailable)
         {
-            logger.LogWarning("QueueKeyStore available but SQLCipher native provider not initialized — " +
-                "queue.db will be unencrypted. Verify the SQLitePCLRaw.bundle_e_sqlcipher package " +
-                "includes the native binary for this platform (win-x64).");
+            throw new InvalidOperationException(
+                "SQLCipher native provider is not available. The queue database " +
+                "cannot be opened without encryption. Verify that the " +
+                "SQLitePCLRaw.bundle_e_sqlcipher NuGet package includes the native " +
+                "binary for this platform (win-x64). On Linux, encryption is not " +
+                "supported and tests must pass keyStore: null.");
         }
+        // If keyStore is null, we're in a test context — proceed without encryption.
 
         _connectionString = builder.ToString();
         _logger = logger;
