@@ -30,13 +30,19 @@ public class MigrationCollection { }
 /// encryption step.
 ///
 /// Tests are serialized via [Collection("Migration")] because they share
-/// the same %AppData%\PrintShop\Companion\queue.db path and would
-/// interfere with each other if run in parallel.
+/// the same legacy queue.db path and would interfere with each other if
+/// run in parallel.
+///
+/// P0 FIX: All test paths are inside the assigned temp directory — tests
+/// NEVER touch the real %AppData% or %LocalAppData% paths. The
+/// legacyRootOverride parameter on LocalStorageLayout redirects all
+/// legacy path computations to the temp directory.
 /// </summary>
 [Collection("Migration")]
 public class MigrationTests : IDisposable
 {
     private readonly string _tempDir;
+    private readonly string _legacyRoot;
     private readonly LocalStorageLayout _layout;
 
     public MigrationTests()
@@ -44,17 +50,15 @@ public class MigrationTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "MigrationTests-" + Guid.NewGuid().ToString("N").Substring(0, 8));
         Directory.CreateDirectory(_tempDir);
 
-        // Use a LocalStorageLayout that points QueueDbPath at our temp dir.
-        // The old DB path is computed from %AppData% by LocalStorageLayout.
-        // For tests, we create the old DB at the REAL LegacyQueueDbPath
-        // (under %AppData%\PrintShop\Companion\queue.db). We clean it up in
-        // Dispose. This is safe because tests run in isolated CI and we
-        // delete the file in Dispose.
+        // P0 FIX: use legacyRootOverride to point the legacy paths at a temp
+        // directory INSIDE _tempDir, so tests never touch the real
+        // %AppData%\PrintShop\Companion\queue.db. This prevents test-induced
+        // data loss on machines with a real PrintShop install.
+        _legacyRoot = Path.Combine(_tempDir, "Legacy");
         var newDbPath = Path.Combine(_tempDir, "Database", "queue.db");
-        _layout = new LocalStorageLayout(Options.Create(new StorageOptions
-        {
-            QueueDbPath = newDbPath,
-        }));
+        _layout = new LocalStorageLayout(
+            Options.Create(new StorageOptions { QueueDbPath = newDbPath }),
+            legacyRootOverride: _legacyRoot);
     }
 
     private string OldDbPath => _layout.LegacyQueueDbPath!;
@@ -64,14 +68,10 @@ public class MigrationTests : IDisposable
         // Clear all SQLite connection pools so file handles are released
         // before we try to delete the test files.
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        // P0 FIX: everything is inside _tempDir — including the legacy root
+        // (via legacyRootOverride). We only delete _tempDir, never the real
+        // %AppData% or %LocalAppData%.
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
-        // Clean up the old DB if we created it.
-        try
-        {
-            if (File.Exists(OldDbPath)) File.Delete(OldDbPath);
-            if (File.Exists(OldDbPath + ".v047.bak")) File.Delete(OldDbPath + ".v047.bak");
-        }
-        catch { }
         GC.SuppressFinalize(this);
     }
 
@@ -167,6 +167,21 @@ public class MigrationTests : IDisposable
             AddParam(insert, "@next_attempt_at", null);
             insert.ExecuteNonQuery();
         }
+    }
+
+    [Fact]
+    public void Migration_test_paths_are_isolated_from_real_appdata()
+    {
+        // P0 REGRESSION TEST: verify that OldDbPath and _layout.QueueDbPath
+        // are both inside _tempDir — never the real %AppData% or %LocalAppData%.
+        // If this test fails, the test infrastructure is broken and could
+        // delete real user data.
+        OldDbPath.Should().StartWith(_tempDir,
+            "the legacy DB path must be inside the test temp directory, not the real %AppData%");
+        _layout.QueueDbPath.Should().StartWith(_tempDir,
+            "the new DB path must be inside the test temp directory, not the real %LocalAppData%");
+        _layout.LegacyRoot.Should().StartWith(_tempDir,
+            "the legacy root must be inside the test temp directory");
     }
 
     private static void AddParam(SqliteCommand cmd, string name, object? value)

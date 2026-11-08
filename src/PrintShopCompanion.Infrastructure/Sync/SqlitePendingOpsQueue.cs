@@ -24,6 +24,15 @@ public sealed class SqlitePendingOpsQueue : IPendingOpsQueue
         QueueKeyStore? keyStore,
         ILogger<SqlitePendingOpsQueue> logger)
     {
+        // P0 FIX: Initialize SQLCipher BEFORE checking IsEncryptionAvailable.
+        // SqlCipherInitializer.Initialize() is idempotent (Interlocked.CompareExchange)
+        // and thread-safe, so it's safe to call from both SqliteJobQueue AND
+        // SqlitePendingOpsQueue constructors. Without this call, if the DI
+        // container constructs SqlitePendingOpsQueue BEFORE SqliteJobQueue,
+        // IsEncryptionAvailable would be false and the queue would throw
+        // even though SQLCipher is available.
+        SqlCipherInitializer.Initialize(logger);
+
         // v0.5: use LocalStorageLayout.QueueDbPath (new %LocalAppData% path).
         // The pending ops queue shares the SAME SQLite DB as the job queue
         // (same file, same SQLCipher key, same connection string). They are

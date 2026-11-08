@@ -66,7 +66,7 @@ public sealed class LocalStorageLayout
     public string? LegacyQueueDbPath { get; }
     public string? LegacyLogDir { get; }
 
-    public LocalStorageLayout(IOptions<StorageOptions> opts)
+    public LocalStorageLayout(IOptions<StorageOptions> opts, string? legacyRootOverride = null)
     {
         Root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -87,7 +87,12 @@ public sealed class LocalStorageLayout
         LogFilePath = Path.Combine(LogsDir, "companion.log");
 
         // Detect the legacy v0.4.7 layout (under %AppData%, not %LocalAppData%).
-        LegacyRoot = Path.Combine(
+        // P0 FIX: allow the legacy root to be overridden for test isolation.
+        // Without this override, migration tests would create/delete files at
+        // the REAL %AppData%\PrintShop\Companion\queue.db path, potentially
+        // destroying a real user's data if tests run on a machine with an
+        // actual PrintShop install.
+        LegacyRoot = legacyRootOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PrintShop", "Companion");
         LegacyDeviceTokenPath = Path.Combine(LegacyRoot, "device.dat");
