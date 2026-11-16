@@ -37,3 +37,8 @@ download/
 skills/
 upload/
 scripts/syntax-check.csx
+
+# Local environment (do not commit)
+.env
+.env.local
+.env.*.local
