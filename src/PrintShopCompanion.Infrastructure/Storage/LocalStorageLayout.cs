@@ -227,10 +227,45 @@ public sealed class LocalStorageLayout
         // If a backup already exists (interrupted migration), don't overwrite it.
         if (!File.Exists(backupPath))
         {
-            File.Move(LegacyQueueDbPath, backupPath);
+            // Windows can briefly hold a file handle on the legacy DB
+            // after the SQLite connection pool is cleared (the OS takes
+            // a few ms to release the handle). Retry the move a handful
+            // of times with a short backoff so a transient lock does not
+            // fail the migration. This is a robustness improvement, not
+            // a behavior change — the move still happens exactly once.
+            MoveWithRetry(LegacyQueueDbPath, backupPath);
         }
 
         return backupPath;
+    }
+
+    /// <summary>
+    /// Move a file, retrying for up to ~2 seconds on
+    /// <c>IOException</c>/<c>UnauthorizedAccessException</c> (Windows
+    /// transient file-lock). Throws the last exception if all retries
+    /// fail. Used by <see cref="PrepareQueueMigration"/> so a briefly-
+    /// held handle on the legacy queue.db does not abort the migration.
+    /// </summary>
+    private static void MoveWithRetry(string source, string dest)
+    {
+        const int maxAttempts = 10;
+        const int delayMs = 200;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(source, dest);
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(delayMs);
+            }
+            catch (UnauthorizedAccessException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(delayMs);
+            }
+        }
     }
 
     /// <summary>
