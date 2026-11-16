@@ -98,10 +98,25 @@ public class MigrationTests : IDisposable
         var marker = Path.Combine(markerDir, ".migrated");
         if (File.Exists(marker)) File.Delete(marker);
         if (File.Exists(_layout.QueueDbPath)) File.Delete(_layout.QueueDbPath);
+        // Pooling=False is essential on Windows: Microsoft.Data.Sqlite
+        // keeps a pooled connection's file handle open even after the
+        // `using` block disposes the SqliteConnection. CreateV047Database
+        // opens a connection to the legacy queue.db, inserts test jobs,
+        // and disposes the connection — but the pool still holds the file
+        // handle. The test then creates a SqliteJobQueue and triggers
+        // migration (PrepareQueueMigration -> File.Move of legacy
+        // queue.db to .v047.bak), which fails on Windows with "The
+        // process cannot access the file because it is being used by
+        // another process". Disabling pooling here ensures the handle
+        // releases the moment `conn` is disposed at the end of this
+        // method. This is the root cause of the 8 MigrationTests failures
+        // that have been silently failing on Windows CI since v0.5.5,
+        // masked by the old workflow's continue-on-error: true.
         var connStr = new SqliteConnectionStringBuilder
         {
             DataSource = OldDbPath,
             Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
         }.ToString();
 
         using var conn = new SqliteConnection(connStr);
