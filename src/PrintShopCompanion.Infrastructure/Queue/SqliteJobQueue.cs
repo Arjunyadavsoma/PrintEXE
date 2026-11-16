@@ -430,7 +430,8 @@ public sealed class SqliteJobQueue : IJobQueue
                 next_attempt_at,
                 delivery_status, storage_status, checksum, file_size,
                 received_at, cloud_delete_after, local_delete_after,
-                delivery_attempt_count, last_delivery_error
+                delivery_attempt_count, last_delivery_error,
+                original_filename, order_token, page_count
             ) VALUES (
                 @job_id, @shop_id, @device_id, @title, @printer_name, @copies,
                 @page_range, @paper_size, @color, @color_mode, @duplex,
@@ -440,7 +441,8 @@ public sealed class SqliteJobQueue : IJobQueue
                 @next_attempt_at,
                 @delivery_status, @storage_status, @checksum, @file_size,
                 @received_at, @cloud_delete_after, @local_delete_after,
-                @delivery_attempt_count, @last_delivery_error
+                @delivery_attempt_count, @last_delivery_error,
+                @original_filename, @order_token, @page_count
             );
             """;
         AddParam(cmd, "@job_id", job.JobId);
@@ -475,6 +477,10 @@ public sealed class SqliteJobQueue : IJobQueue
         AddParam(cmd, "@local_delete_after", job.LocalDeleteAfter?.ToString("O", CultureInfo.InvariantCulture));
         AddParam(cmd, "@delivery_attempt_count", job.DeliveryAttemptCount);
         AddParam(cmd, "@last_delivery_error", job.LastDeliveryError);
+        // v0.5 columns added to the INSERT to match the schema (previously dropped on enqueue).
+        AddParam(cmd, "@original_filename", (object?)job.OriginalFilename ?? DBNull.Value);
+        AddParam(cmd, "@order_token", (object?)job.OrderToken ?? DBNull.Value);
+        AddParam(cmd, "@page_count", (object?)job.PageCount ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -784,23 +790,27 @@ public sealed class SqliteJobQueue : IJobQueue
         {
             await using var conn = await OpenAsync(ct);
             await using var cmd = conn.CreateCommand();
-            // Anything that was being processed when the previous process died.
+            // Anything that was being actively processed when the previous process died
+            // gets returned to Pending so it can be re-attempted. We deliberately EXCLUDE
+            // UncertainSpooled and OutcomeUnknown: those states mean "we don't know
+            // whether the paper came out", and auto-replaying them risks printing the
+            // same job twice. They must persist across restarts and require explicit
+            // operator resolution (PrintQueueViewModel.MarkResolved) — see
+            // PrintJobRecord.cs UncertainSpooled doc comment and docs/AUDIT.md §5 bug #3.
             cmd.CommandText = """
                 UPDATE jobs
                    SET status = @pending,
                        updated_at = @now,
                        next_attempt_at = NULL
-                 WHERE status IN (@downloading, @rendering, @spooled, @uncertain, @outcome_unknown);
+                 WHERE status IN (@downloading, @rendering, @spooled);
                 """;
             AddParam(cmd, "@pending", (int)JobStatus.Pending);
             AddParam(cmd, "@downloading", (int)JobStatus.Downloading);
             AddParam(cmd, "@rendering", (int)JobStatus.Rendering);
             AddParam(cmd, "@spooled", (int)JobStatus.Spooled);
-            AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
-            AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             var n = await cmd.ExecuteNonQueryAsync(ct);
-            if (n > 0) _logger.LogInformation("Replayed {Count} in-flight jobs back to Pending after crash", n);
+            if (n > 0) _logger.LogInformation("Replayed {Count} in-flight jobs back to Pending after crash (UncertainSpooled/OutcomeUnknown left intact)", n);
         }
         finally { _gate.Release(); }
     }
@@ -959,6 +969,7 @@ public sealed class SqliteJobQueue : IJobQueue
                 page_range     = @page_range,
                 paper_size     = @paper_size,
                 color          = @color,
+                color_mode     = @color_mode,
                 duplex         = @duplex,
                 local_pdf_path = @local_pdf_path,
                 pdf_sha256    = @pdf_sha256,
@@ -968,7 +979,19 @@ public sealed class SqliteJobQueue : IJobQueue
                 last_error     = @error,
                 updated_at     = @now,
                 printed_at     = @printed_at,
-                next_attempt_at= @next
+                next_attempt_at= @next,
+                delivery_status       = @delivery_status,
+                storage_status        = @storage_status,
+                checksum              = @checksum,
+                file_size             = @file_size,
+                received_at           = @received_at,
+                cloud_delete_after    = @cloud_delete_after,
+                local_delete_after    = @local_delete_after,
+                delivery_attempt_count= @delivery_attempts,
+                last_delivery_error   = @last_delivery_error,
+                original_filename     = @original_filename,
+                order_token           = @order_token,
+                page_count            = @page_count
              WHERE job_id = @job_id;
             """;
         AddParam(cmd, "@job_id", job.JobId);
@@ -977,6 +1000,7 @@ public sealed class SqliteJobQueue : IJobQueue
         AddParam(cmd, "@page_range", (object?)job.PageRange ?? DBNull.Value);
         AddParam(cmd, "@paper_size", (object?)job.PaperSize ?? DBNull.Value);
         AddParam(cmd, "@color", job.Color.HasValue ? (object)(job.Color.Value ? 1 : 0) : DBNull.Value);
+        AddParam(cmd, "@color_mode", (object?)job.ColorMode ?? DBNull.Value);
         AddParam(cmd, "@duplex", (object?)job.Duplex ?? DBNull.Value);
         AddParam(cmd, "@local_pdf_path", (object?)job.LocalPdfPath ?? DBNull.Value);
         AddParam(cmd, "@pdf_sha256", (object?)job.PdfSha256 ?? DBNull.Value);
@@ -987,6 +1011,19 @@ public sealed class SqliteJobQueue : IJobQueue
         AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         AddParam(cmd, "@printed_at", (object?)job.PrintedAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
         AddParam(cmd, "@next", (object?)DBNull.Value);
+        // ─── v0.5 columns (previously omitted → data-loss across restarts) ───
+        AddParam(cmd, "@delivery_status", (int)job.DeliveryStatus);
+        AddParam(cmd, "@storage_status", (int)job.StorageStatus);
+        AddParam(cmd, "@checksum", (object?)job.Checksum ?? DBNull.Value);
+        AddParam(cmd, "@file_size", (object?)job.FileSize ?? DBNull.Value);
+        AddParam(cmd, "@received_at", (object?)job.ReceivedAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+        AddParam(cmd, "@cloud_delete_after", (object?)job.CloudDeleteAfter?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+        AddParam(cmd, "@local_delete_after", (object?)job.LocalDeleteAfter?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+        AddParam(cmd, "@delivery_attempts", job.DeliveryAttemptCount);
+        AddParam(cmd, "@last_delivery_error", (object?)job.LastDeliveryError ?? DBNull.Value);
+        AddParam(cmd, "@original_filename", (object?)job.OriginalFilename ?? DBNull.Value);
+        AddParam(cmd, "@order_token", (object?)job.OrderToken ?? DBNull.Value);
+        AddParam(cmd, "@page_count", (object?)job.PageCount ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -1013,6 +1050,10 @@ public sealed class SqliteJobQueue : IJobQueue
             PageRange = r["page_range"] is DBNull ? null : (string)r["page_range"],
             PaperSize = r["paper_size"] is DBNull ? null : (string)r["paper_size"],
             Color = color,
+            ColorMode = r["color_mode"] is DBNull ? null : (string)r["color_mode"],
+            PageCount = r["page_count"] is DBNull ? null : Convert.ToInt32(r["page_count"]),
+            OriginalFilename = r["original_filename"] is DBNull ? null : (string)r["original_filename"],
+            OrderToken = r["order_token"] is DBNull ? null : (string)r["order_token"],
             Duplex = r["duplex"] is DBNull ? null : Convert.ToInt32(r["duplex"]) != 0,
             PdfUrl = r["pdf_url"] is DBNull ? null : Uri.TryCreate((string)r["pdf_url"], UriKind.Absolute, out var u) ? u : null,
             LocalPdfPath = r["local_pdf_path"] is DBNull ? null : (string)r["local_pdf_path"],
@@ -1025,6 +1066,16 @@ public sealed class SqliteJobQueue : IJobQueue
             QueuedAt = DateTimeOffset.Parse((string)r["queued_at"], CultureInfo.InvariantCulture),
             UpdatedAt = DateTimeOffset.Parse((string)r["updated_at"], CultureInfo.InvariantCulture),
             PrintedAt = r["printed_at"] is DBNull ? null : DateTimeOffset.Parse((string)r["printed_at"], CultureInfo.InvariantCulture),
+            // ─── v0.5 columns (previously dropped on read → data-loss across restarts) ───
+            DeliveryStatus = r["delivery_status"] is DBNull ? DeliveryStatus.CloudStaged : (DeliveryStatus)Convert.ToInt32(r["delivery_status"]),
+            StorageStatus = r["storage_status"] is DBNull ? StorageStatus.CloudAvailable : (StorageStatus)Convert.ToInt32(r["storage_status"]),
+            Checksum = r["checksum"] is DBNull ? null : (string)r["checksum"],
+            FileSize = r["file_size"] is DBNull ? null : Convert.ToInt64(r["file_size"]),
+            ReceivedAt = r["received_at"] is DBNull ? null : DateTimeOffset.Parse((string)r["received_at"], CultureInfo.InvariantCulture),
+            CloudDeleteAfter = r["cloud_delete_after"] is DBNull ? null : DateTimeOffset.Parse((string)r["cloud_delete_after"], CultureInfo.InvariantCulture),
+            LocalDeleteAfter = r["local_delete_after"] is DBNull ? null : DateTimeOffset.Parse((string)r["local_delete_after"], CultureInfo.InvariantCulture),
+            DeliveryAttemptCount = r["delivery_attempt_count"] is DBNull ? 0 : Convert.ToInt32(r["delivery_attempt_count"]),
+            LastDeliveryError = r["last_delivery_error"] is DBNull ? null : (string)r["last_delivery_error"],
         };
     }
 

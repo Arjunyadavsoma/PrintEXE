@@ -130,6 +130,80 @@ public class SqliteJobQueueTests : IDisposable
         all[0].Status.Should().Be(JobStatus.Cancelled);
     }
 
+    [Fact]
+    public async Task ReplayInFlight_does_not_reset_UncertainSpooled_or_OutcomeUnknown()
+    {
+        // SAFETY INVARIANT (PrintJobRecord.cs UncertainSpooled doc + docs/AUDIT.md §5 bug #3):
+        // UncertainSpooled and OutcomeUnknown mean "we don't know whether the paper came out".
+        // Auto-replaying them to Pending on restart risks printing the same job twice.
+        // They must persist across restarts and require explicit operator resolution.
+
+        // UncertainSpooled: enqueue → dequeue (to Downloading) → MarkUncertain.
+        await _queue.EnqueueAsync(MakeJob("J-uncertain", "Uncertain"));
+        await _queue.DequeueAsync(); // Pending -> Downloading (required by MarkUncertainAsync WHERE clause)
+        await _queue.MarkUncertainAsync("J-uncertain", "spooler purged before confirmation", CancellationToken.None);
+
+        // OutcomeUnknown: enqueue → dequeue → MarkPrinted → MarkOutcomeUnknown.
+        await _queue.EnqueueAsync(MakeJob("J-unknown", "Unknown"));
+        await _queue.DequeueAsync();
+        await _queue.MarkPrintedAsync("J-unknown", DateTimeOffset.UtcNow, spoolerJobId: 1, CancellationToken.None);
+        await _queue.MarkOutcomeUnknownAsync("J-unknown", "backend report 5xx", CancellationToken.None);
+
+        await _queue.ReplayInFlightAsync();
+        var all = await _queue.ListAsync();
+        all.Single(j => j.JobId == "J-uncertain").Status.Should().Be(JobStatus.UncertainSpooled,
+            "uncertain spooler jobs must NOT be auto-replayed to Pending");
+        all.Single(j => j.JobId == "J-unknown").Status.Should().Be(JobStatus.OutcomeUnknown,
+            "outcome-unknown jobs must NOT be auto-replayed to Pending");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_round_trips_v05_columns()
+    {
+        // DATA-LOSS BUG FIX (docs/AUDIT.md §5 bugs #1 + #2): ReadRecord/WriteStatusAsync
+        // previously dropped the v0.5 columns (color_mode, page_count, original_filename,
+        // order_token, delivery_status, storage_status, checksum, file_size, received_at,
+        // cloud_delete_after, local_delete_after, delivery_attempt_count, last_delivery_error).
+        // After a restart the values were silently lost. This test verifies they survive an
+        // enqueue → update → list round-trip through SQLite.
+        var job = MakeJob("J-v05", "V05 Round-trip");
+        job.ColorMode = "color";
+        job.PageCount = 7;
+        job.OriginalFilename = "invoice-204.pdf";
+        job.OrderToken = "ord_abc";
+        job.FileSize = 1234567L;
+        job.Checksum = "sha256:abc123";
+        await _queue.EnqueueAsync(job);
+
+        // Mutate the v0.5 columns via a status update (DownloadPdfAsync path sets these).
+        // PrintJobRecord is a class with set properties; mutate then call UpdateAsync.
+        var fetched = (await _queue.ListAsync()).Single(j => j.JobId == "J-v05");
+        fetched.DeliveryStatus = DeliveryStatus.Received;
+        fetched.StorageStatus = StorageStatus.LocalVerified;
+        fetched.ReceivedAt = DateTimeOffset.UtcNow;
+        fetched.CloudDeleteAfter = DateTimeOffset.UtcNow.AddMinutes(15);
+        fetched.LocalDeleteAfter = DateTimeOffset.UtcNow.AddMinutes(60);
+        fetched.DeliveryAttemptCount = 3;
+        fetched.LastDeliveryError = "transient timeout";
+        await _queue.UpdateAsync(fetched, CancellationToken.None);
+
+        // Re-read and assert the v0.5 columns survived the round-trip through SQLite.
+        var roundTripped = (await _queue.ListAsync()).Single(j => j.JobId == "J-v05");
+        roundTripped.ColorMode.Should().Be("color");
+        roundTripped.PageCount.Should().Be(7);
+        roundTripped.OriginalFilename.Should().Be("invoice-204.pdf");
+        roundTripped.OrderToken.Should().Be("ord_abc");
+        roundTripped.FileSize.Should().Be(1234567L);
+        roundTripped.Checksum.Should().Be("sha256:abc123");
+        roundTripped.DeliveryStatus.Should().Be(DeliveryStatus.Received);
+        roundTripped.StorageStatus.Should().Be(StorageStatus.LocalVerified);
+        roundTripped.ReceivedAt.Should().NotBeNull();
+        roundTripped.CloudDeleteAfter.Should().NotBeNull();
+        roundTripped.LocalDeleteAfter.Should().NotBeNull();
+        roundTripped.DeliveryAttemptCount.Should().Be(3);
+        roundTripped.LastDeliveryError.Should().Be("transient timeout");
+    }
+
     private static PrintJobRecord MakeJob(string id, string title) => new()
     {
         JobId = id,

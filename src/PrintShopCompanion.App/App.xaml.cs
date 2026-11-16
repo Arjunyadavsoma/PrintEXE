@@ -128,12 +128,17 @@ public partial class App : Application
             Log.Information("DI host started");
 
             // CHECK for saved credentials SYNCHRONOUSLY (no async, no .Result, no deadlock)
-            // Just check if the file exists — we'll load it in the background after the window shows
-            var credPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "PrintShop", "Companion", "device.dat");
-            bool hasSavedCredentials = File.Exists(credPath);
-            Log.Information("Saved credentials: {Has}", hasSavedCredentials ? "FOUND" : "NOT FOUND");
+            // Check BOTH the current DeviceTokenStore path (%LocalAppData%\...\Security\device.dat)
+            // and the legacy path (%AppData%\...\device.dat) that MigrateDeviceToken() handles.
+            // The previous code checked only the legacy path, so a user with the new path landed
+            // on Login even with a valid token — see docs/AUDIT.md §11 + §16 item #5.
+            var layout = _host.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Storage.LocalStorageLayout>();
+            bool hasSavedCredentials = File.Exists(layout.DeviceTokenPath)
+                || (layout.LegacyDeviceTokenPath is { } legacy && File.Exists(legacy));
+            Log.Information("Saved credentials: {Has} (current={Current}, legacy={Legacy})",
+                hasSavedCredentials ? "FOUND" : "NOT FOUND",
+                File.Exists(layout.DeviceTokenPath),
+                layout.LegacyDeviceTokenPath is { } lp && File.Exists(lp));
 
             // Navigate to the right view
             var nav = _host.Services.GetRequiredService<INavigationService>();
