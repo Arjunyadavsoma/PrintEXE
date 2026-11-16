@@ -940,6 +940,7 @@ public sealed class SqliteJobQueue : IJobQueue
                    AND status = @printed;
                 """;
             AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
+            AddParam(cmd, "@printed", (int)JobStatus.Printed);
             AddParam(cmd, "@reason", reason);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@job_id", jobId);
