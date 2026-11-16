@@ -81,6 +81,14 @@ public class MigrationTests : IDisposable
     /// </summary>
     private void CreateV047Database(params PrintJobRecord[] jobs)
     {
+        // Clear all SQLite connection pools so any handles a previous
+        // test's SqliteJobQueue opened against the legacy DB (or the new
+        // DB) are released before we delete + recreate the files. Without
+        // this, on Windows the File.Delete / File.Move below fail with
+        // "The process cannot access the file because it is being used by
+        // another process" — the previous test's queue keeps a connection
+        // pool alive even after the test method returns.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         // Ensure the directory exists and the file is fresh.
         Directory.CreateDirectory(Path.GetDirectoryName(OldDbPath)!);
         // Clean up ALL migration artifacts from previous tests:
