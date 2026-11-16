@@ -306,9 +306,29 @@ jobs:
           # Re-read the checksum from SHA256SUMS.txt and verify it matches
           # the actual ZIP file. This catches a corrupt ZIP or a typo in
           # the checksum file.
-          $line = (Get-Content artifacts/SHA256SUMS.txt | Where-Object { $_ -match $env:ZIP_NAME })[0]
-          $expected = ($line -split '\s+')[0]
+          #
+          # The ZIP is always written as the FIRST line of SHA256SUMS.txt
+          # (see the Generate step). Take that line and extract the 64-char
+          # hex hash before the first space. Avoid regex on the filename
+          # (the `.` in PrintEXE-vX.Y.Z-win-x64.zip is a regex meta-char and
+          # caused a mismatch in an earlier version).
+          $lines = Get-Content artifacts/SHA256SUMS.txt
+          $zipLine = $lines | Where-Object { $_ -like "*$env:ZIP_NAME*" } | Select-Object -First 1
+          if (-not $zipLine) {
+            Write-Error "Could not find $env:ZIP_NAME in SHA256SUMS.txt"
+            exit 1
+          }
+          # The hash is the first 64 chars (SHA-256 hex). Use a literal
+          # substring split on the first space, not a regex split.
+          $idx = $zipLine.IndexOf(' ')
+          if ($idx -lt 64) {
+            Write-Error "Malformed checksum line: $zipLine"
+            exit 1
+          }
+          $expected = $zipLine.Substring(0, 64).ToLower()
           $actual = (Get-FileHash -Algorithm SHA256 $env:ZIP_PATH).Hash.ToLower()
+          Write-Host "Expected: $expected"
+          Write-Host "Actual:   $actual"
           if ($expected -ne $actual) {
             Write-Error "Checksum mismatch! Expected: $expected  Actual: $actual"
             exit 1
