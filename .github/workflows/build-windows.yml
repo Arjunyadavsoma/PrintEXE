@@ -115,9 +115,13 @@ jobs:
           # No continue-on-error: a failed test MUST fail the build so a
           # broken release is never published. Test results are uploaded
           # as an artifact for inspection.
+          # NOTE: --logger "trx;LogFileName=tests.trx" is the only flag
+          # needed; the --collector:"XPlat Code Coverage" flag breaks
+          # PowerShell arg parsing (the space in "XPlat Code Coverage"
+          # splits into two MSBuild switches and MSBuild rejects it with
+          # error MSB1001: Unknown switch).
           dotnet test PrintShopCompanion.sln -c Release --no-build `
-            --logger "trx;LogFileName=tests.trx" `
-            --collector:"XPlat Code Coverage"
+            --logger "trx;LogFileName=tests.trx"
 
       - name: Publish app (folder distribution, self-contained, win-x64)
         shell: pwsh
