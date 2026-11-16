@@ -480,5 +480,5 @@ jobs:
           files: |
             ${{ env.ZIP_ABS }}
             ${{ env.SUMS_ABS }}
-            release-artifacts/artifacts/BUILD-INFO.txt
-            release-artifacts/artifacts/README.txt
+            release-artifacts/BUILD-INFO.txt
+            release-artifacts/README.txt
