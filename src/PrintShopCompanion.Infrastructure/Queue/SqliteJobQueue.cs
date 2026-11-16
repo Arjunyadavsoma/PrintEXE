@@ -92,10 +92,22 @@ public sealed class SqliteJobQueue : IJobQueue
     private const string EnqueueSql = """
         INSERT INTO jobs (
             job_id, shop_id, device_id, title, printer_name, copies, page_range,
-            paper_size, color, duplex, pdf_url, status, created_at, queued_at, updated_at
+            paper_size, color, color_mode, duplex, pdf_url, pdf_sha256, local_pdf_path,
+            status, spooler_job_id, attempt_count, last_error,
+            created_at, queued_at, updated_at, printed_at, next_attempt_at,
+            delivery_status, storage_status, checksum, file_size,
+            received_at, cloud_delete_after, local_delete_after,
+            delivery_attempt_count, last_delivery_error,
+            original_filename, order_token, page_count
         ) VALUES (
             @job_id, @shop_id, @device_id, @title, @printer_name, @copies, @page_range,
-            @paper_size, @color, @duplex, @pdf_url, @status, @created_at, @queued_at, @updated_at
+            @paper_size, @color, @color_mode, @duplex, @pdf_url, @pdf_sha256, @local_pdf_path,
+            @status, @spooler_job_id, @attempt_count, @last_error,
+            @created_at, @queued_at, @updated_at, @printed_at, @next_attempt_at,
+            @delivery_status, @storage_status, @checksum, @file_size,
+            @received_at, @cloud_delete_after, @local_delete_after,
+            @delivery_attempt_count, @last_delivery_error,
+            @original_filename, @order_token, @page_count
         )
         ON CONFLICT(job_id) DO NOTHING;
         """;
@@ -518,12 +530,34 @@ public sealed class SqliteJobQueue : IJobQueue
             AddParam(cmd, "@page_range", (object?)job.PageRange ?? DBNull.Value);
             AddParam(cmd, "@paper_size", (object?)job.PaperSize ?? DBNull.Value);
             AddParam(cmd, "@color", job.Color.HasValue ? (object)(job.Color.Value ? 1 : 0) : DBNull.Value);
+            AddParam(cmd, "@color_mode", (object?)job.ColorMode ?? DBNull.Value);
             AddParam(cmd, "@duplex", (object?)job.Duplex ?? DBNull.Value);
             AddParam(cmd, "@pdf_url", job.PdfUrl?.ToString() ?? (object)DBNull.Value);
+            AddParam(cmd, "@pdf_sha256", (object?)job.PdfSha256 ?? DBNull.Value);
+            AddParam(cmd, "@local_pdf_path", (object?)job.LocalPdfPath ?? DBNull.Value);
             AddParam(cmd, "@status", (int)job.Status);
+            AddParam(cmd, "@spooler_job_id", (object?)job.SpoolerJobId ?? DBNull.Value);
+            AddParam(cmd, "@attempt_count", job.AttemptCount);
+            AddParam(cmd, "@last_error", (object?)job.LastError ?? DBNull.Value);
             AddParam(cmd, "@created_at", job.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@queued_at", job.QueuedAt.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@updated_at", job.UpdatedAt.ToString("O", CultureInfo.InvariantCulture));
+            AddParam(cmd, "@printed_at", (object?)job.PrintedAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+            AddParam(cmd, "@next_attempt_at", DBNull.Value);
+            // v0.5 columns (previously dropped by the public EnqueueSql → data-loss on the
+            // main path; only the migration's EnqueueWithExistingConnectionAsync wrote them).
+            AddParam(cmd, "@delivery_status", (int)job.DeliveryStatus);
+            AddParam(cmd, "@storage_status", (int)job.StorageStatus);
+            AddParam(cmd, "@checksum", (object?)job.Checksum ?? DBNull.Value);
+            AddParam(cmd, "@file_size", (object?)job.FileSize ?? DBNull.Value);
+            AddParam(cmd, "@received_at", (object?)job.ReceivedAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+            AddParam(cmd, "@cloud_delete_after", (object?)job.CloudDeleteAfter?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+            AddParam(cmd, "@local_delete_after", (object?)job.LocalDeleteAfter?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
+            AddParam(cmd, "@delivery_attempt_count", job.DeliveryAttemptCount);
+            AddParam(cmd, "@last_delivery_error", (object?)job.LastDeliveryError ?? DBNull.Value);
+            AddParam(cmd, "@original_filename", (object?)job.OriginalFilename ?? DBNull.Value);
+            AddParam(cmd, "@order_token", (object?)job.OrderToken ?? DBNull.Value);
+            AddParam(cmd, "@page_count", (object?)job.PageCount ?? DBNull.Value);
 
             var inserted = await cmd.ExecuteNonQueryAsync(ct);
             await tx.CommitAsync(ct);
@@ -1082,31 +1116,39 @@ public sealed class SqliteJobQueue : IJobQueue
         };
     }
 
-    /// <summary>Read a nullable string column, returning null if the column doesn't exist in this reader's schema (v0.4.7 migration tolerance).</summary>
+    /// <summary>Read a nullable string column, returning null if the column doesn't exist in this reader's schema (v0.4.7 migration tolerance). Microsoft.Data.Sqlite's GetOrdinal THROWS IndexOutOfRangeException for a missing column (it does not return -1), so we wrap in try/catch.</summary>
     private static string? TryGetString(SqliteDataReader r, string name)
     {
-        if (r.GetOrdinal(name) is < 0) return null;
+        try { if (r.GetOrdinal(name) < 0) return null; }
+        catch (IndexOutOfRangeException) { return null; }
+        catch (ArgumentException) { return null; }
         return r[name] is DBNull ? null : (string)r[name];
     }
 
     /// <summary>Read a nullable int column, returning null if the column doesn't exist or is DBNull.</summary>
     private static int? TryGetInt(SqliteDataReader r, string name)
     {
-        if (r.GetOrdinal(name) is < 0) return null;
+        try { if (r.GetOrdinal(name) < 0) return null; }
+        catch (IndexOutOfRangeException) { return null; }
+        catch (ArgumentException) { return null; }
         return r[name] is DBNull ? null : Convert.ToInt32(r[name]);
     }
 
     /// <summary>Read a nullable long column, returning null if the column doesn't exist or is DBNull.</summary>
     private static long? TryGetLong(SqliteDataReader r, string name)
     {
-        if (r.GetOrdinal(name) is < 0) return null;
+        try { if (r.GetOrdinal(name) < 0) return null; }
+        catch (IndexOutOfRangeException) { return null; }
+        catch (ArgumentException) { return null; }
         return r[name] is DBNull ? null : Convert.ToInt64(r[name]);
     }
 
     /// <summary>Read a nullable DateTimeOffset column, returning null if the column doesn't exist or is DBNull.</summary>
     private static DateTimeOffset? TryGetDateTime(SqliteDataReader r, string name)
     {
-        if (r.GetOrdinal(name) is < 0) return null;
+        try { if (r.GetOrdinal(name) < 0) return null; }
+        catch (IndexOutOfRangeException) { return null; }
+        catch (ArgumentException) { return null; }
         return r[name] is DBNull ? null : DateTimeOffset.Parse((string)r[name], CultureInfo.InvariantCulture);
     }
 
