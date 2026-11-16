@@ -1,5 +1,65 @@
 # HONEST STATUS — Read This First
 
+> **⚠ UPDATED 2026-11-16** (branch `feat/unified-print-exe-cloud-integration`, commit
+> `53a5cb3`). A full pre-coding audit + SaaS contract reconciliation was performed.
+> The authoritative findings are in `docs/AUDIT.md` (full audit) and
+> `docs/CONTRACT_COMPATIBILITY.md` (contract reconciliation + 2 open conflicts).
+> Key updates below the table; this banner supersedes anything in the body that
+> conflicts with it.
+>
+> **What's now verified by source inspection (not by runtime):**
+> - The companion's live production client (`HttpPrintShopBackend`,
+>   `SocketIoRealtimeClient`) **already matches the real SaaS contract** for base
+>   URL (`https://printshop-saas-three.vercel.app`), `/api/v1` prefix,
+>   `Authorization: Bearer` auth, `ApiEnvelope`, all REST endpoints, and all
+>   Socket.IO events (`job.dispatch`, `auth`, `auth-ok`, `agent.revoked`, etc.).
+>   The contract drift was in the docs + dead `CompanionProtocol.HubMethod*`
+>   constants — both now reconciled.
+> - The `PrintAgent` / `PrintJob` Prisma models **do exist** in the SaaS repo;
+>   the companion's `PrintJobRecord` field names match the backend's `PendingJob` DTO.
+> - The previous "best-guess Socket.IO names" (`DeliverJob`/`AckJob`/`ReportStatus`)
+>   were wrong; the real names are `job.dispatch`/`auth`/`agent.revoked` etc.
+>   (now `CompanionProtocol.SocketIoEvent*`, with the old constants `[Obsolete]`).
+>
+> **What's still NOT verified (requires a Windows machine + the live backend):**
+> - End-to-end pairing, heartbeat, job dispatch, or status reporting against
+>   `https://printshop-saas-three.vercel.app`. The contract is verified by source
+>   inspection only — no runtime integration test has been run.
+> - Any physical printing. No Windows machine, no printer in this sandbox.
+> - The WPF App does NOT start the realtime client or a poller today
+>   (`docs/AUDIT.md` §11, §16 item #3) — so it cannot receive print jobs through
+>   the agent pipeline as written. This is the most important functional gap.
+> - `HasPrintedAsync` false-positives on purged jobs; `SumatraPdfPrinter` returns a
+>   synthetic spooler ID when `-print-stat` parsing fails; `RawGdiPrinter` prints a
+>   placeholder, not the PDF; `OptionsWriter.Update` is a stub; `DeviceTokenRedactor`
+>   is not wired; the heartbeat is not driven by a timer. See `docs/AUDIT.md` §16.
+>
+> **Two open conflicts with the brief (change requests for Agent 1 / SaaS owner):**
+> 1. The brief's §4 **pairing-ticket** flow is NOT implemented by the backend —
+>    the backend does paste-token (long-lived, no TTL, no consume).
+> 2. The brief's §8 **remote-command** channel (RefreshPrinters/Pause/Resume/Cancel/
+>    TestPrint/Diagnostics) is NOT implemented by the backend — no command channel
+>    exists. The companion implements these as **local UI actions** only.
+>    See `docs/CONTRACT_COMPATIBILITY.md` §3. The companion does NOT invent them.
+>
+> **What this branch fixed (commit `53a5cb3`):**
+> - `CompanionProtocol.cs` reconciled to real Socket.IO event names.
+> - `App.OnStartup` credential-path check fixed (was checking the wrong path).
+> - `SqliteJobQueue` v0.5-column data-loss bug fixed (`ReadRecord`/`WriteStatusAsync`/
+>   `Enqueue` now round-trip `color_mode`/`page_count`/`original_filename`/
+>   `order_token`/`delivery_status`/`storage_status`/`checksum`/`file_size`/
+>   `received_at`/`cloud_delete_after`/`local_delete_after`/`delivery_attempt_count`/
+>   `last_delivery_error`).
+> - `ReplayInFlightAsync` no longer resets `UncertainSpooled`/`OutcomeUnknown` to
+>   `Pending` (preserves the "never auto-reprint uncertain" invariant).
+> - 3 new tests: `ReplayInFlight_does_not_reset_UncertainSpooled_or_OutcomeUnknown`,
+>   `UpdateAsync_round_trips_v05_columns`, `JobStatusMappingTests` (4 tests).
+>
+> The body below is the **pre-audit** HONEST-STATUS from earlier phases; read it as
+> historical context. The banner above + `docs/AUDIT.md` supersede it on conflict.
+
+---
+
 This document is the unvarnished, no-spin report on what is and isn't done. It is the counterpart to the marketing-style README.
 
 ## TL;DR

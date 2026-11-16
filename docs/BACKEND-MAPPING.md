@@ -1,5 +1,39 @@
 # PrintShop Backend Mapping
 
+> **⚠ RECONCILED 2026-11-16.** The sections below this banner are **preliminary work
+> product from 2026-11-05** — they were written before the real SaaS route handlers
+> were inspected, and contain "inferred" endpoint/field assumptions that are now
+> **superseded** by the actual SaaS source. Read them as historical context, NOT as
+> the contract.
+>
+> **The authoritative contract is now:**
+> 1. `docs/PROTOCOL.md` (reconciled companion-side summary, 2026-11-16)
+> 2. `docs/CONTRACT_COMPATIBILITY.md` (full reconciliation + 2 open conflicts)
+> 3. The SaaS repo's own `docs/integration/PRINTEXE_*` files (source of truth)
+>
+> **Key corrections vs the "inferred" sections below:**
+> - The API path prefix is `/api/v1` (confirmed), not `/api/companion/v1` and not
+>   `/api/print-agent` (the §3 "may be" guess was wrong).
+> - Device auth is `Authorization: Bearer <deviceToken>`, NOT `X-PrintShop-Device-Token`.
+> - There is no `/pair` endpoint and no pairing ticket flow — pairing is paste-token
+>   via `POST /agents/register` (owner JWT, web-only). See conflict #1.
+> - Socket.IO has only one inbound handler (`auth`), not `registerDevice`/`DeliverJob`/
+>   `AckJob`/`ReportStatus`. Events are `job.dispatch`/`job.printing`/`job.completed`/
+>   `job.failed`/`job.needs_review`/`agent.revoked`/`order.*`/`delivery.received`/
+>   `sync.pushed`/`auth-ok`/`auth-error`. See `docs/PROTOCOL.md` §4.1.
+> - The job status enum is `queued|assigned|printing|completed|failed|needs_review`.
+>   The companion reports only `printing|completed|failed`. There is no `cancelled`
+>   job status (cancellation is order-level). See `JobStatusMappingTests.cs`.
+> - There is **no remote command channel** (RefreshPrinters/Pause/Resume/etc.). See conflict #2.
+>
+> The historical sections below are preserved for traceability of how the mapping
+> was derived, but the bullets above and `docs/PROTOCOL.md` override them wherever
+> they conflict.
+
+---
+
+## Preliminary mapping (2026-11-05, pre-route-handler inspection)
+
 This document is the explicit integration contract between the PrintShop Companion (this `apps/windows-companion/` project) and the **real** PrintShop SaaS backend at `https://github.com/Arjunyadavsoma/printshop-saas` / production website `https://printshop-saas-three.vercel.app`.
 
 It is derived from the actual `prisma/schema.prisma` on the `master` branch of the repo (inspected 2026-11-05). Each field in the companion's domain model maps to a real Prisma field. Each endpoint the companion needs is listed with: HTTP method, path, authentication, request/response shape, error responses, retry behaviour, idempotency behaviour.
