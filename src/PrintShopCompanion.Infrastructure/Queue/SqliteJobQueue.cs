@@ -1050,10 +1050,10 @@ public sealed class SqliteJobQueue : IJobQueue
             PageRange = r["page_range"] is DBNull ? null : (string)r["page_range"],
             PaperSize = r["paper_size"] is DBNull ? null : (string)r["paper_size"],
             Color = color,
-            ColorMode = r["color_mode"] is DBNull ? null : (string)r["color_mode"],
-            PageCount = r["page_count"] is DBNull ? null : Convert.ToInt32(r["page_count"]),
-            OriginalFilename = r["original_filename"] is DBNull ? null : (string)r["original_filename"],
-            OrderToken = r["order_token"] is DBNull ? null : (string)r["order_token"],
+            ColorMode = TryGetString(r, "color_mode"),
+            PageCount = TryGetInt(r, "page_count"),
+            OriginalFilename = TryGetString(r, "original_filename"),
+            OrderToken = TryGetString(r, "order_token"),
             Duplex = r["duplex"] is DBNull ? null : Convert.ToInt32(r["duplex"]) != 0,
             PdfUrl = r["pdf_url"] is DBNull ? null : Uri.TryCreate((string)r["pdf_url"], UriKind.Absolute, out var u) ? u : null,
             LocalPdfPath = r["local_pdf_path"] is DBNull ? null : (string)r["local_pdf_path"],
@@ -1067,16 +1067,47 @@ public sealed class SqliteJobQueue : IJobQueue
             UpdatedAt = DateTimeOffset.Parse((string)r["updated_at"], CultureInfo.InvariantCulture),
             PrintedAt = r["printed_at"] is DBNull ? null : DateTimeOffset.Parse((string)r["printed_at"], CultureInfo.InvariantCulture),
             // ─── v0.5 columns (previously dropped on read → data-loss across restarts) ───
-            DeliveryStatus = r["delivery_status"] is DBNull ? DeliveryStatus.CloudStaged : (DeliveryStatus)Convert.ToInt32(r["delivery_status"]),
-            StorageStatus = r["storage_status"] is DBNull ? StorageStatus.CloudAvailable : (StorageStatus)Convert.ToInt32(r["storage_status"]),
-            Checksum = r["checksum"] is DBNull ? null : (string)r["checksum"],
-            FileSize = r["file_size"] is DBNull ? null : Convert.ToInt64(r["file_size"]),
-            ReceivedAt = r["received_at"] is DBNull ? null : DateTimeOffset.Parse((string)r["received_at"], CultureInfo.InvariantCulture),
-            CloudDeleteAfter = r["cloud_delete_after"] is DBNull ? null : DateTimeOffset.Parse((string)r["cloud_delete_after"], CultureInfo.InvariantCulture),
-            LocalDeleteAfter = r["local_delete_after"] is DBNull ? null : DateTimeOffset.Parse((string)r["local_delete_after"], CultureInfo.InvariantCulture),
-            DeliveryAttemptCount = r["delivery_attempt_count"] is DBNull ? 0 : Convert.ToInt32(r["delivery_attempt_count"]),
-            LastDeliveryError = r["last_delivery_error"] is DBNull ? null : (string)r["last_delivery_error"],
+            // Read tolerantly: the v0.4.7 migration path reads rows from the OLD schema,
+            // which doesn't have these columns. TryGet* returns null/default when the
+            // column is absent so the migration's ReadRecord call doesn't throw.
+            DeliveryStatus = TryGetInt(r, "delivery_status") is { } ds ? (DeliveryStatus)ds : DeliveryStatus.CloudStaged,
+            StorageStatus = TryGetInt(r, "storage_status") is { } ss ? (StorageStatus)ss : StorageStatus.CloudAvailable,
+            Checksum = TryGetString(r, "checksum"),
+            FileSize = TryGetLong(r, "file_size"),
+            ReceivedAt = TryGetDateTime(r, "received_at"),
+            CloudDeleteAfter = TryGetDateTime(r, "cloud_delete_after"),
+            LocalDeleteAfter = TryGetDateTime(r, "local_delete_after"),
+            DeliveryAttemptCount = TryGetInt(r, "delivery_attempt_count") ?? 0,
+            LastDeliveryError = TryGetString(r, "last_delivery_error"),
         };
+    }
+
+    /// <summary>Read a nullable string column, returning null if the column doesn't exist in this reader's schema (v0.4.7 migration tolerance).</summary>
+    private static string? TryGetString(SqliteDataReader r, string name)
+    {
+        if (r.GetOrdinal(name) is < 0) return null;
+        return r[name] is DBNull ? null : (string)r[name];
+    }
+
+    /// <summary>Read a nullable int column, returning null if the column doesn't exist or is DBNull.</summary>
+    private static int? TryGetInt(SqliteDataReader r, string name)
+    {
+        if (r.GetOrdinal(name) is < 0) return null;
+        return r[name] is DBNull ? null : Convert.ToInt32(r[name]);
+    }
+
+    /// <summary>Read a nullable long column, returning null if the column doesn't exist or is DBNull.</summary>
+    private static long? TryGetLong(SqliteDataReader r, string name)
+    {
+        if (r.GetOrdinal(name) is < 0) return null;
+        return r[name] is DBNull ? null : Convert.ToInt64(r[name]);
+    }
+
+    /// <summary>Read a nullable DateTimeOffset column, returning null if the column doesn't exist or is DBNull.</summary>
+    private static DateTimeOffset? TryGetDateTime(SqliteDataReader r, string name)
+    {
+        if (r.GetOrdinal(name) is < 0) return null;
+        return r[name] is DBNull ? null : DateTimeOffset.Parse((string)r[name], CultureInfo.InvariantCulture);
     }
 
     private static void AddParam(SqliteCommand cmd, string name, object value)
