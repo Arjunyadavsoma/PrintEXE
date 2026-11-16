@@ -166,17 +166,31 @@ public class SqliteJobQueueTests : IDisposable
         // cloud_delete_after, local_delete_after, delivery_attempt_count, last_delivery_error).
         // After a restart the values were silently lost. This test verifies they survive an
         // enqueue → update → list round-trip through SQLite.
-        var job = MakeJob("J-v05", "V05 Round-trip");
-        job.ColorMode = "color";
-        job.PageCount = 7;
-        job.OriginalFilename = "invoice-204.pdf";
-        job.OrderToken = "ord_abc";
+        //
+        // ColorMode/PageCount/OriginalFilename/OrderToken are init-only on PrintJobRecord,
+        // so they must be set in the object initializer (not mutated after construction).
+        var job = new PrintJobRecord
+        {
+            JobId = "J-v05",
+            ShopId = "shop_demo",
+            DeviceId = "dev_001",
+            Title = "V05 Round-trip",
+            Copies = 1,
+            Status = JobStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow,
+            QueuedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            ColorMode = "color",
+            PageCount = 7,
+            OriginalFilename = "invoice-204.pdf",
+            OrderToken = "ord_abc",
+        };
+        // FileSize/Checksum and the other v0.5 columns are settable post-construction.
         job.FileSize = 1234567L;
         job.Checksum = "sha256:abc123";
         await _queue.EnqueueAsync(job);
 
-        // Mutate the v0.5 columns via a status update (DownloadPdfAsync path sets these).
-        // PrintJobRecord is a class with set properties; mutate then call UpdateAsync.
+        // Mutate the settable v0.5 columns via a status update (DownloadPdfAsync path sets these).
         var fetched = (await _queue.ListAsync()).Single(j => j.JobId == "J-v05");
         fetched.DeliveryStatus = DeliveryStatus.Received;
         fetched.StorageStatus = StorageStatus.LocalVerified;
