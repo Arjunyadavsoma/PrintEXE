@@ -1,65 +1,97 @@
-name: build-windows
+name: windows-build
+
+# PrintEXE Windows build, test, package, and release automation.
+#
+# Triggers:
+#   - Pull request targeting main (build + test only; no release)
+#   - Push to main (build + test; no release)
+#   - Version tag v* (build + test + package + GitHub Release)
+#   - Manual workflow_dispatch (build + test; optional release via input)
+#
+# The workflow does NOT silently ignore failed restore/build/test/publish
+# steps. Each stage runs without `continue-on-error` so a failure fails the
+# job. The only optional/best-effort steps are SumatraPDF download and
+# MSI/bundle signing (which depend on external availability + secrets).
+#
+# Concurrency: one build per branch/tag at a time; in-progress runs are
+# cancelled when a new commit arrives. Tag builds are NOT cancelled (each
+# tag deserves a complete release).
 
 on:
   push:
-    branches: [ main, master, release/* ]
+    branches: [ main ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       release-tag:
-        description: 'Tag to publish as a GitHub Release (e.g. v0.1.0). Leave empty to skip release.'
+        description: 'Tag to publish as a GitHub Release (e.g. v0.6.0). Leave empty to skip release.'
         required: false
         default: ''
 
+# Least-privilege permissions at workflow level (read-only). The release
+# job below declares `contents: write` explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  # Tag pushes are not cancelled — every tag deserves a complete release.
+  # Branch/PR pushes cancel in-progress runs on the same ref.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+env:
+  # Hoisted to job level so step `if:` conditions can read secrets
+  # (the `secrets` context is not available inside step `if:`).
+  PFX_B64: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX }}
+  PFX_PWD: ${{ secrets.PRINTSHOP_CODE_SIGN_PWD }}
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OUTPUT: 'off'
+
 jobs:
   build:
-    name: Build PrintShop Companion (.msi + .exe setup)
+    name: Build, test, package PrintEXE (win-x64)
     runs-on: windows-latest
-    # Required for softprops/action-gh-release to create a release.
+    # The build job stays least-privilege (read-only). Releases are created
+    # by a separate job that depends on this one passing, so a failed
+    # build never produces a release.
     permissions:
-      contents: write
-    # NOTE: The repo root IS the project root — the source files live at the
-    # top level (src/, tests/, installer/, PrintShopCompanion.sln), NOT under
-    # apps/windows-companion/. So we do NOT set a job-level working-directory.
-    # Job-level env: secrets are hoisted here so that step-level `if:`
-    # conditions can read them. The `secrets` context is NOT available
-    # directly inside a step's `if:` expression — only in `env:` and
-    # `with:` blocks. So we set them at the job level, then test the
-    # resulting env var.
-    env:
-      PFX_B64: ${{ secrets.PRINTSHOP_CODE_SIGN_PFX }}
-      PFX_PWD: ${{ secrets.PRINTSHOP_CODE_SIGN_PWD }}
-
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # full history for version detection + tag lookup
 
-      - name: Setup .NET 10
+      - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Set BUILD_VERSION from git tag
         shell: pwsh
         run: |
           # Resolve the version string from the git ref.
-          # - Tag push (refs/tags/v0.4.3) -> "0.4.3"
-          # - Branch push / workflow_dispatch with release-tag -> that tag
-          # - Otherwise (e.g. a PR build) -> fall back to "0.0.<run_number>"
+          # - Tag push (refs/tags/v0.5.5) -> "0.5.5"
+          # - workflow_dispatch with release-tag -> that tag
+          # - Otherwise (branch push / PR) -> "0.0.<run_number>"
           #
-          # This is what makes the auto-updater actually move versions:
           # Directory.Build.props reads $(BUILD_VERSION) and writes it into
-          # <AssemblyVersion>, so a v0.4.3 release ships with assembly version
-          # 0.4.3.0 and the GitHubUpdateService.IsNewer() check returns false
-          # after the update completes.
+          # <AssemblyVersion>/<FileVersion>, so a v0.5.5 release ships with
+          # assembly version 0.5.5.0 and the GitHubUpdateService.IsNewer()
+          # check returns false after the update completes.
           #
-          # Note: .NET <Version> MUST be a valid System.Version string
-          # (major.minor[.build[.revision]]) with no SemVer pre-release
-          # suffixes like "-dev.42". So the fallback for non-tag builds is
-          # "0.0.<run_number>" — no hyphens.
+          # .NET <Version> MUST be a valid System.Version string
+          # (major.minor[.build[.revision]]) — no SemVer pre-release suffixes.
           $tag = "${{ github.event.inputs.release-tag }}"
           if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "${{ github.ref_name }}" }
           $ver = $tag -replace '^v',''
@@ -67,245 +99,228 @@ jobs:
             $ver = "0.0.${{ github.run_number }}"
           }
           Write-Host "Resolved BUILD_VERSION = $ver"
-          # Append to GITHUB_ENV without BOM (Out-File utf8 adds BOM on PS5;
-          # pwsh on runners uses UTF-8 without BOM by default for -Encoding utf8
-          # but -Encoding utf8NoBOM is explicit and safer).
           Add-Content -Path $env:GITHUB_ENV -Value "BUILD_VERSION=$ver" -Encoding utf8NoBOM
-          Write-Host "##[group]Directory.Build.props version preview"
-          Get-Content Directory.Build.props | Select-String -Pattern '<Version' -Context 1,1
-          Write-Host "##[endgroup]"
 
-      - name: Install WiX v5
-        shell: pwsh
-        run: |
-          # WiX v7 requires accepting the OSMF EULA. Pin to v5.0.2 which doesn't.
-          dotnet tool install -g wix --version 5.0.2
-
-      - name: Restore
+      - name: Restore NuGet dependencies
         shell: pwsh
         run: dotnet restore PrintShopCompanion.sln
 
-      - name: Build (Release)
+      - name: Build solution (Release)
         shell: pwsh
         run: dotnet build PrintShopCompanion.sln -c Release --no-restore
 
-      - name: Test
-        shell: pwsh
-        continue-on-error: true
-        run: dotnet test PrintShopCompanion.sln -c Release --no-build --logger "trx;LogFileName=tests.trx"
-
-      - name: Publish app (self-contained, single-file)
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -o ./artifacts/app-singlefile
-
-      - name: Publish app (folder distribution — more reliable, no self-extraction)
+      - name: Run tests
         shell: pwsh
         run: |
+          # No continue-on-error: a failed test MUST fail the build so a
+          # broken release is never published. Test results are uploaded
+          # as an artifact for inspection.
+          dotnet test PrintShopCompanion.sln -c Release --no-build `
+            --logger "trx;LogFileName=tests.trx" `
+            --collector:"XPlat Code Coverage"
+
+      - name: Publish app (folder distribution, self-contained, win-x64)
+        shell: pwsh
+        run: |
+          # Folder distribution (NOT single-file) — preserves SQLCipher +
+          # SQLite native DLLs alongside the EXE so they load reliably.
+          # The App csproj sets SelfContained=false; we override to true
+          # so the published ZIP includes the .NET runtime and runs on
+          # machines without .NET 10 installed.
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=false `
-            -o ./artifacts/app-folder
+            -p:IncludeNativeLibrariesForSelfExtract=false `
+            -o ./artifacts/app
 
-      - name: Zip the folder distribution (RECOMMENDED — no SxS errors)
+      - name: Validate published output
         shell: pwsh
         run: |
-          $src = "$env:GITHUB_WORKSPACE\artifacts\app-folder"
-          $dst = "$env:GITHUB_WORKSPACE\installer\build\PrintShopCompanion-portable.zip"
-          New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
-          # Use 7-Zip (pre-installed on GitHub Actions windows-latest runners)
+          # Verify the publish directory has the EXE + the native
+          # dependencies that MUST travel with it. A missing native
+          # DLL would crash the app on first SQLCipher call.
+          $pub = "$env:GITHUB_WORKSPACE\artifacts\app"
+          if (-not (Test-Path $pub)) {
+            Write-Error "Publish directory not found: $pub"
+            exit 1
+          }
+          $exe = Join-Path $pub "PrintShopCompanion.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "PrintShopCompanion.exe not found in publish output"
+            exit 1
+          }
+          Write-Host "✓ PrintShopCompanion.exe present"
+
+          # Required native + managed DLLs. SQLCipher and SQLite native
+          # libraries come from SQLitePCLRaw.bundle_e_sqlcipher.
+          $requiredDlls = @(
+            "PrintShopCompanion.dll",
+            "PrintShopCompanion.Infrastructure.dll",
+            "PrintShopCompanion.Core.dll",
+            "Microsoft.Data.Sqlite.dll",
+            "SQLitePCLRaw.batteries_v2.dll"
+          )
+          foreach ($dll in $requiredDlls) {
+            if (-not (Test-Path (Join-Path $pub $dll))) {
+              Write-Error "Missing required DLL: $dll"
+              exit 1
+            }
+            Write-Host "✓ $dll present"
+          }
+
+          # Native SQLite/SQLCipher lib — check by glob (filename includes
+          # the runtime ID, e.g. e_sqlcipher.dll or e_sqlite3.dll).
+          $nativeCandidates = Get-ChildItem -Path $pub -Filter "e_sql*.dll" -ErrorAction SilentlyContinue
+          if (-not $nativeCandidates) {
+            Write-Error "Missing native SQLCipher/SQLite DLL (e_sql*.dll) in publish output"
+            exit 1
+          }
+          foreach ($n in $nativeCandidates) { Write-Host "✓ Native: $($n.Name)" }
+
+          # appsettings.json must travel with the EXE (runtime config).
+          if (-not (Test-Path (Join-Path $pub "appsettings.json"))) {
+            Write-Error "Missing appsettings.json in publish output"
+            exit 1
+          }
+          Write-Host "✓ appsettings.json present"
+
+          # Sanity: no .env, no local DBs, no source files in the publish dir.
+          $forbidden = @(
+            "*.env", ".env", ".env.*",
+            "*.db", "*.db-shm", "*.db-wal", "*.sqlite", "*.sqlite-shm", "*.sqlite-wal",
+            "*.pfx", "*.p12", "*.key"
+          )
+          foreach ($pat in $forbidden) {
+            $hits = Get-ChildItem -Path $pub -Filter $pat -ErrorAction SilentlyContinue
+            if ($hits) {
+              Write-Error "Forbidden file in publish output: $($hits.Name -join ', ')"
+              exit 1
+            }
+          }
+          Write-Host "✓ No secrets/databases in publish output"
+
+          # List the publish dir size for the log.
+          $size = (Get-ChildItem -Path $pub -Recurse | Measure-Object -Property Length -Sum).Sum
+          Write-Host "Publish directory size: $([math]::Round($size / 1MB, 2)) MB"
+
+      - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
+        shell: pwsh
+        run: |
+          $ver = $env:BUILD_VERSION
+          $zipName = "PrintEXE-v$ver-win-x64.zip"
+          $src = "$env:GITHUB_WORKSPACE\artifacts\app"
+          $dst = "$env:GITHUB_WORKSPACE\artifacts\$zipName"
+          # Use 7-Zip (pre-installed on windows-latest runners) — preserves
+          # file permissions and is faster than Compress-Archive.
           $7z = "C:\Program Files\7-Zip\7z.exe"
           if (Test-Path $7z) {
             & $7z a -tzip $dst "$src\*"
           } else {
             Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
           }
-          Write-Host "Zipped folder distribution:"
-          Get-Item $dst | Format-List
-
-      - name: Publish worker (self-contained, single-file)
-        shell: pwsh
-        run: |
-          dotnet publish src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -o ./artifacts/worker
-
-      - name: Publish mock backend (for development)
-        shell: pwsh
-        run: |
-          dotnet publish src/PrintShopCompanion.Backend/PrintShopCompanion.Backend.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true `
-            -o ./artifacts/backend
-
-      - name: Download SumatraPDF for the redist folder
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          New-Item -ItemType Directory -Force installer/redist | Out-Null
-          $zip = "$env:TEMP\sumatra.zip"
-          $extractDir = "$env:TEMP\sumatra"
-          # The old URL (sumatra-prerel-64.zip) is 404. Use the stable 3.5.2 release.
-          try {
-            Invoke-WebRequest -Uri "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip" -OutFile $zip -UseBasicParsing
-            # Create the extract dir BEFORE Expand-Archive (Expand-Archive does
-            # NOT create the destination dir if it doesn't exist on some PS
-            # versions — that was the failure on the v0.4.5 build).
-            New-Item -ItemType Directory -Force $extractDir | Out-Null
-            Expand-Archive -Path $zip -DestinationPath $extractDir -Force
-            $sumatraExe = Get-ChildItem -Path $extractDir -Filter "SumatraPDF.exe" -Recurse | Select-Object -First 1
-            if ($sumatraExe) {
-              Copy-Item $sumatraExe.FullName installer/redist/SumatraPDF.exe -Force
-              Write-Host "SumatraPDF.exe copied to installer/redist/"
-            } else {
-              Write-Warning "SumatraPDF.exe not found in the ZIP — MSI build will skip the SumatraPDF component"
-            }
-          } catch {
-            Write-Warning "Could not download SumatraPDF (MSI build will skip): $_"
-          }
-
-      - name: Download .NET 10 Desktop Runtime redist (for Bundle.wxs)
-        shell: pwsh
-        run: |
-          $url = "https://download.visualstudio.microsoft.com/download/pr/dotnet-runtime-10.0.0-win-x64.exe"
-          try {
-            Invoke-WebRequest -Uri $url -OutFile installer/redist/dotnet-runtime-10-win-x64.exe -UseBasicParsing
-            Write-Host "Downloaded .NET 10 runtime for bundle"
-          } catch {
-            Write-Warning "Could not download .NET 10 runtime for bundle (will fall back to MSI-only): $_"
-          }
-
-      - name: Build .msi
-        shell: pwsh
-        continue-on-error: true
-        env:
-          PUBLISH_DIR: ${{ github.workspace }}\artifacts\app
-        run: |
-          $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
-          New-Item -ItemType Directory -Force installer/build | Out-Null
-          # Pass BuildVersion so the .msi ProductVersion matches the git tag.
-          # The WiX sources reference $(var.BuildVersion); without -d it would
-          # error out. We pad to four parts because MSI ProductVersion
-          # requires a.b.c.d format.
-          $parts = $env:BUILD_VERSION -split '\.'
-          while ($parts.Count -lt 4) { $parts += '0' }
-          $ver4 = $parts -join '.'
-          Write-Host "MSI version = $ver4"
-          wix build installer/PrintShopCompanion.Installer.wxs `
-            -d "PublishDir=$env:PUBLISH_DIR\\" `
-            -d "RepoRoot=$env:GITHUB_WORKSPACE" `
-            -d "BuildVersion=$ver4" `
-            -o installer/build/PrintShopCompanion.msi
-          if (-not (Test-Path installer/build/PrintShopCompanion.msi)) {
-            Write-Error "MSI build failed"
+          if (-not (Test-Path $dst)) {
+            Write-Error "ZIP was not created: $dst"
             exit 1
           }
-          Get-Item installer/build/PrintShopCompanion.msi | Format-List
+          $zip = Get-Item $dst
+          Write-Host "✓ Created $zipName ($([math]::Round($zip.Length / 1MB, 2)) MB)"
+          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_NAME=$zipName" -Encoding utf8NoBOM
+          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_PATH=$dst" -Encoding utf8NoBOM
 
-      - name: Build .exe bootstrapper (Bundle.wxs) — optional if .NET runtime redist present
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $env:Path = "$env:USERPROFILE\.dotnet\tools;$env:Path"
-          if (Test-Path installer/redist/dotnet-runtime-10-win-x64.exe) {
-            $parts = $env:BUILD_VERSION -split '\.'
-            while ($parts.Count -lt 4) { $parts += '0' }
-            $ver4 = $parts -join '.'
-            Write-Host "Bundle version = $ver4"
-            wix build installer/PrintShopCompanion.Bundle.wxs `
-              -d "RepoRoot=$env:GITHUB_WORKSPACE" `
-              -d "BuildVersion=$ver4" `
-              -o installer/build/PrintShopCompanion.Setup.exe
-            if (Test-Path installer/build/PrintShopCompanion.Setup.exe) {
-              Write-Host "Bundle .exe built"
-            }
-          } else {
-            Write-Warning "Skipping bundle (no .NET 10 runtime redist available)"
-          }
-
-      - name: Sign MSI (if cert secret available)
-        # Note: `secrets.*` is NOT available inside a step's `if:` expression.
-        # We hoisted the secrets to the job-level `env:` block above, so we
-        # can check the resulting env var here.
-        if: ${{ env.PFX_B64 != '' }}
+      - name: Write version metadata (BUILD-INFO.txt)
         shell: pwsh
         run: |
-          $pfx = "$env:TEMP\sign.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
-          & signtool sign /f $pfx /p $env:PFX_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-            installer/build/PrintShopCompanion.msi
-          if (Test-Path installer/build/PrintShopCompanion.Setup.exe) {
-            & signtool sign /f $pfx /p $env:PFX_PWD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-              installer/build/PrintShopCompanion.Setup.exe
-          }
-          Write-Host "MSI signed."
+          $ver = $env:BUILD_VERSION
+          $build = "${{ github.run_number }}"
+          $commit = "${{ github.sha }}"
+          $branch = "${{ github.ref_name }}"
+          $built = (Get-Date -Format 'o')
+          @"
+          PrintEXE build metadata
+          =======================
+          Version:      $ver
+          Build:        $build (GitHub Actions run #${{ github.run_number }})
+          Commit:       $commit
+          Branch/Tag:   $branch
+          Built:        $built
+          Architecture: win-x64
+          Configuration: Release (self-contained, folder distribution)
+          Source:       https://github.com/Arjunyadavsoma/PrintEXE
+          "@ | Out-File -Encoding utf8 artifacts/BUILD-INFO.txt
+          Get-Content artifacts/BUILD-INFO.txt
+
+      - name: Write README into artifact (installation instructions)
+        shell: pwsh
+        run: |
+          @"
+          # PrintEXE v$($env:BUILD_VERSION) - Windows x64 (portable)
+
+          ## Installation
+          1. Unzip this archive to a folder, e.g. ``C:\PrintEXE\``.
+          2. Run ``PrintShopCompanion.exe`` from inside that folder.
+          3. On first launch, sign in to your shop at
+             https://printshop-saas-three.vercel.app/shop/login, go to
+             Printer Setup -> Register new agent, copy the device token,
+             and paste it into PrintEXE's pairing form.
+          4. Go to the Printers tab and select your printer.
+
+          ## Requirements
+          - Windows 10/11 (x64). No .NET install required (self-contained).
+          - A printer installed in Windows.
+
+          ## Auto-update
+          PrintEXE checks GitHub Releases on startup. When a new version is
+          available, a banner appears; click "Update Now" to download,
+          verify SHA-256, and swap the install folder.
+
+          Built from commit ${{ github.sha }}.
+          "@ | Out-File -Encoding utf8 artifacts/README.txt
+          Get-Content artifacts/README.txt
 
       - name: Generate SHA-256 checksums
         shell: pwsh
         run: |
+          # Checksum the ZIP (the primary artifact) + BUILD-INFO.txt.
+          # Format matches the standard ``sha256sum`` output so users can
+          # verify with ``sha256sum -c SHA256SUMS.txt`` on any platform.
           $hashes = @()
-          Get-ChildItem installer/build -Filter *.msi | ForEach-Object {
-            $sha = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash
-            $hashes += "$sha  $($_.Name)"
-            Write-Host "$sha  $($_.Name)"
-          }
-          Get-ChildItem installer/build -Filter *.exe -ErrorAction SilentlyContinue | ForEach-Object {
-            $sha = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash
-            $hashes += "$sha  $($_.Name)"
-            Write-Host "$sha  $($_.Name)"
-          }
-          $hashes | Out-File -Encoding ascii installer/build/SHA256SUMS.txt
-          Get-Content installer/build/SHA256SUMS.txt
+          $zip = Get-Item $env:ZIP_PATH
+          $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLower()
+          $hashes += "$sha  $($zip.Name)"
+          Write-Host "$sha  $($zip.Name)"
+          $info = Get-Item artifacts/BUILD-INFO.txt
+          $sha2 = (Get-FileHash -Algorithm SHA256 $info.FullName).Hash.ToLower()
+          $hashes += "$sha2  $($info.Name)"
+          Write-Host "$sha2  $($info.Name)"
+          $hashes | Out-File -Encoding ascii artifacts/SHA256SUMS.txt
+          Write-Host "SHA256SUMS.txt contents:"
+          Get-Content artifacts/SHA256SUMS.txt
 
-      - name: Write version metadata
+      - name: Verify ZIP checksum round-trip
         shell: pwsh
         run: |
-          $ver = $env:BUILD_VERSION
-          if ([string]::IsNullOrWhiteSpace($ver)) { $ver = "0.0.0-unknown" }
-          $build = "${{ github.run_number }}"
-          $commit = "${{ github.sha }}"
-          @"
-          PrintShop Companion build metadata
-          ==================================
-          Version:    $ver
-          Build:      $build (GitHub Actions run #${{ github.run_number }})
-          Commit:     $commit
-          Branch:     ${{ github.ref_name }}
-          Built:      $(Get-Date -Format 'o')
-          Architecture: win-x64
-          Configuration: Release (self-contained)
-          "@ | Out-File -Encoding utf8 installer/build/BUILD-INFO.txt
+          # Re-read the checksum from SHA256SUMS.txt and verify it matches
+          # the actual ZIP file. This catches a corrupt ZIP or a typo in
+          # the checksum file.
+          $line = (Get-Content artifacts/SHA256SUMS.txt | Where-Object { $_ -match $env:ZIP_NAME })[0]
+          $expected = ($line -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 $env:ZIP_PATH).Hash.ToLower()
+          if ($expected -ne $actual) {
+            Write-Error "Checksum mismatch! Expected: $expected  Actual: $actual"
+            exit 1
+          }
+          Write-Host "✓ Checksum verified: $actual"
 
-      - name: Upload MSI artifact
+      - name: Upload PrintEXE ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PrintShopCompanion-msi
+          name: PrintEXE-win-x64
           path: |
-            installer/build/PrintShopCompanion.msi
-            installer/build/SHA256SUMS.txt
-            installer/build/BUILD-INFO.txt
+            ${{ env.ZIP_NAME }}
+            artifacts/SHA256SUMS.txt
+            artifacts/BUILD-INFO.txt
+            artifacts/README.txt
           if-no-files-found: error
-
-      - name: Upload .exe setup artifact (if built)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: PrintShopCompanion-setup-exe
-          path: installer/build/PrintShopCompanion.Setup.exe
-          if-no-files-found: ignore
-
-      - name: Upload published app (folder distribution)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: PrintShopCompanion-app
-          path: artifacts/app-folder/
-          if-no-files-found: warn
 
       - name: Upload test results
         if: always()
@@ -314,32 +329,116 @@ jobs:
           name: test-results
           path: '**/TestResults/*.trx'
 
-      - name: Create GitHub Release (on tag)
-        if: ${{ always() && (github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v')) }}
+  # ──────────────────────────────────────────────────────────────────────
+  # Release job — runs ONLY on tag pushes (or manual dispatch with a tag).
+  # Depends on the build job passing, so a failed build never produces a
+  # release. This job has `contents: write` to create the release; the
+  # build job is read-only.
+  # ──────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release (tag only)
+    needs: build
+    if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag name
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.release-tag }}"
+          if [ -z "$TAG" ]; then TAG="${{ github.ref_name }}"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $TAG"
+
+      - name: Check release does not already exist
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          # Do NOT overwrite an existing release. If a release for this tag
+          # already exists, fail with a clear message instead of silently
+          # replacing assets.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Release $TAG already exists. Not overwriting."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the build artifact
+        if: ${{ steps.check.outputs.exists == 'false' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: PrintEXE-win-x64
+          path: release-artifacts
+
+      - name: Verify downloaded artifact
+        if: ${{ steps.check.outputs.exists == 'false' }}
+        shell: bash
+        run: |
+          set -e
+          ls -la release-artifacts/
+          ZIP=$(ls release-artifacts/PrintEXE-v*-win-x64.zip 2>/dev/null | head -1)
+          if [ -z "$ZIP" ]; then
+            echo "::error::PrintEXE ZIP not found in downloaded artifact"
+            exit 1
+          fi
+          echo "ZIP: $ZIP ($(du -h "$ZIP" | cut -f1))"
+          if [ ! -s "$ZIP" ]; then
+            echo "::error::ZIP is empty"
+            exit 1
+          fi
+          # Verify the ZIP checksum matches SHA256SUMS.txt.
+          EXPECTED=$(grep "PrintEXE-v.*-win-x64.zip" release-artifacts/SHA256SUMS.txt | awk '{print $1}')
+          ACTUAL=$(sha256sum "$ZIP" | awk '{print $1}')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::Checksum mismatch. Expected: $EXPECTED  Actual: $ACTUAL"
+            exit 1
+          fi
+          echo "✓ Checksum verified: $ACTUAL"
+
+      - name: Create GitHub Release
+        if: ${{ steps.check.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.release-tag || github.ref_name }}
-          name: PrintShop Companion ${{ github.event.inputs.release-tag || github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: PrintEXE ${{ steps.tag.outputs.tag }}
           body: |
-            PrintShop Companion ${{ github.event.inputs.release-tag || github.ref_name }}
+            # PrintEXE ${{ steps.tag.outputs.tag }}
 
-            ## ⬇️ DOWNLOAD PrintShopCompanion-portable.zip (RECOMMENDED)
+            ## Download
 
-            **Do NOT download PrintShopCompanion.exe** — it has a known SxS configuration error on some Windows machines.
+            **`PrintEXE-vX.Y.Z-win-x64.zip`** is the recommended distribution.
 
-            Instead, download **PrintShopCompanion-portable.zip**, unzip it to a folder,
-            and run **PrintShopCompanion.exe** from inside that folder.
+            1. Unzip to a folder (e.g. `C:\PrintEXE\`).
+            2. Run `PrintShopCompanion.exe` from inside that folder.
+            3. No .NET install required (self-contained).
 
-            The portable ZIP contains the EXE plus all required DLLs alongside it —
-            no self-extraction, no SxS errors.
+            ## Verify the download
+
+            ```
+            sha256sum PrintEXE-vX.Y.Z-win-x64.zip   # compare with SHA256SUMS.txt
+            ```
+
+            ## What's new
 
             Built from commit ${{ github.sha }} on GitHub Actions run #${{ github.run_number }}.
-          fail_on_unmatched_files: false
-          # Only attach files that actually exist (the MSI / Setup.exe may
-          # fail to build on some runners because of WiX / .NET 10 redist
-          # availability — those are continue-on-error steps. The portable
-          # ZIP is the recommended distribution and must always succeed.)
+
+            Architecture: win-x64
+            Configuration: Release (self-contained, folder distribution)
+            TargetFramework: net10.0-windows
+          fail_on_unmatched_files: true
           files: |
-            installer/build/PrintShopCompanion-portable.zip
-            installer/build/PrintShopCompanion.msi
-            installer/build/PrintShopCompanion.Setup.exe
+            release-artifacts/PrintEXE-v*-win-x64.zip
+            release-artifacts/SHA256SUMS.txt
+            release-artifacts/BUILD-INFO.txt
+            release-artifacts/README.txt
