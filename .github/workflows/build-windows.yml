@@ -340,7 +340,7 @@ jobs:
         with:
           name: PrintEXE-win-x64
           path: |
-            ${{ env.ZIP_NAME }}
+            artifacts/${{ env.ZIP_NAME }}
             artifacts/SHA256SUMS.txt
             artifacts/BUILD-INFO.txt
             artifacts/README.txt
@@ -410,8 +410,11 @@ jobs:
         shell: bash
         run: |
           set -e
-          ls -la release-artifacts/
-          ZIP=$(ls release-artifacts/PrintEXE-v*-win-x64.zip 2>/dev/null | head -1)
+          # The upload put everything under artifacts/, so download lands
+          # them at release-artifacts/artifacts/. List and find the ZIP.
+          echo "=== release-artifacts/ tree ==="
+          find release-artifacts -type f -printf '%p\t%s bytes\n'
+          ZIP=$(find release-artifacts -name 'PrintEXE-v*-win-x64.zip' -type f | head -1)
           if [ -z "$ZIP" ]; then
             echo "::error::PrintEXE ZIP not found in downloaded artifact"
             exit 1
@@ -421,14 +424,27 @@ jobs:
             echo "::error::ZIP is empty"
             exit 1
           fi
+          SUMS=$(find release-artifacts -name 'SHA256SUMS.txt' -type f | head -1)
+          if [ -z "$SUMS" ]; then
+            echo "::error::SHA256SUMS.txt not found in downloaded artifact"
+            exit 1
+          fi
+          echo "=== SHA256SUMS.txt ==="
+          cat "$SUMS"
           # Verify the ZIP checksum matches SHA256SUMS.txt.
-          EXPECTED=$(grep "PrintEXE-v.*-win-x64.zip" release-artifacts/SHA256SUMS.txt | awk '{print $1}')
+          EXPECTED=$(grep "PrintEXE-v.*-win-x64.zip" "$SUMS" | awk '{print $1}')
           ACTUAL=$(sha256sum "$ZIP" | awk '{print $1}')
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
           if [ "$EXPECTED" != "$ACTUAL" ]; then
             echo "::error::Checksum mismatch. Expected: $EXPECTED  Actual: $ACTUAL"
             exit 1
           fi
           echo "✓ Checksum verified: $ACTUAL"
+          # Stash the absolute paths for the release step (softprops/action-gh-release
+          # globs relative to the workspace root).
+          echo "ZIP_ABS=$ZIP" >> "$GITHUB_ENV"
+          echo "SUMS_ABS=$SUMS" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         if: ${{ steps.check.outputs.exists == 'false' }}
@@ -441,7 +457,7 @@ jobs:
 
             ## Download
 
-            **`PrintEXE-vX.Y.Z-win-x64.zip`** is the recommended distribution.
+            **`PrintEXE-v${{ steps.tag.outputs.tag }}-win-x64.zip`** is the recommended distribution.
 
             1. Unzip to a folder (e.g. `C:\PrintEXE\`).
             2. Run `PrintShopCompanion.exe` from inside that folder.
@@ -450,7 +466,7 @@ jobs:
             ## Verify the download
 
             ```
-            sha256sum PrintEXE-vX.Y.Z-win-x64.zip   # compare with SHA256SUMS.txt
+            sha256sum PrintEXE-v${{ steps.tag.outputs.tag }}-win-x64.zip   # compare with SHA256SUMS.txt
             ```
 
             ## What's new
@@ -462,7 +478,7 @@ jobs:
             TargetFramework: net10.0-windows
           fail_on_unmatched_files: true
           files: |
-            release-artifacts/PrintEXE-v*-win-x64.zip
-            release-artifacts/SHA256SUMS.txt
-            release-artifacts/BUILD-INFO.txt
-            release-artifacts/README.txt
+            ${{ env.ZIP_ABS }}
+            ${{ env.SUMS_ABS }}
+            release-artifacts/artifacts/BUILD-INFO.txt
+            release-artifacts/artifacts/README.txt
