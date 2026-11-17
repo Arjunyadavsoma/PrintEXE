@@ -240,6 +240,14 @@ public sealed class SqliteJobQueue : IJobQueue
         return await action(conn);
     }
 
+    /// <summary>Task-returning overload for actions that don't produce a value.</summary>
+    public async Task ExecuteInConnectionAsync(
+        Func<SqliteConnection, Task> action, CancellationToken ct)
+    {
+        await using var conn = await OpenAsync(ct);
+        await action(conn);
+    }
+
     private async Task EnsureDiskSpaceAsync(CancellationToken ct)
     {
         try
