@@ -19,9 +19,14 @@ using Xunit;
 /// </summary>
 public class PairingTicketValidationTests
 {
-    private static HttpPrintShopBackend MakeBackend()
+    private static HttpPrintShopBackend MakeBackend(HttpMessageHandler? handler = null)
     {
-        var http = new HttpClient();
+        // Default handler: a stub that returns 401 UNAUTHORIZED so tests that
+        // get past local validation don't hit the real network (which is
+        // non-deterministic on CI — sandboxed runners may or may not reach
+        // printshop-saas-three.vercel.app). Tests that fail-fast on local
+        // validation never reach the handler.
+        var http = new HttpClient(handler ?? new StubHandler401());
         var opts = Options.Create(new BackendOptions
         {
             BaseUrl = "https://printshop-saas-three.vercel.app",
@@ -31,6 +36,20 @@ public class PairingTicketValidationTests
         var monitor = new FakeOptionsMonitor(opts.Value);
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<HttpPrintShopBackend>();
         return new HttpPrintShopBackend(http, monitor, logger, layout: null);
+    }
+
+    /// <summary>Deterministic 401 UNAUTHORIZED stub for tests that pass local validation.</summary>
+    private sealed class StubHandler401 : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var content = new StringContent(
+                """{"success":false,"error":{"code":"UNAUTHORIZED","message":"Invalid or unknown pairing ticket."}}""",
+                System.Text.Encoding.UTF8,
+                "application/json");
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized) { Content = content });
+        }
     }
 
     [Fact]
