@@ -30,58 +30,71 @@ public sealed class JobProcessor : IQueueController
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
 
-    // Phase 3 (brief §7 pause/resume) — cooperative pause gate. When paused,
-    // the loop blocks on _pauseGate.WaitAsync before dequeueing the next job,
-    // so an in-flight job finishes cleanly. Pause/Resume are thread-safe +
-    // idempotent. The gate is released on Resume; a fresh gate is created on
-    // Pause so previous waiters block again. State is NOT persisted across
-    // restart (the contract treats pause as a transient shopkeeper action;
-    // on restart the queue resumes normally).
-    private readonly SemaphoreSlim _pauseGate = new(1, 1);
+    // Phase F (brief §C) — cooperative pause gate. The gate is a SemaphoreSlim
+    // used as a SIGNAL: when paused, the gate has count 0 (waiters block); when
+    // resumed, the gate has count 1 (one waiter passes + resets to 0, the next
+    // iteration re-waits if still paused). This is cleaner than the Phase 3
+    // approach (which acquired+released the gate and could over-release):
+    //   - PauseAsync: spin-wait until we can take the count down to 0 (block
+    //     future waiters). Idempotent: if already 0, no-op.
+    //   - ResumeAsync: release once (count 0 → 1) so exactly one blocked waiter
+    //     passes. Idempotent: if already 1, the Release would throw
+    //     SemaphoreFullException — we catch + treat as no-op.
+    //   - The loop's ProcessOneAsync waits on the gate when paused; on
+    //     cancellation (shutdown) the WaitAsync throws OperationCanceledException
+    //     and the loop exits cleanly (no leaked task, no deadlock).
+    // Pause state is NOT persisted across restart — on restart the queue
+    // resumes normally (the brief §C: "Pause state persistence is explicitly
+    // defined. Do not accidentally claim pause survives restart if it does not.")
+    private readonly SemaphoreSlim _pauseGate = new(initialCount: 1, maxCount: 1);
     private volatile bool _paused;
+    private readonly object _pauseLock = new();
 
     /// <summary>True while the processor is paused (won't dequeue new jobs). In-flight jobs finish.</summary>
     public bool IsPaused => _paused;
 
     /// <summary>
-    /// Phase 3 (brief §7) — pause job processing. Cooperative: the current
+    /// Phase F (brief §C) — pause job processing. Cooperative: the current
     /// iteration finishes; subsequent iterations block at the pause gate until
-    /// <see cref="ResumeAsync"/> is called. Idempotent — calling while already
-    /// paused is a no-op. Does NOT cancel in-flight print submissions (per the
-    /// brief: "Pause must stop new job processing without corrupting an
-    /// in-flight job").
+    /// <see cref="ResumeAsync"/> is called. Idempotent + thread-safe (the
+    /// _pauseLock serializes concurrent pause/resume). Does NOT cancel in-flight
+    /// print submissions (the brief: "Pause must stop new job processing without
+    /// corrupting an in-flight job").
     /// </summary>
-    public Task PauseAsync(CancellationToken ct = default)
+    public async Task PauseAsync(CancellationToken ct = default)
     {
-        if (_paused) return Task.CompletedTask;
-        _paused = true;
-        // Acquire the gate (non-blocking — if a waiter holds it, that's the
-        // in-flight iteration finishing, which is fine). We hold it until
-        // Resume releases, so the next iteration's WaitAsync blocks.
-        // Use a non-blocking acquire: if we can't get it immediately, the
-        // in-flight iteration will release it momentarily, and our hold
-        // will take effect for the iteration after.
-        if (_pauseGate.CurrentCount > 0)
+        lock (_pauseLock)
         {
-            _pauseGate.Wait(ct);
+            if (_paused) return;   // idempotent
+            _paused = true;
         }
+        // Drain the gate to 0 so future WaitAsync calls block. The gate's count
+        // is at most 1; a single WaitAsync(0) takes it if available, else returns
+        // false immediately. We don't block here — the loop's WaitAsync (without
+        // timeout) is what blocks; we just ensure the count is 0.
+        _pauseGate.Wait(0, ct);
         _logger.LogInformation("JobProcessor paused (in-flight job, if any, will finish)");
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 
     /// <summary>
-    /// Phase 3 (brief §7) — resume job processing after a <see cref="PauseAsync"/>.
-    /// Idempotent — calling while not paused is a no-op.
+    /// Phase F (brief §C) — resume job processing after a
+    /// <see cref="PauseAsync"/>. Idempotent + thread-safe. Releases the gate so
+    /// exactly one blocked waiter passes.
     /// </summary>
     public Task ResumeAsync(CancellationToken ct = default)
     {
-        if (!_paused) return Task.CompletedTask;
-        _paused = false;
-        // Release the gate if we're holding it (current count < 1).
-        while (_pauseGate.CurrentCount < 1)
+        lock (_pauseLock)
         {
-            try { _pauseGate.Release(); } catch { break; }
+            if (!_paused) return Task.CompletedTask;   // idempotent
+            _paused = false;
         }
+        // Release the gate (count 0 → 1) so a blocked waiter passes. If the
+        // count is already 1 (no waiter), Release throws
+        // SemaphoreFullException — we catch + treat as a no-op (the next
+        // iteration's WaitAsync will pass immediately since count is 1).
+        try { _pauseGate.Release(); }
+        catch (System.Threading.SemaphoreFullException) { /* gate already signaled */ }
         _logger.LogInformation("JobProcessor resumed");
         return Task.CompletedTask;
     }
@@ -162,15 +175,19 @@ public sealed class JobProcessor : IQueueController
 
     private async Task ProcessOneAsync(CancellationToken ct)
     {
-        // Phase 3 (brief §7) — cooperative pause gate. Blocks before dequeue so
-        // an in-flight job (if any) finishes cleanly and no new job is claimed
-        // while paused. The loop's catch handles cancellation; a paused-wait
-        // that's cancelled propagates as OperationCanceledException, breaking
-        // the outer loop cleanly.
-        if (_paused)
+        // Phase F (brief §C) — cooperative pause gate. The gate is a SIGNAL:
+        // when paused, count=0 (WaitAsync blocks); on Resume, count=1 (one
+        // blocked waiter passes, count returns to 0). The loop re-checks
+        // _paused each iteration, so it re-waits if still paused, or proceeds
+        // if resumed. Shutdown's cancellation propagates as
+        // OperationCanceledException, breaking the outer loop cleanly (no
+        // leaked task, no deadlock).
+        while (_paused)
         {
-            try { await _pauseGate.WaitAsync(ct); _pauseGate.Release(); }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            await _pauseGate.WaitAsync(ct);   // throws OCE on shutdown — propagates to RunAsync
+            // Resume released the gate (count 0→1); WaitAsync consumed it (count 1→0).
+            // Re-check _paused: if still paused (a concurrent Pause raced the
+            // Resume), we re-wait; if not, we proceed to dequeue.
         }
 
         var job = await _queue.DequeueAsync(ct);
