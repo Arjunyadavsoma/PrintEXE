@@ -619,6 +619,22 @@ public sealed class DurableCommandStore
         }
     }
 
+    /// <summary>Non-generic overload for actions that don't produce a value.</summary>
+    private async Task WithBusyRetryAsync(Func<Task> action, CancellationToken ct)
+    {
+        var delay = 10;
+        for (var attempt = 0; ; attempt++)
+        {
+            try { await action(); return; }
+            catch (SqliteException ex) when (IsBusyOrLocked(ex) && attempt < MaxBusyRetries)
+            {
+                _logger.LogDebug(ex, "SQLite busy/locked (attempt {Attempt}/{Max}); retrying in {Delay}ms", attempt + 1, MaxBusyRetries, delay);
+                await Task.Delay(delay, ct);
+                delay *= 2;
+            }
+        }
+    }
+
     private static bool IsBusyOrLocked(SqliteException ex) =>
         // SQLITE_BUSY = 5, SQLITE_LOCKED = 6 (per the SQLite C API; the integer
         // values are stable across SQLitePCLRaw versions, more robust than the

@@ -212,8 +212,10 @@ public sealed class CommandExecutor
             if (job is null)
                 return Failed(command.Id, $"Job {jobId} not found in the local queue (it may have been purged or never assigned to this device).");
 
-            // Verify the job is in a safe-to-cancel state.
-            if (job.Status is JobStatus.Spooled or JobStatus.Printing)
+            // Verify the job is in a safe-to-cancel state. Spooled = already
+            // submitted to the Windows spooler (the only "in spooler" state
+            // besides UncertainSpooled, which is handled separately below).
+            if (job.Status is JobStatus.Spooled)
             {
                 _logger.LogWarning("cancel_job {CommandId}: rejected — job {JobId} is already in the Windows spooler ({Status}); cancelling the local row would not stop the physical print.",
                     command.Id, jobId, job.Status);
