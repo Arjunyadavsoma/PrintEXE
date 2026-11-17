@@ -2,6 +2,7 @@ namespace PrintShopCompanion.Infrastructure.Tests;
 
 using System.Text.Json;
 using FluentAssertions;
+using PrintShopCompanion.Core.Contracts;   // JobStatusReport
 using PrintShopCompanion.Shared.Dto;
 using Xunit;
 
@@ -46,7 +47,7 @@ public class ContractFixtureTests
         var envelope = JsonSerializer.Deserialize<ApiEnvelope<PairTicketResponseDto>>(fixture, WebJson);
         envelope.Should().NotBeNull();
         envelope!.Success.Should().BeTrue();
-        var dto = envelope.Data.Should().NotBeNull().Subject;
+        var dto = envelope.Data!;
         dto.AgentId.Should().Be("a1b2c3d4-0000-0000-0000-000000000001");
         dto.DeviceToken.Should().HaveLength(64);
         dto.ShopId.Should().Be("shop-uuid-0001");
@@ -115,7 +116,7 @@ public class ContractFixtureTests
 
         var envelope = JsonSerializer.Deserialize<ApiEnvelope<PendingCommandsEnvelopeDto>>(fixture, WebJson);
         envelope.Should().NotBeNull();
-        var dto = envelope!.Data.Should().NotBeNull().Subject;
+        var dto = envelope!.Data!;
         dto.AgentId.Should().Be("agent-uuid-0001");
         dto.Commands.Should().HaveCount(2);
 
@@ -179,7 +180,7 @@ public class ContractFixtureTests
         """;
 
         var envelope = JsonSerializer.Deserialize<ApiEnvelope<ReportCommandResponseDto>>(fixture, WebJson);
-        var dto = envelope!.Data.Should().NotBeNull().Subject;
+        var dto = envelope!.Data!;
         dto.CommandId.Should().Be("cmd-uuid-0001");
         dto.Status.Should().Be("succeeded");
         dto.UpdatedAt.Should().NotBeNull();
@@ -265,7 +266,7 @@ public class ContractFixtureTests
         """;
 
         var envelope = JsonSerializer.Deserialize<ApiEnvelope<AgentHeartbeatResponseDto>>(fixture, WebJson);
-        var dto = envelope!.Data.Should().NotBeNull().Subject;
+        var dto = envelope!.Data!;
         dto.AgentId.Should().Be("agent-uuid-0001");
         dto.Online.Should().BeTrue();
         dto.Ts.Should().NotBeNull();
@@ -290,7 +291,7 @@ public class ContractFixtureTests
         """;
 
         var envelope = JsonSerializer.Deserialize<ApiEnvelope<JobStatusReport>>(fixture, WebJson);
-        var dto = envelope!.Data.Should().NotBeNull().Subject;
+        var dto = envelope!.Data!;
         dto.JobId.Should().Be("job-uuid-0099");
         dto.Skipped.Should().BeTrue();
         dto.Reason.Should().Contain("already claimed");
