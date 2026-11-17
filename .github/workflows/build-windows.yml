@@ -232,30 +232,6 @@ jobs:
           Write-Host "✓ Smoke test passed: process alive after 20s (PID $($p.Id))"
           try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
 
-      - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
-        shell: pwsh
-        run: |
-          $ver = $env:BUILD_VERSION
-          $zipName = "PrintEXE-v$ver-win-x64.zip"
-          $src = "$env:GITHUB_WORKSPACE\artifacts\app"
-          $dst = "$env:GITHUB_WORKSPACE\artifacts\$zipName"
-          # Use 7-Zip (pre-installed on windows-latest runners) — preserves
-          # file permissions and is faster than Compress-Archive.
-          $7z = "C:\Program Files\7-Zip\7z.exe"
-          if (Test-Path $7z) {
-            & $7z a -tzip $dst "$src\*"
-          } else {
-            Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
-          }
-          if (-not (Test-Path $dst)) {
-            Write-Error "ZIP was not created: $dst"
-            exit 1
-          }
-          $zip = Get-Item $dst
-          Write-Host "✓ Created $zipName ($([math]::Round($zip.Length / 1MB, 2)) MB)"
-          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_NAME=$zipName" -Encoding utf8NoBOM
-          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_PATH=$dst" -Encoding utf8NoBOM
-
       - name: Write version metadata (BUILD-INFO.txt)
         shell: pwsh
         run: |
@@ -276,6 +252,10 @@ jobs:
           Configuration: Release (self-contained, folder distribution)
           Source:       https://github.com/Arjunyadavsoma/PrintEXE
           "@ | Out-File -Encoding utf8 artifacts/BUILD-INFO.txt
+          # Phase 5: the distribution ZIP must CONTAIN build metadata — copy
+          # into the publish directory before packaging (a loose asset copy
+          # also stays next to the ZIP for direct download).
+          Copy-Item artifacts/BUILD-INFO.txt "$env:GITHUB_WORKSPACE\artifacts\app\BUILD-INFO.txt"
           Get-Content artifacts/BUILD-INFO.txt
 
       - name: Write README into artifact (installation instructions)
@@ -304,7 +284,37 @@ jobs:
 
           Built from commit ${{ github.sha }}.
           "@ | Out-File -Encoding utf8 artifacts/README.txt
+          Copy-Item artifacts/README.txt "$env:GITHUB_WORKSPACE\artifacts\app\README.txt"
           Get-Content artifacts/README.txt
+
+      - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
+        shell: pwsh
+        run: |
+          $ver = $env:BUILD_VERSION
+          # Phase 5: on a tag build, name the ZIP after the FULL tag (e.g.
+          # PrintEXE-v0.6.1-rc.2-win-x64.zip) so the asset name matches the
+          # release page instructions exactly; branch/dispatch builds keep
+          # the stripped BUILD_VERSION name.
+          $refTag = "${{ github.ref_name }}"
+          if ($refTag -match '^v\d+\.\d+\.\d+') { $zipName = "PrintEXE-$refTag-win-x64.zip" } else { $zipName = "PrintEXE-v$ver-win-x64.zip" }
+          $src = "$env:GITHUB_WORKSPACE\artifacts\app"
+          $dst = "$env:GITHUB_WORKSPACE\artifacts\$zipName"
+          # Use 7-Zip (pre-installed on windows-latest runners) — preserves
+          # file permissions and is faster than Compress-Archive.
+          $7z = "C:\Program Files\7-Zip\7z.exe"
+          if (Test-Path $7z) {
+            & $7z a -tzip $dst "$src\*"
+          } else {
+            Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
+          }
+          if (-not (Test-Path $dst)) {
+            Write-Error "ZIP was not created: $dst"
+            exit 1
+          }
+          $zip = Get-Item $dst
+          Write-Host "✓ Created $zipName ($([math]::Round($zip.Length / 1MB, 2)) MB)"
+          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_NAME=$zipName" -Encoding utf8NoBOM
+          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_PATH=$dst" -Encoding utf8NoBOM
 
       - name: Generate SHA-256 checksums
         shell: pwsh
