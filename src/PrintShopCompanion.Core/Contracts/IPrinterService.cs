@@ -35,4 +35,6 @@ public interface IPrinterService
     Task<TestPrintResult> TestPrintAsync(string printerFullName, CancellationToken cancellationToken = default);
 }
 
-public sealed record SpoolSubmission(int SpoolerJobId, string PrinterFullName, DateTimeOffset SubmittedAt);
+public sealed record SpoolSubmission(int? SpoolerJobId, string PrinterFullName, DateTimeOffset SubmittedAt);
+// SpoolerJobId is null when the spooler did not report a job id: the physical
+// outcome is then UNKNOWN and must never be reported as completed.

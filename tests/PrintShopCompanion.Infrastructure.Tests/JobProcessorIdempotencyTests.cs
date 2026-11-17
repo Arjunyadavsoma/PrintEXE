@@ -174,9 +174,9 @@ public class JobProcessorIdempotencyTests
         var one = await q.DequeueAsync(cts.Token);
         one.Should().NotBeNull();
         var sub = await pr.SubmitAsync(one!, cts.Token);
-        var printed = await pr.HasPrintedAsync(sub.SpoolerJobId, cts.Token);
+        var printed = await pr.HasPrintedAsync(sub.SpoolerJobId!.Value, cts.Token);
         printed.Should().BeTrue();
-        await q.MarkPrintedAsync(one!.JobId, DateTimeOffset.UtcNow, sub.SpoolerJobId, cts.Token);
+        await q.MarkPrintedAsync(one!.JobId, DateTimeOffset.UtcNow, sub.SpoolerJobId!.Value, cts.Token);
         // v0.4.7+ contract: status is the string "completed" or "failed" or "printing"
         await be.ReportJobStatusAsync(one.JobId, "completed", printerName: null, errorMessage: null, cts.Token);
         await q.MarkReportedPrintedAsync(one.JobId, cts.Token);

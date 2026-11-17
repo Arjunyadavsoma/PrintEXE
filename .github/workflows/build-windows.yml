@@ -95,7 +95,13 @@ jobs:
           $tag = "${{ github.event.inputs.release-tag }}"
           if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "${{ github.ref_name }}" }
           $ver = $tag -replace '^v',''
-          if (-not ($ver -match '^\d+\.\d+\.\d+')) {
+          # Phase 5 fix: a SemVer pre-release tag (v0.6.1-rc.1) must map to a
+          # VALID System.Version for <AssemblyVersion> — strip everything after
+          # the numeric core. The original tag is preserved for the GitHub
+          # release (the release job uses github.ref_name, not BUILD_VERSION).
+          if ($ver -match '^(\d+\.\d+\.\d+)') {
+            $ver = $Matches[1]
+          } else {
             $ver = "0.0.${{ github.run_number }}"
           }
           Write-Host "Resolved BUILD_VERSION = $ver"
@@ -206,6 +212,25 @@ jobs:
           # List the publish dir size for the log.
           $size = (Get-ChildItem -Path $pub -Recurse | Measure-Object -Property Length -Sum).Sum
           Write-Host "Publish directory size: $([math]::Round($size / 1MB, 2)) MB"
+
+      - name: Startup smoke test (Windows)
+        shell: pwsh
+        run: |
+          # Phase 5: actually START the published EXE on the Windows runner.
+          # A missing native DLL, bad DI composition, or crash-on-startup would
+          # surface here instead of on a user's machine. The app is a WPF tray
+          # application: unpaired, it shows the login screen and STAYS ALIVE —
+          # exiting early means something failed.
+          $exe = "$env:GITHUB_WORKSPACE\artifacts\app\PrintShopCompanion.exe"
+          if (-not (Test-Path $exe)) { Write-Error "EXE missing for smoke test"; exit 1 }
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) {
+            Write-Error "Smoke test FAILED: PrintShopCompanion.exe exited prematurely with code $($p.ExitCode)"
+            exit 1
+          }
+          Write-Host "✓ Smoke test passed: process alive after 20s (PID $($p.Id))"
+          try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
 
       - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
         shell: pwsh
@@ -392,8 +417,11 @@ jobs:
           # already exists, fail with a clear message instead of silently
           # replacing assets.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Phase 5 fix: an existing release must FAIL the run, not print an
+            # annotation and silently succeed with no release created.
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::error::Release $TAG already exists. Not overwriting."
+            echo "::error::Release $TAG already exists. Not overwriting — failing so the operator picks a new tag."
+            exit 1
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -446,18 +474,36 @@ jobs:
           echo "ZIP_ABS=$ZIP" >> "$GITHUB_ENV"
           echo "SUMS_ABS=$SUMS" >> "$GITHUB_ENV"
 
+      - name: Detect pre-release tag
+        id: pre
+        shell: bash
+        run: |
+          # A SemVer suffix after the numeric core (v0.6.1-rc.1) marks a
+          # pre-release. GitHub excludes pre-releases from /releases/latest,
+          # so the PrintEXE auto-updater (which polls that endpoint) will
+          # never offer an RC to stable users — the explicit guard required
+          # by the release-gate spec.
+          TAG="${{ steps.tag.outputs.tag }}"
+          if echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-'; then
+            echo "is_pre=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_pre=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release
         if: ${{ steps.check.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: PrintEXE ${{ steps.tag.outputs.tag }}
+          prerelease: ${{ steps.pre.outputs.is_pre == 'true' }}
           body: |
             # PrintEXE ${{ steps.tag.outputs.tag }}
 
             ## Download
 
-            **`PrintEXE-v${{ steps.tag.outputs.tag }}-win-x64.zip`** is the recommended distribution.
+            **`PrintEXE-${{ steps.tag.outputs.tag }}-win-x64.zip`** is the recommended distribution
+            (the file name already carries the leading `v` of the tag).
 
             1. Unzip to a folder (e.g. `C:\PrintEXE\`).
             2. Run `PrintShopCompanion.exe` from inside that folder.
@@ -466,12 +512,16 @@ jobs:
             ## Verify the download
 
             ```
-            sha256sum PrintEXE-v${{ steps.tag.outputs.tag }}-win-x64.zip   # compare with SHA256SUMS.txt
+            sha256sum PrintEXE-${{ steps.tag.outputs.tag }}-win-x64.zip   # compare with SHA256SUMS.txt
             ```
 
             ## What's new
 
             Built from commit ${{ github.sha }} on GitHub Actions run #${{ github.run_number }}.
+
+            > Pre-release note: this build is NOT offered by the in-app
+            > auto-updater (pre-releases are excluded from `/releases/latest`).
+            > Pre-release users upgrade manually or wait for the next stable tag.
 
             Architecture: win-x64
             Configuration: Release (self-contained, folder distribution)

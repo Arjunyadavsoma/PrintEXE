@@ -228,14 +228,14 @@ public sealed class SqliteJobQueue : IJobQueue
             await EnsureSchemaOrRecoverAsync(ct);
         }
 
-        var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
         // Phase 0 audit: WAL + busy_timeout + synchronous=NORMAL (see
         // SqliteConnectionPragmas) instead of relying on default rollback
         // journal + zero busy timeout with C#-side retries as the only
         // mitigation.
-        await SqliteConnectionPragmas.ApplyToAsync(conn, ct);
-        return conn;
+        // Phase 5: OpenWithPragmasAsync verifies every pragma and DISPOSES
+        // the connection if initialization fails — a connection whose FK or
+        // busy_timeout could not be applied is never handed back silently.
+        return await SqliteConnectionPragmas.OpenWithPragmasAsync(_connectionString, ct);
     }
 
     /// <summary>
@@ -979,12 +979,20 @@ public sealed class SqliteJobQueue : IJobQueue
                        last_error = @reason,
                        updated_at = @now
                  WHERE job_id = @job_id
-                   AND status IN (@printed, @pending, @uncertain);
+                   AND status IN (@printed, @pending, @uncertain, @spooled, @downloading, @rendering);
                 """;
             AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
             AddParam(cmd, "@printed", (int)JobStatus.Printed);
             AddParam(cmd, "@pending", (int)JobStatus.Pending);
             AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
+            // Phase 5 fix: crash recovery parks jobs whose backend row is
+            // stuck in 'printing' from a previous session — at claim time the
+            // local row sits in Spooled/Downloading/Rendering, so the guard
+            // MUST include them or the park silently matches zero rows and
+            // strands the job outside reconciliation forever.
+            AddParam(cmd, "@spooled", (int)JobStatus.Spooled);
+            AddParam(cmd, "@downloading", (int)JobStatus.Downloading);
+            AddParam(cmd, "@rendering", (int)JobStatus.Rendering);
             AddParam(cmd, "@reason", reason);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@job_id", jobId);

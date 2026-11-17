@@ -358,11 +358,15 @@ public sealed class JobProcessor : IQueueController
         }
 
         // 4. Wait for spooler to confirm physical printing.
+        // Phase 5 fix: a NULL spooler id (the spooler never reported one)
+        // can never be polled for confirmation — the loop is skipped and the
+        // job goes to the honest uncertain path instead of the old flow where
+        // a synthetic id made HasPrintedAsync conclude "completed and purged".
         var deadline = DateTimeOffset.UtcNow + _options.Value.PrintConfirmTimeout;
         bool printed = false;
-        while (DateTimeOffset.UtcNow < deadline)
+        while (sub.SpoolerJobId is not null && DateTimeOffset.UtcNow < deadline)
         {
-            try { printed = await _printers.HasPrintedAsync(sub.SpoolerJobId, ct); }
+            try { printed = await _printers.HasPrintedAsync(sub.SpoolerJobId.Value, ct); }
             catch (Exception ex) { _logger.LogWarning(ex, "Spooler status poll failed; will retry"); }
             if (printed) break;
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
@@ -373,7 +377,9 @@ public sealed class JobProcessor : IQueueController
             // Spooler did not confirm physical printing within the timeout. This is the
             // "uncertain outcome" case the spec calls out: never auto-reprint, surface to the operator.
             await _queue.MarkUncertainAsync(job.JobId,
-                "Spooler did not confirm physical print within timeout; outcome uncertain",
+                sub.SpoolerJobId is null
+                    ? "Spooler did not report a job id; physical outcome cannot be confirmed"
+                    : "Spooler did not confirm physical print within timeout; outcome uncertain",
                 ct);
             _logger.LogWarning("Job {JobId} marked UncertainSpooled — operator reconciliation required", job.JobId);
             // Report needs_review (NOT failed) to the backend: the paper may
@@ -394,7 +400,7 @@ public sealed class JobProcessor : IQueueController
         // 5. Mark Printed in the queue BEFORE reporting to the backend. ReportedPrinted is
         //    a separate state that is only set after the backend confirms receipt.
         var printedAt = DateTimeOffset.UtcNow;
-        await _queue.MarkPrintedAsync(job.JobId, printedAt, sub.SpoolerJobId, ct);
+        await _queue.MarkPrintedAsync(job.JobId, printedAt, sub.SpoolerJobId ?? 0, ct);
         _logger.LogInformation("Spooler confirmed physical print at {Time}", printedAt);
 
         // v0.5: Set localDeleteAfter = printedAt + 60 min (configurable).

@@ -118,13 +118,15 @@ public sealed class WindowsPrinterService : IPrinterService
             duplex: job.Duplex == true ? "duplexlong" : job.Duplex == false ? "simplex" : null,
             cancellationToken: ct);
 
-        if (spoolerJobId <= 0)
-            throw new InvalidOperationException("Spooler returned an invalid job ID");
-
-        lock (_spoolerTag) _spoolerTag[spoolerJobId] = (job.JobId, DateTimeOffset.UtcNow);
+        // Phase 5: an id of 0 (or negative) means the spooler did not report
+        // one — the caller must treat the physical outcome as UNKNOWN, not
+        // printed. (Previously this THREW, failing the whole job even though
+        // the paper may actually have gone through; now it degrades honestly.)
+        if (spoolerJobId > 0)
+            lock (_spoolerTag) _spoolerTag[spoolerJobId] = (job.JobId, DateTimeOffset.UtcNow);
         _logger.LogInformation("Submitted {Title} -> {Printer} as spooler job #{Id} in {Ms}ms",
-            job.Title, printerName, spoolerJobId, sw.ElapsedMilliseconds);
-        return new SpoolSubmission(spoolerJobId, printerName, DateTimeOffset.UtcNow);
+            job.Title, printerName, spoolerJobId > 0 ? spoolerJobId.ToString() : "unknown", sw.ElapsedMilliseconds);
+        return new SpoolSubmission(spoolerJobId > 0 ? spoolerJobId : null, printerName, DateTimeOffset.UtcNow);
     }
 
     public async Task<bool> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default)

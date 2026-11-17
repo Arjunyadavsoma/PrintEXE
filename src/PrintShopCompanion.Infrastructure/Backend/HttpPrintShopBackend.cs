@@ -885,6 +885,22 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
                 Token = deviceToken,
                 IssuedAt = File.GetLastWriteTimeUtc(credPath),
             };
+            // Phase 5 fix: the restore must also seed _shop, exactly like the
+            // paste-token flow does before its validation heartbeat. Without
+            // it, ApiUrl() dereferences a null _shop (NullReferenceException)
+            // on the very first authenticated call from any instance that did
+            // not pair in-process — the captured transient backends in the
+            // job processor, heartbeat timer, and rotation policy. BaseUrl and
+            // ApiBasePath are deployment configuration, not per-pairing state.
+            var o = _opts.CurrentValue;
+            _shop = new ShopInfo
+            {
+                Id = "",
+                Slug = "",
+                Name = "(restored — shop name pending first sync)",
+                BaseUrl = new Uri(o.BaseUrl),
+                ApiBasePath = o.ApiBasePath,
+            };
             _logger.LogInformation("Device credential lazily restored from disk (unvalidated — first call will validate)");
         }
         catch (Exception ex)
