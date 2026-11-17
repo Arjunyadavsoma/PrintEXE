@@ -73,13 +73,21 @@ public class ContractConfigTests
     }
 
     [Fact]
-    public void CommandStatus_All_has_exactly_five_values_per_contract()
+    public void CommandStatus_All_matches_the_SaaS_REPORTABLE_STATUSES_enum()
     {
-        // v1 contract §7: delivered, accepted, executing, succeeded, failed.
-        CommandStatus.All.Should().HaveCount(5);
+        // Phase F: the SaaS REPORTABLE_STATUSES (route.ts, commit ce75cd26)
+        // now includes 'outcome_unknown' — 6 values, not 5. The companion
+        // may report all 6. This test guards against drift: if the SaaS adds
+        // or removes a value, this test must be updated in lockstep.
+        CommandStatus.All.Should().HaveCount(6);
         CommandStatus.All.Should().Contain(new[]
         {
-            "delivered", "accepted", "executing", "succeeded", "failed",
+            "delivered", "accepted", "executing", "succeeded", "failed", "outcome_unknown",
+        });
+        // The terminal subset the SaaS treats as terminal (sets executedAt).
+        CommandStatus.Terminal.Should().BeEquivalentTo(new[]
+        {
+            "succeeded", "failed", "outcome_unknown",
         });
     }
 }
