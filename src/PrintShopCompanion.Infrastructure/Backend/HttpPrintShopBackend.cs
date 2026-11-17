@@ -131,6 +131,181 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     }
 
     /// <summary>
+    /// v1 contract §2 — exchange a pairing ticket for a device token.
+    /// POST /api/v1/companion/pair with NO Authorization header (the ticket
+    /// IS the authorization). On success, persist the returned device token
+    /// via the same DPAPI path as <see cref="PairWithDeviceTokenAsync"/> and
+    /// store the <see cref="PairResult.ProtocolVersion"/>.
+    /// <para>Throws <see cref="PairingTicketException"/> for the contract's
+    /// ticket-specific error codes so the UI can map each to a user state.</para>
+    /// </summary>
+    public async Task<PairResult> PairWithTicketAsync(
+        string ticket,
+        string deviceName,
+        string? version = null,
+        string? os = null,
+        string? printerName = null,
+        CancellationToken ct = default)
+    {
+        // Local validation BEFORE the network call — fail fast with a clear error.
+        if (string.IsNullOrWhiteSpace(ticket))
+            throw new PairingTicketException("VALIDATION_ERROR", "Pairing code cannot be empty.");
+        // Contract §2: ticket is 64 hex chars. Tolerate whitespace paste.
+        var trimmed = ticket.Trim();
+        if (trimmed.Length != 64 || !trimmed.All(c => "0123456789abcdefABCDEF".Contains(c)))
+            throw new PairingTicketException("VALIDATION_ERROR",
+                "Pairing code must be 64 hex characters. Check that you copied the whole code.");
+        if (string.IsNullOrWhiteSpace(deviceName))
+            throw new PairingTicketException("VALIDATION_ERROR", "Device name is required.");
+        if (deviceName.Length > 255)
+            throw new PairingTicketException("VALIDATION_ERROR", "Device name must be 255 characters or fewer.");
+
+        var o = _opts.CurrentValue;
+        var baseUri = !string.IsNullOrWhiteSpace(o.BaseUrl)
+            ? new Uri(o.BaseUrl)
+            : throw new InvalidOperationException("Backend BaseUrl is not configured");
+
+        // Set up a minimal shop so ApiUrl() can resolve. The real shopId/name
+        // come from the pair response and overwrite these below.
+        _shop = new ShopInfo
+        {
+            Id = "",
+            Slug = "",
+            Name = "(pairing...)",
+            BaseUrl = baseUri,
+            ApiBasePath = o.ApiBasePath,
+        };
+
+        var url = ApiUrl("companion/pair");
+        var body = new PairTicketRequestDto
+        {
+            Ticket = trimmed,
+            DeviceName = deviceName,
+            Version = version ?? ThisApp.Version,
+            Os = os ?? "win32",
+            PrinterName = printerName,
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(body),
+        };
+        // NO AddAuth — the ticket IS the authorization for this endpoint.
+        req.Headers.UserAgent.Add(new ProductInfoHeaderValue("PrintShopCompanion", ThisApp.Version));
+
+        using var resp = await _http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var (code, message) = await ReadErrorAsync(resp, ct);
+            // Contract §2 error table:
+            // 400 VALIDATION_ERROR, 401 UNAUTHORIZED (no ticket), 401 TICKET_EXPIRED,
+            // 409 TICKET_CONSUMED, 429 RATE_LIMITED.
+            throw new PairingTicketException(
+                code ?? "UNKNOWN",
+                $"Pairing failed: {message ?? resp.StatusCode.ToString()}");
+        }
+
+        var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<PairTicketResponseDto>>(Json, ct)
+            ?? throw new PairingTicketException("UNKNOWN", "Empty pair response.");
+        var dto = envelope.Data
+            ?? throw new PairingTicketException("UNKNOWN", "Pair response missing data field.");
+
+        // Persist the returned device token via the same path as paste-token
+        // pairing (DPAPI, current-user scope). This reuses PairWithDeviceTokenAsync
+        // so the heartbeat-validation + storage logic is identical.
+        _shop = new ShopInfo
+        {
+            Id = dto.ShopId,
+            Slug = "",
+            Name = dto.ShopName,
+            BaseUrl = baseUri,
+            ApiBasePath = o.ApiBasePath,
+        };
+        await PairWithDeviceTokenAsync(dto.DeviceToken, ct);
+
+        _logger.LogInformation(
+            "Paired via ticket: agentId={AgentId} shop={ShopName} protocolVersion={ProtocolVersion}",
+            dto.AgentId, dto.ShopName, dto.ProtocolVersion);
+
+        return new PairResult
+        {
+            AgentId = dto.AgentId,
+            DeviceToken = dto.DeviceToken,
+            ShopId = dto.ShopId,
+            ShopName = dto.ShopName,
+            ProtocolVersion = dto.ProtocolVersion,
+        };
+    }
+
+    /// <summary>
+    /// v1 contract §6 — GET /api/v1/companion/commands. Fetch pending remote
+    /// commands for this device. The backend returns only commands with
+    /// status='requested' AND expiresAt > now; the companion still validates
+    /// <see cref="PendingCommand.IsExpired"/> locally before executing.
+    /// </summary>
+    public async Task<IReadOnlyList<PendingCommand>> FetchPendingCommandsAsync(CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var url = ApiUrl("companion/commands");
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);   // 403 → DeviceDisabledException
+        await EnsureNotDisabledAsync(resp, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("Device token rejected by backend");
+        resp.EnsureSuccessStatusCode();
+
+        var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<PendingCommandsEnvelopeDto>>(Json, ct)
+            ?? throw new InvalidOperationException("Empty commands response");
+        var cmds = envelope.Data?.Commands ?? new List<PendingCommandDto>();
+        return cmds.Select(c => new PendingCommand
+        {
+            Id = c.Id,
+            CommandType = c.CommandType,
+            PayloadJson = c.Payload ?? "{}",
+            ExpiresAt = c.ExpiresAt,
+        }).ToList();
+    }
+
+    /// <summary>
+    /// v1 contract §7 — POST /api/v1/companion/commands. Acknowledge receipt
+    /// and/or report execution result. Idempotent on (commandId, status).
+    /// </summary>
+    public async Task<CommandReportResult> ReportCommandStatusAsync(
+        string commandId, string status, string? resultJson = null, CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        if (string.IsNullOrWhiteSpace(commandId))
+            throw new ArgumentException("commandId is required", nameof(commandId));
+        if (!CommandStatus.All.Contains(status))
+            throw new ArgumentException(
+                $"status must be one of {string.Join(", ", CommandStatus.All)} (got '{status}')", nameof(status));
+
+        var url = ApiUrl("companion/commands");
+        var body = new ReportCommandRequestDto
+        {
+            CommandId = commandId,
+            Status = status,
+            Result = resultJson,
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(body),
+        };
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
+        await EnsureNotDisabledAsync(resp, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("Device token rejected by backend");
+        resp.EnsureSuccessStatusCode();
+
+        var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<ReportCommandResponseDto>>(Json, ct)
+            ?? throw new InvalidOperationException("Empty command-report response");
+        return new CommandReportResult(Applied: envelope.Data?.Applied ?? false);
+    }
+
+    /// <summary>
     /// Restore the saved device token from the DPAPI-encrypted file. Called
     /// by App startup to resume a previous session without re-pairing.
     /// </summary>
@@ -170,6 +345,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend (token may be revoked or expired)");
         resp.EnsureSuccessStatusCode();
@@ -200,6 +376,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         };
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
@@ -223,6 +400,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
@@ -256,6 +434,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         };
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
@@ -467,6 +646,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         };
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
         // 404 = job not found or not in this shop (tenant isolation)
@@ -494,6 +674,40 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     {
         if (_token is null)
             throw new InvalidOperationException("Not paired with a shop — paste the device token from the web dashboard first");
+    }
+
+    /// <summary>
+    /// Read the backend's standard error envelope <c>{success:false, error:{code, message}}</c>
+    /// from a non-2xx response. Returns (null, null) if the body is empty or not JSON.
+    /// Never throws — used by callers to produce contract-specific exceptions.
+    /// </summary>
+    private async Task<(string? Code, string? Message)> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<object>>(Json, ct);
+            return (envelope?.Error?.Code, envelope?.Error?.Message);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    /// <summary>
+    /// v1 contract §3 + §14 — distinguish 403 FORBIDDEN / DEVICE_DISABLED from
+    /// 401 UNAUTHORIZED. A disabled device still exists (token hash valid) but
+    /// the shop admin suspended it; the companion must NOT clear the credential
+    /// (the admin may re-enable it). Throws <see cref="DeviceDisabledException"/>
+    /// for 403; leaves 401 handling to the caller.
+    /// </summary>
+    private async Task EnsureNotDisabledAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        if (resp.StatusCode != System.Net.HttpStatusCode.Forbidden) return;
+        var (code, message) = await ReadErrorAsync(resp, ct);
+        throw new DeviceDisabledException(
+            $"This device is disabled by the shop administrator{(code is null ? "" : $" ({code})")}. " +
+            $"Contact your shop admin to re-enable it. {(message ?? "").Trim()}".Trim());
     }
 
     /// <summary>

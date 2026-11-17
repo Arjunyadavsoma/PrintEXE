@@ -25,13 +25,18 @@ public sealed class BackendOptions
     /// </summary>
     public string HubPath { get; set; } = "/?XTransformPort=3003";
 
-    /// <summary>Heartbeat interval (POST /agents/heartbeat). Default 60s per the integration guide.</summary>
-    public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromMinutes(1);
+    /// <summary>
+    /// Heartbeat interval (POST /agents/heartbeat). Default <b>15s</b> per the
+    /// v1 contract §4 (the server marks a device offline after 30s without a
+    /// heartbeat). The earlier default of 60s was too slow — the device showed
+    /// as offline during normal operation. Changed in the v1-contract integration.
+    /// </summary>
+    public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>Heartbeat interval in seconds. Used by code that prefers seconds over TimeSpan.</summary>
-    public int HeartbeatIntervalSeconds { get; set; } = 60;
+    public int HeartbeatIntervalSeconds { get; set; } = 15;
 
-    /// <summary>HTTP long-poll interval used as a fallback when the realtime socket is down. Default 2s.</summary>
+    /// <summary>HTTP long-poll interval used as a fallback when the realtime socket is down. Default 2s (within the contract's 2-5s range).</summary>
     public TimeSpan PollFallbackInterval { get; set; } = TimeSpan.FromSeconds(2);
 
     /// <summary>Poll interval in seconds. Used by code that prefers seconds over TimeSpan.</summary>
@@ -54,6 +59,46 @@ public sealed class BackendOptions
 
     /// <summary>True to skip TLS verification. Local mock only. Never enable in production.</summary>
     public bool BypassTlsVerification { get; set; } = false;
+}
+
+/// <summary>
+/// v1 contract Appendix C — the <c>PrintShop</c> configuration section. The
+/// contract documents the companion's config under <c>PrintShop:*</c>:
+/// <code>
+/// "PrintShop": {
+///   "BaseUrl": "https://printshop-saas-three.vercel.app",
+///   "PollingInterval": "00:00:03",
+///   "HeartbeatInterval": "00:00:15",
+///   "SocketIoUrl": "https://printshop-saas-three.vercel.app/?XTransformPort=3003"
+/// }
+/// </code>
+/// The companion's historical section is <c>Backend:*</c> (see <see cref="BackendOptions"/>).
+/// Both are bound at startup; <c>PrintShop</c> wins where both are set, so the
+/// app works with either the contract-shape or the legacy-shape appsettings.json.
+/// </summary>
+public sealed class PrintShopOptions
+{
+    public const string SectionName = "PrintShop";
+
+    /// <summary>Base URL of the PrintShop website. Overrides Backend:BaseUrl where set.</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>REST polling interval (jobs + commands). Contract default 3s; companion default 2s.</summary>
+    public TimeSpan? PollingInterval { get; set; }
+
+    /// <summary>Heartbeat interval. Contract §4 default 15s.</summary>
+    public TimeSpan? HeartbeatInterval { get; set; }
+
+    /// <summary>Full Socket.IO URL including the XTransformPort query.</summary>
+    public string? SocketIoUrl { get; set; }
+
+    /// <summary>
+    /// Optional override for the DPAPI device-token file path. Contract Appendix C
+    /// default: <c>%AppData%\PrintEXE\device-token.dat</c>. The companion honours
+    /// this and migrates from the historical <c>%LocalAppData%\PrintShop\Companion\Security\device.dat</c>
+    /// (and the older <c>%AppData%\PrintShop\Companion\device.dat</c>) on first run.
+    /// </summary>
+    public string? DeviceTokenPath { get; set; }
 }
 
 /// <summary>Printer selection and print behaviour.</summary>

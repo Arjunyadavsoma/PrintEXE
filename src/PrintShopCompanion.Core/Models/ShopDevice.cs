@@ -72,10 +72,12 @@ public sealed record ShopInfo
 }
 
 /// <summary>
-/// Long-lived device token issued by <c>POST /api/v1/agents/register</c>.
-/// Used by the background print engine to authenticate job-related calls
-/// (heartbeat, pending jobs, status reports). Stored DPAPI-encrypted at
-/// <c>%AppData%\PrintShop\Companion\device.dat</c> alongside the shop session.
+/// Long-lived device token issued by <c>POST /api/v1/companion/pair</c> (v1
+/// contract, ticket exchange) or the legacy <c>POST /api/v1/agents/register</c>
+/// (paste-token). Used by the background print engine to authenticate
+/// job-related calls (heartbeat, pending jobs, status reports). Stored
+/// DPAPI-encrypted at <c>%AppData%\PrintEXE\device-token.dat</c> (v1 contract,
+/// Appendix C) alongside the shop session.
 /// </summary>
 public sealed record DeviceToken
 {
@@ -83,6 +85,14 @@ public sealed record DeviceToken
     public required string ShopId { get; init; }
     public required string Token { get; init; }
     public DateTimeOffset IssuedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// The companion API protocol version returned by the backend during
+    /// pairing (contract §16: protocolVersion=1 for this contract). The
+    /// companion stores it and refuses to operate against a backend that
+    /// returns a higher version it does not support (forward-compat gate).
+    /// </summary>
+    public int ProtocolVersion { get; init; } = 1;
 
     // Compatibility alias for the old print-agent backend.
     public string DeviceId => AgentId;

@@ -14,6 +14,7 @@ using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure;
 using PrintShopCompanion.Infrastructure.Backend;
+using PrintShopCompanion.Infrastructure.Commands;
 using PrintShopCompanion.Infrastructure.Queue;
 using PrintShopCompanion.Infrastructure.Storage;
 using PrintShopCompanion.Infrastructure.Sync;
@@ -38,6 +39,11 @@ public partial class App : Application
     // shutdown instead of letting them die mid-DB-write.
     private Task? _startupTask;
     private Task? _updateCheckTask;
+
+    // v1 contract §3 + §6 — timers for the 15s heartbeat + the 2-3s command poll.
+    // Disposed in OnExit. Null when the device is not paired (cloud connection deferred).
+    private System.Threading.Timer? _heartbeatTimer;
+    private System.Threading.Timer? _commandPollTimer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -235,6 +241,19 @@ public partial class App : Application
                     var retention = _host.Services.GetRequiredService<FileRetentionManager>();
                     retention.Start(_appCts.Token);
                     Log.Information("FileRetentionManager started");
+
+                    // v1 contract §3 + §6 — start the realtime client (Socket.IO), the
+                    // command poller (REST fallback + immediate on device.command.issued),
+                    // and a 15s heartbeat timer. These only run if the device is paired
+                    // (the realtime client + poller require a valid device token).
+                    if (restored)
+                    {
+                        await StartCloudConnectionAsync();
+                    }
+                    else
+                    {
+                        Log.Information("Cloud connection deferred — device not paired (user will pair via the Login screen)");
+                    }
                 }
                 catch (OperationCanceledException) when (_appCts.IsCancellationRequested)
                 {
@@ -308,6 +327,100 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// v1 contract §3 + §6 — start the cloud connection: the Socket.IO realtime
+    /// client, the 15s heartbeat timer, and the 2-3s command-poll timer. Wire
+    /// the realtime client's <c>CommandIssued</c> + <c>Revoked</c> events to
+    /// the poller + the UI. Called from the startup Task only when the device
+    /// is paired (<c>restored == true</c>); re-pairing through the Login screen
+    /// should call this again.
+    /// </summary>
+    private async Task StartCloudConnectionAsync()
+    {
+        try
+        {
+            var realtime = _host.Services.GetRequiredService<SocketIoRealtimeClient>();
+            var poller = _host.Services.GetRequiredService<CommandPoller>();
+            var backendOpts = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<BackendOptions>>();
+
+            // Wire the realtime client's events:
+            //  - CommandIssued → immediate poll (don't wait for the next tick).
+            //  - Revoked → clear credential + navigate to Login (the device token
+            //    is no longer valid; the shopkeeper must re-pair or contact admin).
+            //  - ConnectionChanged → could surface on the dashboard (Phase 5 follow-up).
+            realtime.CommandIssued += commandType =>
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await poller.TickOnceAsync(_appCts.Token); }
+                    catch (Exception ex) { Log.Debug(ex, "Immediate command poll after device.command.issued failed (will retry on next tick)"); }
+                });
+            };
+            realtime.Revoked += () =>
+            {
+                Log.Warning("Device revoked by the shopkeeper — clearing credential and returning to Login");
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        var nav = _host.Services.GetRequiredService<INavigationService>();
+                        nav.NavigateTo("Login");
+                    }
+                    catch (Exception ex) { Log.Warning(ex, "Navigation to Login after revoke failed"); }
+                });
+            };
+
+            // Start the realtime client (connects + emits `auth {token}`).
+            try
+            {
+                await realtime.StartAsync(_appCts.Token);
+                Log.Information("Socket.IO realtime client started");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Realtime client start failed (non-fatal — REST polling fallback will keep the device online)");
+            }
+
+            // v1 contract §4: heartbeat every 15s. The server marks the device
+            // offline after 30s without a heartbeat. Use a periodic timer (not
+            // Task.Delay) so shutdown cancels it promptly.
+            var heartbeatInterval = backendOpts.CurrentValue.HeartbeatInterval;
+            if (heartbeatInterval <= TimeSpan.Zero) heartbeatInterval = TimeSpan.FromSeconds(15);
+            var backend = _host.Services.GetRequiredService<IPrintShopBackend>();
+            _heartbeatTimer = new System.Threading.Timer(
+                async _ =>
+                {
+                    try { await backend.HeartbeatAsync(_appCts.Token); }
+                    catch (Exception ex) { Log.Debug(ex, "Heartbeat tick failed (will retry)"); }
+                },
+                null,
+                dueTime: TimeSpan.Zero,                       // send one immediately on connect
+                period: heartbeatInterval);
+            Log.Information("Heartbeat timer started (interval={Interval}s)", (int)heartbeatInterval.TotalSeconds);
+
+            // v1 contract §6 + §13: poll commands every PollFallbackInterval (2-3s).
+            // The poller's TickOnceAsync is serialized so the realtime CommandIssued
+            // event + this timer don't overlap.
+            var pollInterval = backendOpts.CurrentValue.PollFallbackInterval;
+            if (pollInterval <= TimeSpan.Zero) pollInterval = TimeSpan.FromSeconds(3);
+            _commandPollTimer = new System.Threading.Timer(
+                async _ =>
+                {
+                    try { await poller.TickOnceAsync(_appCts.Token); }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { Log.Debug(ex, "Command poll tick failed (will retry)"); }
+                },
+                null,
+                dueTime: TimeSpan.FromSeconds(1),           // first poll 1s after connect
+                period: pollInterval);
+            Log.Information("Command poll timer started (interval={Interval}s)", (int)pollInterval.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "StartCloudConnectionAsync failed (non-fatal — local queue still operates)");
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("=== Shutdown starting ===");
@@ -318,6 +431,11 @@ public partial class App : Application
 
         // 2. Signal ALL background work to stop
         try { _appCts?.Cancel(); Log.Information("Cancellation requested"); } catch { }
+
+        // 2b. Dispose the v1 cloud-connection timers (heartbeat + command poll).
+        // Disposing after Cancel so an in-flight tick doesn't fire after dispose.
+        try { _heartbeatTimer?.Dispose(); _heartbeatTimer = null; } catch { }
+        try { _commandPollTimer?.Dispose(); _commandPollTimer = null; } catch { }
 
         // 3. Wait for the background startup task + update check task with a
         //    BOUNDED total shutdown of 5 seconds. We don't want a hung task

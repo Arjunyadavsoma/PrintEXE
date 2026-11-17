@@ -640,3 +640,116 @@ public sealed class JobReceivedResponseDto
     [JsonPropertyName("message")]
     public string? Message { get; init; }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1 contract: pairing-ticket exchange (POST /api/v1/companion/pair)
+// See docs/integration/COMPANION_V1_CONTRACT.md §2. Auth: NONE (ticket IS the auth).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Wire DTO for POST /api/v1/companion/pair request body. The pairing
+/// ticket is the authorization (no Bearer header). The backend consumes
+/// the ticket atomically (status active → consumed) and returns the
+/// device token exactly once.
+/// </summary>
+public sealed class PairTicketRequestDto
+{
+    [JsonPropertyName("ticket")]
+    public required string Ticket { get; init; }          // 64 hex chars
+
+    [JsonPropertyName("deviceName")]
+    public required string DeviceName { get; init; }     // 1-255 chars
+
+    [JsonPropertyName("version")]
+    public string? Version { get; init; }                // optional, companion semver
+
+    [JsonPropertyName("os")]
+    public string? Os { get; init; }                     // optional, e.g. "Windows 11"
+
+    [JsonPropertyName("printerName")]
+    public string? PrinterName { get; init; }            // optional, current default printer
+}
+
+/// <summary>
+/// Wire DTO for POST /api/v1/companion/pair response body (inside the
+/// envelope's data field). The deviceToken is 64 hex chars, returned exactly
+/// once — the backend stores only HMAC-SHA256("print-agent-salt", token).
+/// protocolVersion is 1 for this contract.
+/// </summary>
+public sealed class PairTicketResponseDto
+{
+    [JsonPropertyName("agentId")]
+    public required string AgentId { get; init; }
+
+    [JsonPropertyName("deviceToken")]
+    public required string DeviceToken { get; init; }   // 64 hex chars
+
+    [JsonPropertyName("shopId")]
+    public required string ShopId { get; init; }
+
+    [JsonPropertyName("shopName")]
+    public required string ShopName { get; init; }
+
+    [JsonPropertyName("protocolVersion")]
+    public int ProtocolVersion { get; init; } = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1 contract: remote command polling + ack/result (GET/POST /api/v1/companion/commands)
+// See docs/integration/COMPANION_V1_CONTRACT.md §6 + §7. Auth: Bearer device token.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Wire DTO for a pending command returned by GET /api/v1/companion/commands.
+/// Only commands with status='requested' AND expiresAt > now are returned.
+/// The companion must still validate expiresAt locally before executing
+/// (defense in depth: the command may expire between fetch and execution).
+/// </summary>
+public sealed class PendingCommandDto
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }            // uuid
+
+    [JsonPropertyName("commandType")]
+    public required string CommandType { get; init; } // refresh_printers | pause | resume | cancel_job | retry_job | test_print | diagnostics
+
+    /// <summary>The command payload as a JSON string (e.g. "{}" or '{"jobId":"uuid"}').</summary>
+    [JsonPropertyName("payload")]
+    public string Payload { get; init; } = "{}";
+
+    [JsonPropertyName("expiresAt")]
+    public required DateTimeOffset ExpiresAt { get; init; }
+}
+
+/// <summary>Response envelope for GET /api/v1/companion/commands.</summary>
+public sealed class PendingCommandsEnvelopeDto
+{
+    [JsonPropertyName("commands")]
+    public required List<PendingCommandDto> Commands { get; init; }
+}
+
+/// <summary>
+/// Wire DTO for POST /api/v1/companion/commands request body — acknowledge
+/// receipt and/or report execution result. Status values per the contract:
+/// delivered, accepted, executing, succeeded, failed. Idempotent: same
+/// commandId + same status is a no-op (returns applied:true without re-processing).
+/// </summary>
+public sealed class ReportCommandRequestDto
+{
+    [JsonPropertyName("commandId")]
+    public required string CommandId { get; init; }
+
+    [JsonPropertyName("status")]
+    public required string Status { get; init; }        // delivered|accepted|executing|succeeded|failed
+
+    /// <summary>Structured result as a JSON string (e.g. '{"printers":["HP","Canon"]}'). Omit for non-terminal statuses.</summary>
+    [JsonPropertyName("result")]
+    public string? Result { get; init; }
+}
+
+/// <summary>Response envelope for POST /api/v1/companion/commands.</summary>
+public sealed class ReportCommandResponseDto
+{
+    [JsonPropertyName("applied")]
+    public bool Applied { get; init; }
+}

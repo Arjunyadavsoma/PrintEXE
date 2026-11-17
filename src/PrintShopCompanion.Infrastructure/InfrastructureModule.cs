@@ -23,6 +23,13 @@ public static class InfrastructureModule
 {
     public static IServiceCollection AddPrintShopCompanionInfrastructure(this IServiceCollection services)
     {
+        // v1 contract Appendix C: bind the PrintShop:* section. Where PrintShop
+        // fields are set, they override the historical Backend:* section.
+        // Both sections stay bound; PrintShop wins where present.
+        services.AddOptions<PrintShopOptions>().BindConfiguration(PrintShopOptions.SectionName);
+        // Apply the PrintShop overrides onto BackendOptions via a post-configure
+        // that can DI-resolve IOptions<PrintShopOptions>.
+        services.AddSingleton<IPostConfigureOptions<BackendOptions>, BackendOptionsPostConfigure>();
         // Shopkeeper backend (JWT-authed) — for the Dashboard, Orders, Analytics, etc.
         services.AddHttpClient<IShopBackend, HttpShopBackend>((sp, client) =>
         {
@@ -90,6 +97,11 @@ public static class InfrastructureModule
         // Job processor (started by the App or Worker; not hosted automatically here)
         services.AddSingleton<JobProcessor>();
 
+        // v1 contract §4 — remote command executor + poller + dedup store.
+        services.AddSingleton<Commands.CommandDedupStore>();
+        services.AddSingleton<Commands.CommandExecutor>();
+        services.AddSingleton<Commands.CommandPoller>();
+
         // Auto-update — checks GitHub releases for newer versions
         services.AddHttpClient<IUpdateService, GitHubUpdateService>();
 
@@ -98,6 +110,41 @@ public static class InfrastructureModule
         services.AddSingleton<SyncEngine>();
 
         return services;
+    }
+}
+
+/// <summary>
+/// v1 contract Appendix C — applies the <c>PrintShop:*</c> section's values
+/// onto <see cref="BackendOptions"/> so the rest of the app (which reads
+/// <c>IOptionsMonitor&lt;BackendOptions&gt;</c>) sees the contract values.
+/// <c>PrintShop</c> wins where a field is set; <c>Backend</c> is the fallback.
+/// </summary>
+internal sealed class BackendOptionsPostConfigure : IPostConfigureOptions<BackendOptions>
+{
+    private readonly IOptions<PrintShopOptions> _printShop;
+
+    public BackendOptionsPostConfigure(IOptions<PrintShopOptions> printShop)
+    {
+        _printShop = printShop;
+    }
+
+    public void PostConfigure(string? name, BackendOptions backend)
+    {
+        var ps = _printShop.Value;
+        if (!string.IsNullOrWhiteSpace(ps.BaseUrl))
+            backend.BaseUrl = ps.BaseUrl;
+        if (!string.IsNullOrWhiteSpace(ps.SocketIoUrl))
+            backend.SocketIoUrl = ps.SocketIoUrl;
+        if (ps.HeartbeatInterval is { } hb && hb > TimeSpan.Zero)
+        {
+            backend.HeartbeatInterval = hb;
+            backend.HeartbeatIntervalSeconds = (int)hb.TotalSeconds;
+        }
+        if (ps.PollingInterval is { } poll && poll > TimeSpan.Zero)
+        {
+            backend.PollFallbackInterval = poll;
+            backend.PollIntervalSeconds = (int)poll.TotalSeconds;
+        }
     }
 }
 

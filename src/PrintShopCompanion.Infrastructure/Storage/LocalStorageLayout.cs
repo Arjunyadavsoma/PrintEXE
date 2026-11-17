@@ -81,6 +81,18 @@ public sealed class LocalStorageLayout
         TempTransfersDir = Path.Combine(Root, "Temp", "transfers");
         LogsDir = Path.Combine(Root, "Logs");
 
+        // v1 contract Appendix C: the device token lives at
+        // %AppData%\PrintEXE\device-token.dat. This is the new default for the
+        // v1 companion API contract. The historical path
+        // (%LocalAppData%\PrintShop\Companion\Security\device.dat) and the
+        // v0.4.7 legacy path (%AppData%\PrintShop\Companion\device.dat) are
+        // both migrated to the contract path on first run — see MigrateDeviceToken().
+        ContractDeviceTokenDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PrintEXE");
+        ContractDeviceTokenPath = Path.Combine(ContractDeviceTokenDir, "device-token.dat");
+
+        // Historical v0.5 path — kept as the first migration source.
         DeviceTokenPath = Path.Combine(SecurityDir, "device.dat");
         QueueKeyPath = Path.Combine(SecurityDir, "queue.key");
         QueueDbPath = Path.Combine(DatabaseDir, "queue.db");
@@ -104,11 +116,20 @@ public sealed class LocalStorageLayout
         var o = opts.Value;
         if (!string.IsNullOrWhiteSpace(o.DeviceTokenPath))
             DeviceTokenPath = o.DeviceTokenPath;
+        else
+            // No explicit override → use the v1 contract default path.
+            DeviceTokenPath = ContractDeviceTokenPath;
         if (!string.IsNullOrWhiteSpace(o.QueueDbPath))
             QueueDbPath = o.QueueDbPath;
         if (!string.IsNullOrWhiteSpace(o.LogDir))
             LogsDir = o.LogDir;
     }
+
+    /// <summary>The v1 contract device-token directory: <c>%AppData%\PrintEXE\</c>.</summary>
+    public string ContractDeviceTokenDir { get; }
+
+    /// <summary>The v1 contract device-token path: <c>%AppData%\PrintEXE\device-token.dat</c>.</summary>
+    public string ContractDeviceTokenPath { get; }
 
     /// <summary>
     /// Create all directories if they don't exist. Called on app startup.
@@ -168,18 +189,52 @@ public sealed class LocalStorageLayout
         !string.IsNullOrEmpty(LegacyRoot) && Directory.Exists(LegacyRoot);
 
     /// <summary>
-    /// Move the legacy device.dat to the new Security/ location if it
-    /// exists and the new location doesn't.
+    /// Move a legacy device-token file to the v1 contract path
+    /// (<c>%AppData%\PrintEXE\device-token.dat</c>) if it exists and the
+    /// contract path doesn't. Three migration sources, checked in order:
+    /// <list type="number">
+    ///   <item>v0.5 historical: <c>%LocalAppData%\PrintShop\Companion\Security\device.dat</c></item>
+    ///   <item>v0.4.7 legacy: <c>%AppData%\PrintShop\Companion\device.dat</c></item>
+    /// </list>
+    /// The FIRST existing source is moved to the contract path. If the contract
+    /// path already has a token, nothing is moved (no overwrite). Returns true
+    /// if a migration happened. The queue DB + queue key are NOT moved — they
+    /// stay at the historical location (the contract doesn't specify those
+    /// paths, and moving the encrypted DB is risky).
     /// </summary>
     public bool MigrateDeviceToken()
     {
-        if (string.IsNullOrEmpty(LegacyDeviceTokenPath) || !File.Exists(LegacyDeviceTokenPath))
-            return false;
+        // Contract path already has a token — nothing to do.
         if (File.Exists(DeviceTokenPath))
-            return false;  // already migrated
-        EnsureDirectories();
-        File.Move(LegacyDeviceTokenPath, DeviceTokenPath);
-        return true;
+            return false;
+
+        // Try the v0.5 historical Security/device.dat first (most recent).
+        var historicalV05 = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PrintShop", "Companion", "Security", "device.dat");
+        if (File.Exists(historicalV05))
+        {
+            EnsureDirectoriesForToken();
+            MoveWithRetry(historicalV05, DeviceTokenPath);
+            return true;
+        }
+
+        // Then the v0.4.7 legacy %AppData%\PrintShop\Companion\device.dat.
+        if (!string.IsNullOrEmpty(LegacyDeviceTokenPath) && File.Exists(LegacyDeviceTokenPath))
+        {
+            EnsureDirectoriesForToken();
+            MoveWithRetry(LegacyDeviceTokenPath, DeviceTokenPath);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Create the directory containing <see cref="DeviceTokenPath"/> (the contract path may be under a directory that EnsureDirectories() doesn't create).</summary>
+    private void EnsureDirectoriesForToken()
+    {
+        var dir = Path.GetDirectoryName(DeviceTokenPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
     }
 
     /// <summary>

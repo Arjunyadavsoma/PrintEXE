@@ -23,15 +23,60 @@ public interface IPrintShopBackend
     /// <summary>Current device registration, or null if not paired.</summary>
     DeviceRegistration? CurrentDevice { get; }
 
-    /// <summary>
-    /// Store the device token obtained from the web dashboard's "Register
-    /// new agent" flow. The shopkeeper pastes the token into PrintEXE;
+    /// <summary>Store the device token obtained from the web dashboard. The shopkeeper pastes the token into PrintEXE;
     /// PrintEXE stores it (DPAPI-encrypted) and uses it as the Bearer
     /// credential on every subsequent call.
     /// <para>This replaces the v0.4.6 <c>PairAsync</c> magic-link flow —
     /// the production backend uses paste-token, not magic-link.</para>
     /// </summary>
     Task PairWithDeviceTokenAsync(string deviceToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// v1 contract §2 — exchange a short-lived pairing ticket for a long-lived
+    /// device token. The ticket is obtained by the shopkeeper on the website
+    /// (<c>POST /companion/pairing/begin</c>, shopkeeper JWT) and pasted into
+    /// PrintEXE (or delivered via the <c>printshop://pair?ticket=...</c> deep
+    /// link). This method sends <c>POST /api/v1/companion/pair</c> with no
+    /// Authorization header — the ticket IS the authorization.
+    /// <para>On success, the returned <see cref="PairResult.DeviceToken"/> is
+    /// DPAPI-persisted (via <see cref="PairWithDeviceTokenAsync"/>) before this
+    /// method returns, so a crash immediately after cannot lose the credential.</para>
+    /// <para>Throws <see cref="PairingTicketException"/> for the contract's
+    /// ticket-specific error codes (TICKET_EXPIRED, TICKET_CONSUMED, VALIDATION_ERROR,
+    /// UNAUTHORIZED) so the UI can map each to a distinct user-facing state.</para>
+    /// </summary>
+    Task<PairResult> PairWithTicketAsync(
+        string ticket,
+        string deviceName,
+        string? version = null,
+        string? os = null,
+        string? printerName = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// v1 contract §6 — fetch pending remote commands for this device.
+    /// <c>GET /api/v1/companion/commands</c>. The backend returns only
+    /// commands with <c>status='requested'</c> AND <c>expiresAt &gt; now</c>.
+    /// The companion still validates <see cref="PendingCommand.IsExpired"/>
+    /// locally before executing (defense in depth).
+    /// </summary>
+    Task<IReadOnlyList<PendingCommand>> FetchPendingCommandsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// v1 contract §7 — acknowledge receipt and/or report execution result.
+    /// <c>POST /api/v1/companion/commands</c>. Idempotent on (commandId, status):
+    /// the backend returns <c>applied:true</c> without re-processing.
+    /// <para>Report <see cref="CommandStatus.Delivered"/> on receipt,
+    /// <see cref="CommandStatus.Executing"/> when starting, then
+    /// <see cref="CommandStatus.Succeeded"/> or <see cref="CommandStatus.Failed"/>
+    /// on completion. <paramref name="resultJson"/> is a structured JSON string
+    /// (e.g. <c>{"printers":["HP","Canon"]}</c>); omit for non-terminal statuses.</para>
+    /// </summary>
+    Task<CommandReportResult> ReportCommandStatusAsync(
+        string commandId,
+        string status,
+        string? resultJson = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Exchange the stored device token for a short-lived JWT (15 min TTL).
@@ -184,3 +229,44 @@ public sealed record SyncStatusResult(
     DateTimeOffset? LastSyncAt,
     string? AgentName,
     bool IsOnline);
+
+// ────────────────────────── v1 contract exceptions ──────────────────────────
+
+/// <summary>
+/// Raised by <see cref="IPrintShopBackend.PairWithTicketAsync"/> when the
+/// backend rejects the pairing ticket for one of the contract's
+/// ticket-specific reasons (contract §2 error table). The
+/// <see cref="Code"/> maps to a distinct user-facing state on the Pair
+/// Computer screen (e.g. TICKET_EXPIRED → "Pairing code expired, generate a
+/// new one"; TICKET_CONSUMED → "Pairing code already used, generate a new one").
+/// </summary>
+public sealed class PairingTicketException : Exception
+{
+    public PairingTicketException(string code, string message) : base(message)
+    {
+        Code = code;
+    }
+
+    /// <summary>The backend's error code: VALIDATION_ERROR, UNAUTHORIZED, TICKET_EXPIRED, TICKET_CONSUMED, or RATE_LIMITED.</summary>
+    public string Code { get; }
+
+    /// <summary>True if this is a ticket-specific error the user can fix by generating a new ticket.</summary>
+    public bool IsTicketError => Code is "TICKET_EXPIRED" or "TICKET_CONSUMED" or "UNAUTHORIZED" or "VALIDATION_ERROR";
+
+    /// <summary>True if the backend rate-limited the pair attempt (contract §2: 10/min).</summary>
+    public bool IsRateLimited => Code is "RATE_LIMITED";
+}
+
+/// <summary>
+/// Raised by any authenticated companion-route call when the backend returns
+/// 403 FORBIDDEN / <c>DEVICE_DISABLED</c> (v1 contract §3 + §14). Distinct from
+/// the 401 UNAUTHORIZED case (revoked) — a disabled device still exists, its
+/// token hash is valid, but the shop admin has suspended it. The companion
+/// must NOT clear the credential (the admin may re-enable it); it should show
+/// "This device is disabled. Contact your shop administrator." and stop
+/// retrying. See docs/CONTRACT_V1_REVIEW.md §3.
+/// </summary>
+public sealed class DeviceDisabledException : Exception
+{
+    public DeviceDisabledException(string message) : base(message) { }
+}

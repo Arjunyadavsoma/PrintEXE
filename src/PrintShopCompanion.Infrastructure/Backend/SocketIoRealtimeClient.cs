@@ -45,6 +45,14 @@ public sealed class SocketIoRealtimeClient : IDisposable
     public event Action<bool>? ConnectionChanged;
     public event Action? Revoked;
 
+    /// <summary>
+    /// v1 contract §12 — raised when the server emits <c>device.command.issued</c>
+    /// <c>{commandId, agentId, commandType}</c>. The companion responds by
+    /// polling <c>GET /companion/commands</c> immediately (rather than waiting
+    /// for the next poll tick) to fetch the command + execute it.
+    /// </summary>
+    public event Action<string?>? CommandIssued;
+
     public bool IsConnected => _socket.Connected;
 
     public SocketIoRealtimeClient(
@@ -133,6 +141,46 @@ public sealed class SocketIoRealtimeClient : IDisposable
                 }
             }
             catch (Exception ex) { _logger.LogWarning(ex, "agent.revoked handler failed"); }
+        });
+
+        // v1 contract §12 — device.command.issued: a command was created for this
+        // device. Trigger an immediate command poll so the executor fetches +
+        // executes it without waiting for the next poll tick. The payload has
+        // {commandId, agentId, commandType}; we pass commandType (or null) as a
+        // hint — the executor still fetches via GET /companion/commands to get
+        // the authoritative payload + expiry.
+        _socket.On("device.command.issued", ev =>
+        {
+            try
+            {
+                var payload = ev.GetValue<DeviceCommandIssuedPayload>();
+                if (payload?.AgentId is null ||
+                    payload.AgentId == ThisApp.DeviceId.ToString("N"))
+                {
+                    _logger.LogInformation("Socket.IO device.command.issued — type={CommandType} id={CommandId}",
+                        payload?.CommandType, payload?.CommandId);
+                    CommandIssued?.Invoke(payload?.CommandType);
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "device.command.issued handler failed"); }
+        });
+
+        // v1 contract §12 — device.revoked: same effect as agent.revoked but the
+        // newer event name. Clear credential + stop. Some deployments may emit
+        // either; handle both.
+        _socket.On("device.revoked", ev =>
+        {
+            try
+            {
+                var payload = ev.GetValue<DeviceRevokedPayload>();
+                if (payload?.AgentId is null ||
+                    payload.AgentId == ThisApp.DeviceId.ToString("N"))
+                {
+                    _logger.LogWarning("This device was revoked (device.revoked event)");
+                    Revoked?.Invoke();
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "device.revoked handler failed"); }
         });
 
         // sync.pushed — new data available, trigger a sync pull
@@ -253,6 +301,34 @@ internal sealed class AgentRevokedPayload
     public string? AgentId { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("agentName")]
     public string? AgentName { get; set; }
+}
+
+/// <summary>
+/// v1 contract §12 — payload for the <c>device.command.issued</c> Socket.IO event.
+/// <c>{commandId, agentId, commandType}</c>. The companion polls
+/// <c>GET /companion/commands</c> on receipt to fetch the authoritative payload
+/// + expiry (defense in depth: the event is a notification, not a record).
+/// </summary>
+internal sealed class DeviceCommandIssuedPayload
+{
+    [System.Text.Json.Serialization.JsonPropertyName("commandId")]
+    public string? CommandId { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("commandType")]
+    public string? CommandType { get; set; }
+}
+
+/// <summary>
+/// v1 contract §12 — payload for the <c>device.revoked</c> Socket.IO event.
+/// <c>{agentId}</c>. Treated the same as <c>agent.revoked</c> (clear credential + stop).
+/// </summary>
+internal sealed class DeviceRevokedPayload
+{
+    [System.Text.Json.Serialization.JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
 }
 
 /// <summary>
