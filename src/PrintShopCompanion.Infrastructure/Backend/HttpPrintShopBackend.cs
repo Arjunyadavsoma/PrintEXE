@@ -849,8 +849,48 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     private void EnsureAuthenticated()
     {
+        if (_token is null) TryRestoreTokenFromDiskSync();
         if (_token is null)
             throw new InvalidOperationException("Not paired with a shop — paste the device token from the web dashboard first");
+    }
+
+    /// <summary>
+    /// Phase 1 (Defect C fix): lazy, synchronous DPAPI restore when this
+    /// instance has never been authenticated. The typed client is registered
+    /// TRANSIENT, so every DI resolution used to yield a fresh instance with
+    /// <c>_token == null</c> — EnsureAuthenticated threw even though the
+    /// device WAS paired (heartbeat timer, rotation policy, revocation all
+    /// resolved their own instance and silently failed). This loads the
+    /// DPAPI-protected credential from disk WITHOUT network validation (the
+    /// first real call validates it); once, per instance.
+    /// </summary>
+    private bool _restoreAttempted;
+    private void TryRestoreTokenFromDiskSync()
+    {
+        if (_restoreAttempted) return;
+        _restoreAttempted = true;
+        try
+        {
+            var credPath = ResolveDeviceTokenPath();
+            if (!File.Exists(credPath)) return;
+            byte[] encrypted = File.ReadAllBytes(credPath);
+            byte[] plaintext = System.Security.Cryptography.ProtectedData.Unprotect(
+                encrypted, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+            string deviceToken = System.Text.Encoding.UTF8.GetString(plaintext);
+            if (string.IsNullOrWhiteSpace(deviceToken)) return;
+            _token = new DeviceToken
+            {
+                ShopId = "",
+                AgentId = "",
+                Token = deviceToken,
+                IssuedAt = File.GetLastWriteTimeUtc(credPath),
+            };
+            _logger.LogInformation("Device credential lazily restored from disk (unvalidated — first call will validate)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lazy credential restore failed — treating device as unpaired");
+        }
     }
 
     /// <summary>

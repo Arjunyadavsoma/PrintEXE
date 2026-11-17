@@ -99,18 +99,25 @@ public partial class App : Application
                 {
                     cfg.SetBasePath(AppContext.BaseDirectory);
                     cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-                    // Per-user overrides. TWO sources, LAST one wins:
-                    //  1. appsettings.Local.json next to the exe (legacy — the
-                    //     Worker already read this; kept for existing installs).
+                    // Per-user overrides. THREE sources, LAST one wins:
+                    //  1. appsettings.Local.json next to the exe (legacy — kept
+                    //     for existing installs).
                     //  2. %AppData%\PrintShop\Companion\appsettings.Local.json —
-                    //     where LocalSettingsStore now writes (Program Files is
-                    //     not writable without elevation; Phase 0 audit fix).
-                    // The Settings screen previously wrote overrides that this
-                    // App never loaded — settings silently reset on restart.
+                    //     where LocalSettingsStore writes (Program Files is not
+                    //     writable without elevation; Phase 0 audit fix).
+                    //  3. The same AppData file is added LAST via a relative
+                    //     path — Phase 1 verification: AddJsonFile with an
+                    //     ABSOLUTE path is a silent no-op (PhysicalFileProvider
+                    //     rejects rooted paths), so the Phase 0 override source
+                    //     never actually loaded. SetBasePath is re-pointed at
+                    //     the AppData directory and a RELATIVE file name is
+                    //     used; the base path is restored afterwards.
                     cfg.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
-                    cfg.AddJsonFile(
-                        PrintShopCompanion.Infrastructure.Storage.LocalSettingsStore.SettingsPath,
-                        optional: true, reloadOnChange: true);
+                    var appDataDir = System.IO.Path.GetDirectoryName(
+                        PrintShopCompanion.Infrastructure.Storage.LocalSettingsStore.SettingsPath)!;
+                    cfg.SetBasePath(appDataDir);
+                    cfg.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+                    cfg.SetBasePath(AppContext.BaseDirectory);
                 })
                 .ConfigureServices((ctx, services) =>
                 {

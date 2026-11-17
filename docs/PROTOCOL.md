@@ -151,7 +151,7 @@ POST /api/v1/agents/jobs/{jobId}/status
 Authorization: Bearer <deviceToken>
 Content-Type: application/json
 
-{ "status": "printing" | "completed" | "failed", "lastError": "<≤500 chars>", "printerName": "<≤200 chars>" }
+{ "status": "printing" | "completed" | "failed" | "needs_review", "lastError": "<≤500 chars>", "printerName": "<≤200 chars>" }
 ```
 
 → `200 OK` envelope: success `{jobId, status, applied:true}` OR skip
@@ -163,7 +163,7 @@ Content-Type: application/json
   order's files are `completed`, the order flips to `ready` and `order.ready` is published.
 - `status:"failed"` is unconditional; sets `lastError`.
 
-**Only these three strings are accepted.** `queued`/`assigned`/`needs_review` are
+**Accepted: printing | completed | failed | needs_review** (Phase 1: the SaaS accepts needs_review from printing/queued states for uncertain physical outcomes; completed is also accepted from needs_review for operator resolution). `queued`/`assigned` are
 server-internal. See `JobStatusMappingTests.cs` for the local→backend mapping.
 
 ### 4.4 Reporting receipt (v0.5.x+)

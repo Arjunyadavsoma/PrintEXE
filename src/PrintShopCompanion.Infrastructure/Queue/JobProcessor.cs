@@ -298,7 +298,19 @@ public sealed class JobProcessor : IQueueController
             // have come out. Do NOT cancel (loses the job) and do NOT reprint
             // (duplicate paper): park it as OutcomeUnknown and report
             // needs_review so the website shows the honest state.
-            if (claim.Reason != null && claim.Reason.Contains("'printing'", StringComparison.Ordinal))
+            //
+            // Phase 1 (Defect E fix): the SaaS now distinguishes the two
+            // 'printing'-skip causes in its skip reason. The authoritative
+            // signal is "claimed by this device in a previous session"; the
+            // bare "'printing'" substring remains as a fallback for an older
+            // backend (both ship together, so the enriched reason is
+            // expected). A live multi-device race loss now says "already
+            // claimed by another agent" and falls through to Cancel below.
+            var reason = claim.Reason ?? string.Empty;
+            var crashLeftover = reason.Contains("previous session", StringComparison.Ordinal)
+                || (!reason.Contains("another agent", StringComparison.Ordinal)
+                    && reason.Contains("'printing'", StringComparison.Ordinal));
+            if (crashLeftover)
             {
                 _logger.LogWarning(
                     "Job {JobId} skipped: backend still shows 'printing' from a previous session — marking OutcomeUnknown (operator reconciliation required)",

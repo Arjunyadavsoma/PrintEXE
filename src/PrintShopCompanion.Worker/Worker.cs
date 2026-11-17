@@ -52,6 +52,14 @@ public static class Program
                     cfg.SetBasePath(AppContext.BaseDirectory);
                     cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
                     cfg.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+                    // Phase 1: also load the per-user AppData overrides written
+                    // by LocalSettingsStore, with a RELATIVE file name —
+                    // AddJsonFile silently ignores absolute paths
+                    // (PhysicalFileProvider rejects rooted paths).
+                    cfg.SetBasePath(System.IO.Path.GetDirectoryName(
+                        PrintShopCompanion.Infrastructure.Storage.LocalSettingsStore.SettingsPath)!);
+                    cfg.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+                    cfg.SetBasePath(AppContext.BaseDirectory);
                 })
                 .ConfigureServices((ctx, services) =>
                 {

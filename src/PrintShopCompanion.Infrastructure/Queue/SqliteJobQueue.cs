@@ -958,9 +958,13 @@ public sealed class SqliteJobQueue : IJobQueue
 
     /// <summary>
     /// Mark a job as <see cref="JobStatus.OutcomeUnknown"/>. Used when the companion
-    /// sent a status report to the backend but never received a 2xx confirmation.
-    /// The next heartbeat will try to reconcile by fetching the backend's view of this
-    /// job and updating the local status to match.
+    /// sent a status report to the backend but never received a 2xx confirmation,
+    /// OR when the backend still holds the job 'printing' from a previous process
+    /// run (crash recovery — Phase 1 Defect B fix: the claim-skip path runs on a
+    /// PENDING job, and the old WHERE status=@printed guard matched zero rows, so
+    /// the park was a silent no-op and the job was re-claimed every poll cycle).
+    /// OutcomeUnknown jobs are never auto-processed; they wait for operator
+    /// reconciliation in the Print Queue.
     /// </summary>
     public async Task MarkOutcomeUnknownAsync(string jobId, string reason, CancellationToken ct = default)
     {
@@ -975,10 +979,12 @@ public sealed class SqliteJobQueue : IJobQueue
                        last_error = @reason,
                        updated_at = @now
                  WHERE job_id = @job_id
-                   AND status = @printed;
+                   AND status IN (@printed, @pending, @uncertain);
                 """;
             AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
             AddParam(cmd, "@printed", (int)JobStatus.Printed);
+            AddParam(cmd, "@pending", (int)JobStatus.Pending);
+            AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
             AddParam(cmd, "@reason", reason);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@job_id", jobId);
