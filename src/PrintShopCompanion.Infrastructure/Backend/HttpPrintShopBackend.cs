@@ -681,7 +681,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// Mirrors <c>DeviceTokenStore</c>'s write-safety pattern for the raw
     /// token file used by <see cref="RestoreAsync"/>.
     /// </summary>
-    private async Task PersistDeviceTokenAsync(string deviceToken, CancellationToken ct)
+    public async Task PersistDeviceTokenAsync(string deviceToken, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(deviceToken))
             throw new InvalidOperationException("Refusing to persist an empty device token");
