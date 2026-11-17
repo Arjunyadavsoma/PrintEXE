@@ -89,14 +89,16 @@ public class PairingTicketValidationTests
     public async Task Trims_whitespace_around_ticket_before_format_check()
     {
         var backend = MakeBackend();
-        // 64 hex chars surrounded by whitespace — should be trimmed + pass format
-        // validation (then fail at the network because no real backend).
+        // 64 hex chars surrounded by whitespace — should be trimmed + pass local
+        // format validation. The HTTP call then fails (no real backend); the impl
+        // wraps any non-2xx / network failure as a PairingTicketException with
+        // code "UNKNOWN" (or the backend's error code). The point of this test
+        // is that local VALIDATION_ERROR did NOT fire — the trim worked.
         var ticket = "  " + new string('a', 64) + "  ";
         var act = async () => await backend.PairWithTicketAsync(ticket, "My-PC");
-        // Should NOT throw VALIDATION_ERROR — should throw something else (network/BaseUrl).
-        var ex = await act.Should().ThrowAsync<Exception>();
-        ex.Which.Should().NotBeOfType<PairingTicketException>(
-            "a trimmed 64-hex ticket passes local validation; the failure must come from the (absent) network, not local validation");
+        var ex = await act.Should().ThrowAsync<PairingTicketException>();
+        ex.Which.Code.Should().NotBe("VALIDATION_ERROR",
+            "a trimmed 64-hex ticket passes local format validation; the failure must be downstream (network/backend), not a local validation error");
     }
 
     [Fact]

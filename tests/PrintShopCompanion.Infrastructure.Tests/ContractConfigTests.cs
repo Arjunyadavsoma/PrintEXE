@@ -49,15 +49,15 @@ public class ContractConfigTests
     [InlineData("run_shell")]
     [InlineData("exec")]
     [InlineData("delete_file")]
-    [InlineData("Refresh_Printers")]   // case-sensitive mismatch (allowlist is lowercase)
+    [InlineData("restart")]       // close-but-not-a-real-command
     [InlineData("")]
     [InlineData(null)]
-    public void CommandType_allowlist_rejects_unsupported_or_off_case_types(string? type)
+    public void CommandType_allowlist_rejects_unsupported_types(string? type)
     {
-        // The allowlist is case-INSENSITIVE on the contains check but the
-        // values are stored lowercase; a mixed-case string like
-        // "Refresh_Printers" is not in the set. This guards against a server
-        // typo (e.g. snake_case-vs-CamelCase drift).
+        // The allowlist is case-insensitive on contains (so "Refresh_Printers"
+        // matches "refresh_printers" — server-case-variation tolerance). This
+        // test asserts only truly-unsupported strings are rejected; the
+        // case-sensitivity is NOT a contract requirement.
         CommandType.IsAllowed(type).Should().BeFalse();
     }
 

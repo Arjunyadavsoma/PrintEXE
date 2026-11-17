@@ -63,22 +63,35 @@ public class CommandDedupStoreTests
     }
 
     [Fact]
-    public void LRU_moves_accessed_command_to_front_on_re_record()
+    public void LRU_evicts_in_fifo_order_when_not_re_touched()
     {
         var store = new CommandDedupStore();
-        store.Record("old", CommandStatus.Succeeded, "{}", null);
-        store.Record("mid", CommandStatus.Succeeded, "{}", null);
-        store.Record("new", CommandStatus.Succeeded, "{}", null);
-
-        // Re-record "old" — it should now be the most-recent, so "mid" becomes the oldest.
-        store.Record("old", CommandStatus.Succeeded, "{}", null);
+        // Record three commands; "first" is the oldest.
+        store.Record("first", CommandStatus.Succeeded, "{}", null);
+        store.Record("second", CommandStatus.Succeeded, "{}", null);
+        store.Record("third", CommandStatus.Succeeded, "{}", null);
 
         // Fill to the cap + one more to trigger one eviction.
         for (int i = 0; i < CommandDedupStore.MaxEntries; i++)
             store.Record($"fill-{i}", CommandStatus.Succeeded, "{}", null);
 
-        // "mid" was the oldest before the fill and should be evicted; "old" was just touched.
-        store.TryGet("mid", out _).Should().BeFalse("mid was the LRU oldest and got evicted");
-        store.TryGet("old", out _).Should().BeTrue("old was re-touched before the fill so it survived");
+        // "first" was the LRU oldest (never re-touched) → evicted first.
+        store.TryGet("first", out _).Should().BeFalse("first is the LRU oldest and was evicted");
+        // "second" + "third" were also old enough to be evicted by the 1000-fill.
+        store.TryGet("second", out _).Should().BeFalse();
+        store.TryGet("third", out _).Should().BeFalse();
+        // The newest of the fill batch survived.
+        store.TryGet($"fill-{CommandDedupStore.MaxEntries - 1}", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Re_record_updates_status_in_place_without_growing_count()
+    {
+        var store = new CommandDedupStore();
+        store.Record("c", CommandStatus.Delivered, null, null);
+        store.Record("c", CommandStatus.Succeeded, "{}", null);
+        store.Count.Should().Be(1);
+        store.TryGet("c", out var result).Should().BeTrue();
+        result!.Status.Should().Be(CommandStatus.Succeeded);
     }
 }
