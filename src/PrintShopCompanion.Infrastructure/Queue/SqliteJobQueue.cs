@@ -230,6 +230,11 @@ public sealed class SqliteJobQueue : IJobQueue
 
         var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
+        // Phase 0 audit: WAL + busy_timeout + synchronous=NORMAL (see
+        // SqliteConnectionPragmas) instead of relying on default rollback
+        // journal + zero busy timeout with C#-side retries as the only
+        // mitigation.
+        await SqliteConnectionPragmas.ApplyToAsync(conn, ct);
         return conn;
     }
 
@@ -280,6 +285,7 @@ public sealed class SqliteJobQueue : IJobQueue
         {
             await using var c = new SqliteConnection(_connectionString);
             await c.OpenAsync(ct);
+            await SqliteConnectionPragmas.ApplyToAsync(c, ct);
             await using var integrity = c.CreateCommand();
             integrity.CommandText = "PRAGMA integrity_check;";
             var result = (string?)(await integrity.ExecuteScalarAsync(ct));

@@ -112,6 +112,24 @@
           </RegistryKey>
         </RegistryKey>
       </Component>
+      <!-- Phase 0 audit fix: the SaaS pairing dialog emits
+           printshop://pair?ticket=…&shop=… (POST /api/v1/companion/pairing/begin
+           returns pairingUrl with this scheme). The legacy scheme alone meant a
+           click on the website's deep link did NOTHING unless the user had the
+           legacy scheme registered by another product. Register BOTH; the app
+           parses either. -->
+      <Component Id="ProtocolRegistrationPrintshop" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D36" KeyPath="yes">
+        <RegistryKey Root="HKCU" Key="Software\Classes\printshop">
+          <RegistryValue Type="string" Value="URL:PrintShop Companion" />
+          <RegistryValue Type="string" Name="URL Protocol" Value="" />
+          <RegistryKey Key="DefaultIcon">
+            <RegistryValue Type="string" Value="[INSTALLDIR]PrintShopCompanion.exe,0" />
+          </RegistryKey>
+          <RegistryKey Key="shell\open\command">
+            <RegistryValue Type="string" Value='"[INSTALLDIR]PrintShopCompanion.exe" "%1"' />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
     </ComponentGroup>
 
     <ComponentGroup Id="WorkerComponents" Directory="INSTALLDIR">

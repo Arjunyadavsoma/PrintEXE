@@ -788,3 +788,27 @@ public sealed class ReportCommandResponseDto
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset? UpdatedAt { get; init; }
 }
+
+/// <summary>
+/// Response of POST /api/v1/companion/token/rotate (device credential
+/// rotation). The new <c>deviceToken</c> is returned ONCE — the backend
+/// stores only its HMAC verifier. The previous token keeps working until
+/// <c>overlapExpiresAt</c> (10 minutes), then is rejected.
+/// </summary>
+public sealed class TokenRotationResponseDto
+{
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; init; }
+
+    [JsonPropertyName("deviceToken")]
+    public string DeviceToken { get; init; } = "";
+
+    [JsonPropertyName("rotatedAt")]
+    public DateTimeOffset? RotatedAt { get; init; }
+
+    [JsonPropertyName("overlapExpiresAt")]
+    public DateTimeOffset? OverlapExpiresAt { get; init; }
+
+    [JsonPropertyName("warning")]
+    public string? Warning { get; init; }
+}

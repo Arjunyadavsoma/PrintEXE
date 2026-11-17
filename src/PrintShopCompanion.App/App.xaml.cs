@@ -99,6 +99,18 @@ public partial class App : Application
                 {
                     cfg.SetBasePath(AppContext.BaseDirectory);
                     cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+                    // Per-user overrides. TWO sources, LAST one wins:
+                    //  1. appsettings.Local.json next to the exe (legacy — the
+                    //     Worker already read this; kept for existing installs).
+                    //  2. %AppData%\PrintShop\Companion\appsettings.Local.json —
+                    //     where LocalSettingsStore now writes (Program Files is
+                    //     not writable without elevation; Phase 0 audit fix).
+                    // The Settings screen previously wrote overrides that this
+                    // App never loaded — settings silently reset on restart.
+                    cfg.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+                    cfg.AddJsonFile(
+                        PrintShopCompanion.Infrastructure.Storage.LocalSettingsStore.SettingsPath,
+                        optional: true, reloadOnChange: true);
                 })
                 .ConfigureServices((ctx, services) =>
                 {
@@ -153,6 +165,27 @@ public partial class App : Application
             else
                 nav.NavigateTo("Login");
             Log.Information("Navigated to: {View}", nav.CurrentView);
+
+            // Deep-link pairing activation (integration spec §7.3): a
+            // printshop://pair?ticket=… (or legacy printshopcompanion://) URI
+            // from the website's Add Device dialog. Only route it when the
+            // device is NOT already paired — a paired device silently
+            // re-pairing itself from a URI click would be a security hole.
+            // The Login screen consumes the URI once and PRE-FILLS the
+            // pairing code; the user still confirms with an explicit click.
+            if (UriActivator.GetActivationUri() is { } activationUri)
+            {
+                if (!hasSavedCredentials)
+                {
+                    Dispatcher.Invoke(() => nav.NavigateTo("Login"));
+                    Log.Information("Protocol activation detected: {Scheme}://… — Login screen will offer the pairing code", activationUri.Scheme);
+                }
+                else
+                {
+                    Log.Warning(
+                        "Protocol activation ignored: device already paired. To pair a different shop, unpair first (Settings) or use the pairing code manually.");
+                }
+            }
 
             // SHOW THE WINDOW IMMEDIATELY — before any async work
             var main = _host.Services.GetRequiredService<MainWindow>();
@@ -249,6 +282,7 @@ public partial class App : Application
                     if (restored)
                     {
                         await StartCloudConnectionAsync();
+                        await TryRotateStaleCredentialAsync();
                     }
                     else
                     {
@@ -381,6 +415,24 @@ public partial class App : Application
             realtime.Revoked += () =>
             {
                 Log.Warning("Device revoked by the shopkeeper — clearing credential and returning to Login");
+                // Phase 0 audit fix: the revoke handler previously ONLY navigated
+                // to Login and left the DPAPI credential file on disk — the next
+                // start would attempt to restore with a dead token. Clear the
+                // persisted credential NOW (revocation invalidates it server-side
+                // immediately; keeping a dead token locally is pointless).
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var backend = _host.Services.GetRequiredService<IPrintShopBackend>();
+                        await backend.RevokeDeviceAsync();
+                        Log.Information("Revoked device credential cleared from local storage");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to clear credential after revoke (non-fatal — re-pairing still works)");
+                    }
+                });
                 Dispatcher.Invoke(() =>
                 {
                     try
@@ -440,6 +492,44 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Warning(ex, "StartCloudConnectionAsync failed (non-fatal — local queue still operates)");
+        }
+    }
+
+    /// <summary>
+    /// Token-rotation policy (integration spec §8.3 — "do not rotate on every
+    /// heartbeat"). A credential whose file was last written more than 30 days
+    /// ago is rotated once at startup, AFTER the cloud connection is up so the
+    /// overlap window never matters for the first heartbeat. Failures are
+    /// logged and retried on the next launch — a failed rotation must not
+    /// lock out a healthy device, and the old token stays valid for the
+    /// server-side 10-minute overlap regardless.
+    /// </summary>
+    private static readonly TimeSpan CredentialRotationAge = TimeSpan.FromDays(30);
+
+    private async Task TryRotateStaleCredentialAsync()
+    {
+        try
+        {
+            var layout = _host!.Services.GetRequiredService<PrintShopCompanion.Infrastructure.Storage.LocalStorageLayout>();
+            var credPath = layout.DeviceTokenPath;
+            if (!File.Exists(credPath)) return;
+
+            var age = DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(credPath);
+            if (age < CredentialRotationAge) return;
+
+            Log.Information("Device credential is {Days:F0} days old — rotating it (POST /api/v1/companion/token/rotate)", age.TotalDays);
+            var backend = _host.Services.GetRequiredService<IPrintShopBackend>();
+            var result = await backend.RotateDeviceTokenAsync();
+            Log.Information("Device token rotated successfully (old token accepted until {OverlapExpiresAt})",
+                result.OverlapExpiresAt?.ToString("u") ?? "(server did not specify)");
+        }
+        catch (OperationCanceledException) when (_appCts!.IsCancellationRequested)
+        {
+            // shutting down
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Credential rotation failed (non-fatal — the previous token remains valid; rotation retries on next launch)");
         }
     }
 

@@ -88,9 +88,25 @@ public interface IPrintShopBackend
     Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Heartbeat: refreshes presence on the backend. Send every 60 seconds.
+    /// Heartbeat: refreshes presence on the backend. Send every 15 seconds
+    /// (the server marks the device offline after 30s of silence).
+    /// <para><paramref name="printerName"/> carries the device's currently
+    /// selected printer — the SaaS stores it on the agent row and shows it on
+    /// the Devices page. Pass null to fall back to the configured default.</para>
     /// </summary>
-    Task<HeartbeatResult> HeartbeatAsync(CancellationToken cancellationToken = default);
+    Task<HeartbeatResult> HeartbeatAsync(CancellationToken cancellationToken = default, string? printerName = null);
+
+    /// <summary>
+    /// Rotate the device credential: POST /api/v1/companion/token/rotate with
+    /// the CURRENT token; the backend returns a NEW 64-hex device token ONCE
+    /// and keeps accepting the old token for a short (10-minute) overlap so an
+    /// in-flight request is not dropped mid-rotation.
+    /// <para>The new token is DPAPI-persisted BEFORE the in-memory credential
+    /// is switched (the spec's "persist before transition" rule); if the
+    /// persist fails, the old token is kept and the rotation can be retried
+    /// inside the overlap window.</para>
+    /// </summary>
+    Task<TokenRotationResult> RotateDeviceTokenAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Fetch the next batch of pending jobs for this device (up to 10).
@@ -167,6 +183,18 @@ public sealed record HeartbeatResult(
     DateTimeOffset ServerTime,
     bool TokenStillValid,
     string? RecommendedBackendVersion);
+
+/// <summary>
+/// Result of POST /api/v1/companion/token/rotate. <see cref="DeviceToken"/>
+/// is the NEW credential (returned once — the server stores only its HMAC
+/// verifier). <see cref="OverlapExpiresAt"/> is when the OLD token stops
+/// working (null if the server didn't report it).
+/// </summary>
+public sealed record TokenRotationResult(
+    string DeviceToken,
+    DateTimeOffset RotatedAt,
+    DateTimeOffset? OverlapExpiresAt,
+    string? Warning);
 
 public sealed record DownloadedPdf(
     string LocalPath,

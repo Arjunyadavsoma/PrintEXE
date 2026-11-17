@@ -292,6 +292,30 @@ public sealed class JobProcessor : IQueueController
         }
         if (claim.Skipped)
         {
+            // Crash-recovery case: the backend still holds the job in 'printing'
+            // from a previous process run that never reported a result (claim,
+            // then crash). The physical outcome is UNKNOWN — paper may already
+            // have come out. Do NOT cancel (loses the job) and do NOT reprint
+            // (duplicate paper): park it as OutcomeUnknown and report
+            // needs_review so the website shows the honest state.
+            if (claim.Reason != null && claim.Reason.Contains("'printing'", StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "Job {JobId} skipped: backend still shows 'printing' from a previous session — marking OutcomeUnknown (operator reconciliation required)",
+                    job.JobId);
+                await _queue.MarkOutcomeUnknownAsync(job.JobId,
+                    "Backend kept the job in 'printing' from a previous session; physical outcome unknown", ct);
+                try
+                {
+                    await _backend.ReportJobStatusAsync(job.JobId, "needs_review", printerName,
+                        errorMessage: "Device restarted before the spooler result could be determined", ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "needs_review report for recovered job {JobId} failed (will surface on next reconciliation)", job.JobId);
+                }
+                return;
+            }
             _logger.LogInformation("Job {JobId} skipped: {Reason} — another agent got it", job.JobId, claim.Reason);
             // Mark as cancelled locally so we don't keep retrying.
             await _queue.CancelAsync(job.JobId, ct);
@@ -340,11 +364,16 @@ public sealed class JobProcessor : IQueueController
                 "Spooler did not confirm physical print within timeout; outcome uncertain",
                 ct);
             _logger.LogWarning("Job {JobId} marked UncertainSpooled — operator reconciliation required", job.JobId);
-            // Also report failure to the backend so it knows the claim didn't result in a print.
+            // Report needs_review (NOT failed) to the backend: the paper may
+            // actually have printed — the spooler just never confirmed. The
+            // website parks the job in needs_review for operator resolution;
+            // the operator's decision is reported back as completed/failed.
+            // (Previously this reported "failed", which mislabels a job whose
+            // physical outcome is unknown.)
             try
             {
-                await _backend.ReportJobStatusAsync(job.JobId, "failed", printerName,
-                    errorMessage: "Spooler did not confirm physical print within timeout", ct);
+                await _backend.ReportJobStatusAsync(job.JobId, "needs_review", printerName,
+                    errorMessage: "Spooler did not confirm physical print within timeout — outcome uncertain", ct);
             }
             catch { /* swallow — already marked uncertain locally */ }
             return;
@@ -368,17 +397,37 @@ public sealed class JobProcessor : IQueueController
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to set localDeleteAfter (non-fatal)"); }
 
-        // 6. Report completion to the backend.
-        try
+        // 6. Report completion to the backend — with bounded retries so a
+        //    transient network blip doesn't orphan a physically-printed job
+        //    in 'printing' forever (the backend has no automatic sweep that
+        //    reconciles stuck 'printing' rows; the honest fix is to retry
+        //    here, then park the job locally for operator resolution).
+        bool reported = false;
+        for (int attempt = 1; attempt <= 3 && !reported && !ct.IsCancellationRequested; attempt++)
         {
-            await _backend.ReportJobStatusAsync(job.JobId, "completed", printerName, errorMessage: null, ct);
-            await _queue.MarkReportedPrintedAsync(job.JobId, ct);
-            _logger.LogInformation("Reported completed to backend");
+            try
+            {
+                await _backend.ReportJobStatusAsync(job.JobId, "completed", printerName, errorMessage: null, ct);
+                await _queue.MarkReportedPrintedAsync(job.JobId, ct);
+                reported = true;
+                _logger.LogInformation("Reported completed to backend (attempt {Attempt})", attempt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Completion report attempt {Attempt}/3 failed for job {JobId}", attempt, job.JobId);
+                if (attempt < 3)
+                {
+                    try { await Task.Delay(TimeSpan.FromSeconds(attempt * 2), ct); }
+                    catch (OperationCanceledException) { break; }
+                }
+            }
         }
-        catch (Exception ex)
+        if (!reported)
         {
-            _logger.LogWarning(ex, "Report to backend failed; marking OutcomeUnknown for heartbeat reconciliation");
-            await _queue.MarkOutcomeUnknownAsync(job.JobId, ex.Message, ct);
+            _logger.LogWarning(
+                "Completion report failed after retries; marking OutcomeUnknown — the paper IS printed, only the report failed. Operator can resolve from Print Queue.");
+            await _queue.MarkOutcomeUnknownAsync(job.JobId,
+                "Printed locally but the completion report to the backend failed after retries", ct);
         }
     }
 

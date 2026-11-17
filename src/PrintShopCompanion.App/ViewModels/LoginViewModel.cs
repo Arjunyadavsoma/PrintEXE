@@ -42,6 +42,25 @@ public partial class LoginViewModel : ObservableObject
         _printShopBackend = printShopBackend;
         _store = store;
         _nav = nav;
+
+        // Deep-link pairing (integration spec §7.3): when the OS launched the
+        // app with a pairing URI (printshop://pair?ticket=…&shop=… from the
+        // website's Add Device dialog, or the legacy printshopcompanion://
+        // token link), pre-fill the pairing form ONCE. The user still
+        // confirms by clicking "Pair this computer" — a URI is never
+        // auto-consumed, because an untrusted process can launch the app
+        // with an arbitrary URI.
+        if (UriActivator.TryConsumePendingPairingRequest(out var pending))
+        {
+            if (!string.IsNullOrEmpty(pending.Ticket))
+            {
+                PairingTicket = pending.Ticket;
+            }
+            else if (!string.IsNullOrEmpty(pending.LegacyToken))
+            {
+                DeviceToken = pending.LegacyToken;
+            }
+        }
     }
 
     // ──────────── Pairing-ticket flow (v1 contract, recommended) ────────────

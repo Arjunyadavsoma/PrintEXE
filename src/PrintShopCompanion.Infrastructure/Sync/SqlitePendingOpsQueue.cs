@@ -90,6 +90,9 @@ public sealed class SqlitePendingOpsQueue : IPendingOpsQueue
         {
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync();
+            // Same pragma set as the job queue (this file IS queue.db — WAL
+            // persists at file level; busy_timeout is per-connection).
+            await Queue.SqliteConnectionPragmas.ApplyToAsync(conn);
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 CREATE TABLE IF NOT EXISTS pending_ops (

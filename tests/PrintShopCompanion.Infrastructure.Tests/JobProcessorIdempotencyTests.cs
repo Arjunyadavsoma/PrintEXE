@@ -90,8 +90,10 @@ public class JobProcessorIdempotencyTests
         public Task<CommandReportResult> ReportCommandStatusAsync(string commandId, string status, string? resultJson, CancellationToken ct = default)
             => Task.FromResult(new CommandReportResult(CommandId: "test", Status: "succeeded", UpdatedAt: DateTimeOffset.UtcNow));
         public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default) => Task.FromResult("test-jwt");
-        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
+        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default, string? printerName = null)
             => Task.FromResult(new HeartbeatResult(DateTimeOffset.UtcNow, TokenStillValid: true, RecommendedBackendVersion: null));
+        public Task<TokenRotationResult> RotateDeviceTokenAsync(CancellationToken ct = default)
+            => throw new NotImplementedException();
         public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<PrintJobRecord>>(new List<PrintJobRecord>());
         public Task<JobStatusReport> ReportJobStatusAsync(string jobId, string status, string? printerName, string? errorMessage, CancellationToken ct = default)

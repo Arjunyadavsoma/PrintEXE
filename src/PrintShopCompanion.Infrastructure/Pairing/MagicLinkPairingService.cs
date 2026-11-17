@@ -43,7 +43,14 @@ public sealed class MagicLinkPairingService : IPairingService
 
     public async Task<bool> HandleMagicLinkAsync(Uri url, CancellationToken cancellationToken = default)
     {
-        if (!string.Equals(url.Scheme, CompanionProtocol.UrlScheme, StringComparison.OrdinalIgnoreCase))
+        // Phase 0 audit fix: accept BOTH schemes. The SaaS pairing dialog
+        // emits printshop://pair?ticket=…&shop=… (POST /api/v1/companion/pairing/begin
+        // returns pairingUrl in this form); the legacy
+        // printshopcompanion://pair?token=… scheme is kept for backward compat.
+        var schemeOk =
+            string.Equals(url.Scheme, CompanionProtocol.UrlScheme, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(url.Scheme, "printshop", StringComparison.OrdinalIgnoreCase);
+        if (!schemeOk)
         {
             _logger.LogWarning("Ignoring URL with scheme {Scheme}", url.Scheme);
             return false;
@@ -55,15 +62,17 @@ public sealed class MagicLinkPairingService : IPairingService
         }
 
         var query = System.Web.HttpUtility.ParseQueryString(url.Query);
-        var token = query["token"];
-        if (string.IsNullOrWhiteSpace(token))
+        var ticket = query["ticket"];
+        var legacyToken = query["token"];
+
+        if (string.IsNullOrWhiteSpace(ticket) && string.IsNullOrWhiteSpace(legacyToken))
         {
-            _logger.LogError("Magic link missing token query parameter");
+            _logger.LogError("Magic link missing both 'ticket' and 'token' query parameters");
             return false;
         }
 
-        // Validate expiry (the token is signed by the backend, but we double-check the
-        // URL-level expiry too — the backend will also reject an expired token).
+        // Validate expiry when the URL carries one (the pairing ticket's real
+        // expiry is enforced server-side — this is just a fast-fail check).
         if (long.TryParse(query["expires"], out var unixSec))
         {
             var expires = DateTimeOffset.FromUnixTimeSeconds(unixSec);
@@ -77,15 +86,21 @@ public sealed class MagicLinkPairingService : IPairingService
         await _awaitingGate.WaitAsync(cancellationToken);
         try
         {
-            // v0.4.7+: the IPrintShopBackend contract changed from
-            // PairAsync(token) → PairWithDeviceTokenAsync(token). The
-            // production backend uses paste-token pairing (the shopkeeper
-            // copies the device token from the web dashboard and pastes it
-            // into PrintEXE), so the magic-link flow is now mostly obsolete.
-            // We keep it for backward compatibility with shops that still
-            // use the legacy printshopcompanion:// URL scheme — the token
-            // from the URL is treated as a device token.
-            await _backend.PairWithDeviceTokenAsync(token, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(ticket))
+            {
+                // Primary flow: the URL carries a single-use pairing ticket.
+                // Exchange it via POST /api/v1/companion/pair for the long-lived
+                // device token (which PairWithTicketAsync DPAPI-persists).
+                var result = await _backend.PairWithTicketAsync(
+                    ticket.Trim(), Environment.MachineName, cancellationToken: cancellationToken);
+                _awaiting = false;
+                _pairingTcs?.TrySetResult(true);
+                _logger.LogInformation("Paired with shop '{Shop}' via deep-link pairing ticket", result.ShopName);
+                return true;
+            }
+
+            // Legacy flow: the token from the URL is treated as a device token.
+            await _backend.PairWithDeviceTokenAsync(legacyToken!.Trim(), cancellationToken);
             _awaiting = false;
             _pairingTcs?.TrySetResult(true);
             _logger.LogInformation("Paired with shop via magic-link token (treated as device token)");
