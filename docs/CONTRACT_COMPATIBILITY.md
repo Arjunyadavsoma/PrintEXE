@@ -1,5 +1,37 @@
 # PrintEXE ↔ PrintShop SaaS — Contract Compatibility Report
 
+> **⚠ PHASE-2 UPDATE 2026-11-17.** The two conflicts flagged below in §3 are
+> **RESOLVED**. Agent 1 published the frozen v1 contract
+> (`docs/integration/COMPANION_V1_CONTRACT.md`, SaaS commit `ffd0bb3`) which:
+> 1. **Adds the pairing-ticket flow** (§2: `POST /companion/pair` — atomic
+>    consume, 5-min TTL, single-use, SHA-256-hashed). PrintEXE implemented
+>    `IPrintShopBackend.PairWithTicketAsync` against it.
+> 2. **Adds the remote command channel** (§6 + §7: `GET/POST /companion/commands`
+>    + §8 allowlist of 7 command types + §12 `device.command.issued` Socket.IO
+>    event). PrintEXE implemented `FetchPendingCommandsAsync`,
+>    `ReportCommandStatusAsync`, `CommandExecutor` (7-type), `CommandPoller`,
+>    `CommandDedupStore`, and the `device.command.issued`/`device.revoked`
+>    listeners.
+>
+> The companion now matches the v1 contract for: pairing (ticket + paste-token
+> fallback), heartbeat (15s), command polling + execution + ack, all 10 REST
+> endpoints, all Socket.IO events. See `docs/CONTRACT_V1_REVIEW.md` for the
+> per-section review + `docs/PHASE2_FINAL_REPORT.md` for the implementation
+> summary. **107/107 unit tests pass on Windows CI** (run `44005967006`,
+> commit `dc5ab4d`).
+>
+> What is **still NOT verified** (requires a Windows machine + staging backend
+> + real printer — none available in this sandbox): end-to-end pairing via a
+> real ticket, reconnect/re-pair on a real Windows restart, remote command
+> execution on a real PC, physical test print + spooler evidence, revocation
+> propagation. These are listed as remaining blockers / manual validation
+> steps in the Phase 2 final report, not claimed as done.
+>
+> The body below is the **Phase-1** compatibility report (2026-11-16); read it
+> as the historical basis for the conflicts. The banner above supersedes §3.
+
+---
+
 **Date:** 2026-11-16
 **Companion branch:** `feat/unified-print-exe-cloud-integration` (off `d65cb19`)
 **Companion source:** `Arjunyadavsoma/PrintEXE` (this repo)

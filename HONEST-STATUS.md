@@ -1,5 +1,33 @@
 # HONEST STATUS — Read This First
 
+> **⚠ PHASE-2 UPDATE 2026-11-17** (branch `feat/unified-print-exe-cloud-integration`,
+> commit `dc5ab4d`). Agent 1 published the frozen v1 contract
+> (`docs/integration/COMPANION_V1_CONTRACT.md`, SaaS commit `ffd0bb3`).
+> PrintEXE implemented the v1 contract: pairing-ticket exchange
+> (`POST /companion/pair`), the remote command channel (`GET/POST
+> /companion/commands` + 7-type executor + dedup + poller), the
+> `device.command.issued` + `device.revoked` Socket.IO events, the WPF App
+> now starts the realtime client + a 15s heartbeat timer + a 2-3s command
+> poll, the contract token path (`%AppData%\PrintEXE\device-token.dat`) with
+> 3-tier migration, the `PrintShop:*` config section, and 403-DEVICE_DISABLED
+> distinct from 401-revoked. **107/107 unit tests pass on Windows CI**
+> (run `44005967006`, all 20 build steps green). The two Phase-0 conflicts
+> (pairing-ticket, remote-commands) are RESOLVED — see
+> `docs/CONTRACT_COMPATIBILITY.md` banner + `docs/CONTRACT_V1_REVIEW.md` +
+> `docs/PHASE2_FINAL_REPORT.md`.
+>
+> **Still NOT verified (requires a Windows machine + staging backend + real
+> printer — none in this sandbox):** end-to-end pairing via a real ticket,
+> reconnect/re-pair on a real Windows restart, remote command execution on a
+> real PC, physical test print + spooler evidence, revocation propagation. The
+> contract is implemented and unit-tested; runtime integration is the next
+> phase.
+>
+> The body below is the **Phase-1** HONEST-STATUS (2026-11-16, commit `53a5cb3`);
+> the banner above + `docs/PHASE2_FINAL_REPORT.md` supersede it on conflict.
+
+---
+
 > **⚠ UPDATED 2026-11-16** (branch `feat/unified-print-exe-cloud-integration`, commit
 > `53a5cb3`). A full pre-coding audit + SaaS contract reconciliation was performed.
 > The authoritative findings are in `docs/AUDIT.md` (full audit) and
