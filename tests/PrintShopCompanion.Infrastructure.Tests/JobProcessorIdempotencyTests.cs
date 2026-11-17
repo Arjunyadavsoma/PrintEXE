@@ -82,6 +82,13 @@ public class JobProcessorIdempotencyTests
 
         // v0.4.7+ contract — paste-token pairing, JWT exchange, sync endpoints
         public Task PairWithDeviceTokenAsync(string deviceToken, CancellationToken ct = default) => Task.CompletedTask;
+        // v1 contract §2 + §6 + §7 — stubs for the new pairing-ticket + command methods.
+        public Task<PairResult> PairWithTicketAsync(string ticket, string deviceName, string? version, string? os, string? printerName, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<IReadOnlyList<PendingCommand>> FetchPendingCommandsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PendingCommand>>(new List<PendingCommand>());
+        public Task<CommandReportResult> ReportCommandStatusAsync(string commandId, string status, string? resultJson, CancellationToken ct = default)
+            => Task.FromResult(new CommandReportResult(Applied: true));
         public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default) => Task.FromResult("test-jwt");
         public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
             => Task.FromResult(new HeartbeatResult(DateTimeOffset.UtcNow, TokenStillValid: true, RecommendedBackendVersion: null));
