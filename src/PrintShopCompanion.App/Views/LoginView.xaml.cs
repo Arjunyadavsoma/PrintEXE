@@ -89,4 +89,26 @@ public partial class LoginView : UserControl
             // flips back to false and the binding re-enables the button.
         }
     }
+
+    /// <summary>
+    /// Phase 3 (brief §4) — Pair with a pairing TICKET (the v1-contract recommended
+    /// flow). The shopkeeper gets a 64-hex-char code from the web dashboard's
+    /// Devices → Add Computer dialog (5-min TTL, single-use) and pastes it here.
+    /// </summary>
+    private async void PairWithTicket_Click(object sender, RoutedEventArgs e)
+    {
+        PairWithTicketButton.Content = "Pairing...";
+        try
+        {
+            await _vm.PairWithTicketAsync();
+        }
+        finally
+        {
+            PairWithTicketButton.Content = "Pair this computer";
+            // Same IsEnabled-via-binding pattern as PairWithToken_Click:
+            // IsPairingWithTicket flips back to false on completion (success or
+            // failure), and the XAML binding re-enables the button. On success
+            // we navigate to Overview and this view is gone.
+        }
+    }
 }

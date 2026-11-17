@@ -7,16 +7,23 @@ using PrintShopCompanion.App.Services;
 using PrintShopCompanion.Infrastructure.Backend;
 
 /// <summary>
-/// Login view model. Supports TWO authentication paths:
-/// <para><b>1. Paste-token pairing (recommended for PrintEXE):</b> the
-/// shopkeeper logs into the web dashboard, goes to Printer Setup → Register
-/// new agent, copies the device token, and pastes it into PrintEXE. This
-/// is the v0.4.7+ flow per the integration guide section 2.1.</para>
-/// <para><b>2. Direct email + password (legacy shopkeeper login):</b> used
-/// when the companion connects to the shopkeeper REST API (the
-/// /api/v1/shops/me/* endpoints) directly. This is NOT the recommended
-/// flow for PrintEXE — the device-token flow is. Kept for backward
-/// compatibility with shops that haven't yet set up a print agent.</para>
+/// Login view model. Supports THREE authentication paths (Phase 3 brief §4):
+/// <para><b>1. Pairing-ticket pairing (RECOMMENDED, v1 contract §2):</b> the
+/// shopkeeper goes to the web dashboard → Shop → Devices → Add Computer. The
+/// website calls <c>POST /api/v1/companion/pairing/begin</c> and shows a
+/// 64-hex-char pairing ticket + a deep link + a QR code (5-min TTL). The
+/// shopkeeper pastes the ticket here (or opens the deep link, which is
+/// handled by <c>Startup.UriActivation</c>). PrintEXE calls
+/// <c>POST /api/v1/companion/pair</c> and gets the device token + shop
+/// identity. This is the v1-contract flow — <see cref="PairWithTicketAsync"/>.</para>
+/// <para><b>2. Paste-token pairing (legacy fallback):</b> the shopkeeper copies
+/// a device token from the web dashboard and pastes it here —
+/// <see cref="PairWithTokenAsync"/>. Kept for shops that haven't adopted the
+/// pairing-ticket UI yet.</para>
+/// <para><b>3. Direct email + password (legacy shopkeeper login):</b> used
+/// when the companion connects to the shopkeeper REST API directly —
+/// <see cref="SignInAsync"/>. NOT recommended for PrintEXE; kept for backward
+/// compatibility.</para>
 /// </summary>
 public partial class LoginViewModel : ObservableObject
 {
@@ -37,7 +44,81 @@ public partial class LoginViewModel : ObservableObject
         _nav = nav;
     }
 
-    // ──────────── Paste-token flow ────────────
+    // ──────────── Pairing-ticket flow (v1 contract, recommended) ────────────
+    [ObservableProperty] private string _pairingTicket = "";
+    [ObservableProperty] private string _deviceName = Environment.MachineName;
+    [ObservableProperty] private string? _ticketErrorMessage;
+    [ObservableProperty] private bool _isPairingWithTicket;
+    [ObservableProperty] private string? _pairedShopName;
+
+    /// <summary>
+    /// Pair with a pairing ticket (v1 contract §2). The shopkeeper obtains the
+    /// ticket from the web dashboard (or via the <c>printshop://pair?ticket=...</c>
+    /// deep link). PrintEXE exchanges the ticket for a device token +
+    /// shop identity via <c>POST /api/v1/companion/pair</c>.
+    /// <para>Maps the contract's ticket-specific error codes to user-facing
+    /// states via <see cref="PairingTicketException"/>:</para>
+    /// <list type="bullet">
+    ///   <item><c>VALIDATION_ERROR</c> → "Pairing code must be 64 hex characters."</item>
+    ///   <item><c>UNAUTHORIZED</c> (expired) → "Pairing code expired. Generate a new one on the website."</item>
+    ///   <item><c>UNAUTHORIZED</c> (unknown) → "Pairing code not recognized. Generate a new one."</item>
+    ///   <item><c>PAIRING_TICKET_CONSUMED</c> → "Pairing code already used. Generate a new one."</item>
+    ///   <item><c>PAIRING_TICKET_UNAVAILABLE</c> → "Pairing code is no longer active. Generate a new one."</item>
+    ///   <item><c>NOT_FOUND</c> → "The shop for this pairing code no longer exists. Contact support."</item>
+    ///   <item><c>RATE_LIMITED</c> → "Too many attempts. Wait a minute and try again."</item>
+    /// </list>
+    /// </summary>
+    public async Task PairWithTicketAsync()
+    {
+        TicketErrorMessage = null;
+        PairedShopName = null;
+        if (string.IsNullOrWhiteSpace(PairingTicket))
+        {
+            TicketErrorMessage = "Enter the 64-character pairing code from the web dashboard.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(DeviceName))
+        {
+            TicketErrorMessage = "Enter a name for this computer (e.g. Shop-Front-PC).";
+            return;
+        }
+
+        IsPairingWithTicket = true;
+        try
+        {
+            var result = await _printShopBackend.PairWithTicketAsync(
+                PairingTicket.Trim(),
+                DeviceName.Trim());
+            PairedShopName = result.ShopName;
+            // Clear the ticket from memory — it's single-use and now consumed.
+            // The device token is DPAPI-persisted by PairWithTicketAsync →
+            // PairWithDeviceTokenAsync; we do NOT keep the ticket.
+            PairingTicket = "";
+            _nav.NavigateTo("Overview");
+        }
+        catch (PairingTicketException ex)
+        {
+            TicketErrorMessage = PairingTicketErrorMessages.Map(ex) ?? $"Pairing failed: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            TicketErrorMessage = $"Pairing failed: {ex.Message}";
+        }
+        finally
+        {
+            IsPairingWithTicket = false;
+        }
+    }
+
+    /// <summary>Clear the pairing-ticket form (used by a "Clear" button).</summary>
+    public void ClearTicketForm()
+    {
+        PairingTicket = "";
+        TicketErrorMessage = null;
+        PairedShopName = null;
+    }
+
+    // ──────────── Paste-token flow (legacy fallback) ────────────
     [ObservableProperty] private string _deviceToken = "";
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private bool _isPairing;
@@ -79,7 +160,7 @@ public partial class LoginViewModel : ObservableObject
     /// <summary>
     /// Direct shopkeeper login (legacy). Used by HttpShopBackend against
     /// /api/v1/auth/login. Not the recommended flow for PrintEXE — prefer
-    /// PairWithTokenAsync (paste-token pairing).
+    /// PairWithTicketAsync (v1 contract pairing-ticket flow).
     /// </summary>
     public async Task SignInAsync()
     {
