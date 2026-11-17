@@ -18,8 +18,17 @@ public sealed class PendingCommand
     /// </summary>
     public required string CommandType { get; init; }
 
-    /// <summary>The command payload as a JSON string (e.g. "{}" or '{"jobId":"uuid"}').</summary>
+    /// <summary>
+    /// The command payload as a JSON string. The actual SaaS sends the payload
+    /// as a parsed JSON OBJECT (not a string); the HTTP client re-serializes it
+    /// to a string here so the executor can parse job-specific fields
+    /// (e.g. <c>jobId</c> for cancel_job/retry_job) with <see cref="System.Text.Json.JsonDocument"/>.
+    /// Defaults to <c>"{}"</c> if the server sent null/garbage.
+    /// </summary>
     public string PayloadJson { get; init; } = "{}";
+
+    /// <summary>ISO8601 of the command's creation (server's <c>issuedAt</c>). Null if the server omitted it. Phase 3 addition.</summary>
+    public DateTimeOffset? IssuedAt { get; init; }
 
     /// <summary>UTC instant the command expires. The companion must not execute an expired command.</summary>
     public required DateTimeOffset ExpiresAt { get; init; }
@@ -100,7 +109,21 @@ public sealed record PairResult
 
 /// <summary>
 /// Result of <c>POST /api/v1/companion/commands</c> (v1 contract §7).
-/// <see cref="Applied"/> is true when the backend accepted the status update
-/// (idempotent re-reports return <c>applied:true</c> without re-processing).
+/// Phase 3 fix: the actual SaaS returns <c>{commandId, status, updatedAt}</c>,
+/// NOT <c>{applied}</c> as the published contract stated. The poller uses
+/// <see cref="Status"/> to confirm the backend recorded the transition; a
+/// non-null <see cref="UpdatedAt"/> means the row was touched (idempotent
+/// re-reports return the same <see cref="Status"/> + an unchanged
+/// <see cref="UpdatedAt"/>).
 /// </summary>
-public sealed record CommandReportResult(bool Applied);
+public sealed record CommandReportResult(
+    string? CommandId,
+    string? Status,
+    DateTimeOffset? UpdatedAt)
+{
+    /// <summary>True when the backend returned a non-null status (the report was accepted, idempotently or not).</summary>
+    public bool Accepted => !string.IsNullOrWhiteSpace(Status);
+
+    /// <summary>Convenience for callers that only want a yes/no. Kept for backward compat with the Phase 2 poller.</summary>
+    public bool Applied => Accepted;
+}

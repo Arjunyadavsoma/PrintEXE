@@ -657,17 +657,19 @@ public sealed class PairTicketRequestDto
     [JsonPropertyName("ticket")]
     public required string Ticket { get; init; }          // 64 hex chars
 
+    /// <summary>Device display name. Actual SaaS zod cap is 120 chars (not 255 — Phase 3 fix).</summary>
     [JsonPropertyName("deviceName")]
-    public required string DeviceName { get; init; }     // 1-255 chars
+    public required string DeviceName { get; init; }     // 1-120 chars
 
+    /// <summary>Companion semver. Actual SaaS zod cap is 40 chars.</summary>
     [JsonPropertyName("version")]
-    public string? Version { get; init; }                // optional, companion semver
+    public string? Version { get; init; }                // optional, max 40 chars
 
     [JsonPropertyName("os")]
-    public string? Os { get; init; }                     // optional, e.g. "Windows 11"
+    public string? Os { get; init; }                     // optional, max 40 chars
 
     [JsonPropertyName("printerName")]
-    public string? PrinterName { get; init; }            // optional, current default printer
+    public string? PrinterName { get; init; }            // optional, max 200 chars
 }
 
 /// <summary>
@@ -701,38 +703,61 @@ public sealed class PairTicketResponseDto
 
 /// <summary>
 /// Wire DTO for a pending command returned by GET /api/v1/companion/commands.
-/// Only commands with status='requested' AND expiresAt > now are returned.
-/// The companion must still validate expiresAt locally before executing
-/// (defense in depth: the command may expire between fetch and execution).
+/// Phase 3 fix: the actual SaaS route returns commands with field
+/// <c>commandId</c> (NOT <c>id</c>), <c>payload</c> as a parsed JSON OBJECT
+/// (NOT a JSON string), and an <c>issuedAt</c> field. The published contract
+/// drifted from the implementation here — see docs/PHASE3_CONTRACT_MATRIX.md
+/// Mismatch #1. Only commands with status='requested' AND expiresAt > now
+/// are returned; the companion still validates <c>ExpiresAt</c> locally
+/// before executing (defense in depth).
 /// </summary>
 public sealed class PendingCommandDto
 {
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }            // uuid
+    /// <summary>Server field is <c>commandId</c> (NOT <c>id</c> per the published contract).</summary>
+    [JsonPropertyName("commandId")]
+    public required string CommandId { get; init; }      // uuid
 
     [JsonPropertyName("commandType")]
     public required string CommandType { get; init; } // refresh_printers | pause | resume | cancel_job | retry_job | test_print | diagnostics
 
-    /// <summary>The command payload as a JSON string (e.g. "{}" or '{"jobId":"uuid"}').</summary>
+    /// <summary>
+    /// The command payload as a parsed JSON object (the actual SaaS does
+    /// <c>JSON.parse(payload ?? '{}')</c> server-side, so this arrives as an
+    /// object, not a string). Null/garbage → empty object. We keep the raw
+    /// <see cref="JsonElement"/> so the executor can parse job-specific fields
+    /// (e.g. <c>jobId</c> for cancel_job/retry_job) without a round-trip.
+    /// </summary>
     [JsonPropertyName("payload")]
-    public string Payload { get; init; } = "{}";
+    public System.Text.Json.JsonElement Payload { get; set; }
+
+    /// <summary>ISO8601 of the command's <c>createdAt</c>. Added Phase 3 — the published contract omitted this but the server sends it.</summary>
+    [JsonPropertyName("issuedAt")]
+    public DateTimeOffset? IssuedAt { get; init; }
 
     [JsonPropertyName("expiresAt")]
     public required DateTimeOffset ExpiresAt { get; init; }
 }
 
-/// <summary>Response envelope for GET /api/v1/companion/commands.</summary>
+/// <summary>Response envelope for GET /api/v1/companion/commands. Phase 3: also carries <c>agentId</c>.</summary>
 public sealed class PendingCommandsEnvelopeDto
 {
+    /// <summary>The agent id the commands belong to (the authenticated device). Useful as a sanity check.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; init; }
+
     [JsonPropertyName("commands")]
     public required List<PendingCommandDto> Commands { get; init; }
 }
 
 /// <summary>
 /// Wire DTO for POST /api/v1/companion/commands request body — acknowledge
-/// receipt and/or report execution result. Status values per the contract:
-/// delivered, accepted, executing, succeeded, failed. Idempotent: same
-/// commandId + same status is a no-op (returns applied:true without re-processing).
+/// receipt and/or report execution result. Status values per the actual SaaS
+/// zod schema: <c>delivered, accepted, executing, succeeded, failed</c>.
+/// <para><b>Phase 3 fix:</b> the <c>result</c> field is an OBJECT
+/// (<c>z.record(z.string(), z.unknown())</c>), NOT a JSON string. The
+/// executor produces a JSON string; the backend client parses it back to a
+/// <see cref="System.Text.Json.JsonElement"/> before sending. Sending a string
+/// would fail zod with 400 VALIDATION_ERROR on every result report.</para>
 /// </summary>
 public sealed class ReportCommandRequestDto
 {
@@ -742,14 +767,24 @@ public sealed class ReportCommandRequestDto
     [JsonPropertyName("status")]
     public required string Status { get; init; }        // delivered|accepted|executing|succeeded|failed
 
-    /// <summary>Structured result as a JSON string (e.g. '{"printers":["HP","Canon"]}'). Omit for non-terminal statuses.</summary>
+    /// <summary>Structured result as a JSON OBJECT (not a string). Omit for non-terminal statuses.</summary>
     [JsonPropertyName("result")]
-    public string? Result { get; init; }
+    public System.Text.Json.JsonElement? Result { get; init; }
 }
 
-/// <summary>Response envelope for POST /api/v1/companion/commands.</summary>
+/// <summary>
+/// Response for POST /api/v1/companion/commands. Phase 3 fix: the actual SaaS
+/// returns <c>{commandId, status, updatedAt}</c> — NOT <c>{applied}</c> as the
+/// published contract stated. See docs/PHASE3_CONTRACT_MATRIX.md Mismatch #3.
+/// </summary>
 public sealed class ReportCommandResponseDto
 {
-    [JsonPropertyName("applied")]
-    public bool Applied { get; init; }
+    [JsonPropertyName("commandId")]
+    public string? CommandId { get; init; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; init; }
 }

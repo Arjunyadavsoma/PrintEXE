@@ -148,6 +148,9 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         CancellationToken ct = default)
     {
         // Local validation BEFORE the network call — fail fast with a clear error.
+        // Caps match the actual SaaS zod schema (Phase 3 fix — the published contract
+        // said deviceName 1-255 but the implementation caps at 120; version/os at 40;
+        // printerName at 200). See docs/PHASE3_CONTRACT_MATRIX.md Mismatch #4.
         if (string.IsNullOrWhiteSpace(ticket))
             throw new PairingTicketException("VALIDATION_ERROR", "Pairing code cannot be empty.");
         // Contract §2: ticket is 64 hex chars. Tolerate whitespace paste.
@@ -157,8 +160,14 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
                 "Pairing code must be 64 hex characters. Check that you copied the whole code.");
         if (string.IsNullOrWhiteSpace(deviceName))
             throw new PairingTicketException("VALIDATION_ERROR", "Device name is required.");
-        if (deviceName.Length > 255)
-            throw new PairingTicketException("VALIDATION_ERROR", "Device name must be 255 characters or fewer.");
+        if (deviceName.Length > 120)
+            throw new PairingTicketException("VALIDATION_ERROR", "Device name must be 120 characters or fewer.");
+        if (version is { Length: > 40 })
+            throw new PairingTicketException("VALIDATION_ERROR", "Version string must be 40 characters or fewer.");
+        if (os is { Length: > 40 })
+            throw new PairingTicketException("VALIDATION_ERROR", "OS string must be 40 characters or fewer.");
+        if (printerName is { Length: > 200 })
+            throw new PairingTicketException("VALIDATION_ERROR", "Printer name must be 200 characters or fewer.");
 
         var o = _opts.CurrentValue;
         var baseUri = !string.IsNullOrWhiteSpace(o.BaseUrl)
@@ -196,9 +205,14 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         if (!resp.IsSuccessStatusCode)
         {
             var (code, message) = await ReadErrorAsync(resp, ct);
-            // Contract §2 error table:
-            // 400 VALIDATION_ERROR, 401 UNAUTHORIZED (no ticket), 401 TICKET_EXPIRED,
-            // 409 TICKET_CONSUMED, 429 RATE_LIMITED.
+            // Actual SaaS error codes (Phase 3 fix — see docs/PHASE3_CONTRACT_MATRIX.md Mismatch #4):
+            // 400 VALIDATION_ERROR (zod fail)
+            // 401 UNAUTHORIZED (no ticket / unknown ticket / EXPIRED ticket — server deliberately
+            //    uses the same code for unknown+expired to avoid ticket enumeration)
+            // 409 PAIRING_TICKET_UNAVAILABLE (status != 'active' but not consumed — e.g. 'revoked')
+            // 409 PAIRING_TICKET_CONSUMED (lost the consume race — another request got there first)
+            // 404 NOT_FOUND (shop deleted between begin & pair)
+            // 429 RATE_LIMITED
             throw new PairingTicketException(
                 code ?? "UNKNOWN",
                 $"Pairing failed: {message ?? resp.StatusCode.ToString()}");
@@ -241,6 +255,10 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// commands for this device. The backend returns only commands with
     /// status='requested' AND expiresAt > now; the companion still validates
     /// <see cref="PendingCommand.IsExpired"/> locally before executing.
+    /// <para><b>Phase 3 fix:</b> the actual SaaS returns commands with field
+    /// <c>commandId</c> (not <c>id</c>), <c>payload</c> as a parsed JSON object,
+    /// and an <c>issuedAt</c> field. We re-serialize the payload object back
+    /// to a string for the executor's <c>JsonDocument.Parse</c> path.</para>
     /// </summary>
     public async Task<IReadOnlyList<PendingCommand>> FetchPendingCommandsAsync(CancellationToken ct = default)
     {
@@ -250,7 +268,6 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);   // 403 → DeviceDisabledException
-        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
@@ -260,9 +277,17 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         var cmds = envelope.Data?.Commands ?? new List<PendingCommandDto>();
         return cmds.Select(c => new PendingCommand
         {
-            Id = c.Id,
+            Id = c.CommandId,
             CommandType = c.CommandType,
-            PayloadJson = c.Payload ?? "{}",
+            // The server sends payload as a parsed JSON object (or null/garbage
+            // → empty object). Re-serialize to a string for the executor's
+            // JsonDocument.Parse path. JsonElement with ValueKind=Undefined (the
+            // default when the field is absent) → "{}".
+            PayloadJson = c.Payload.ValueKind == System.Text.Json.JsonValueKind.Undefined
+                || c.Payload.ValueKind == System.Text.Json.JsonValueKind.Null
+                ? "{}"
+                : c.Payload.GetRawText(),
+            IssuedAt = c.IssuedAt,
             ExpiresAt = c.ExpiresAt,
         }).ToList();
     }
@@ -270,6 +295,10 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// <summary>
     /// v1 contract §7 — POST /api/v1/companion/commands. Acknowledge receipt
     /// and/or report execution result. Idempotent on (commandId, status).
+    /// <para><b>Phase 3 fix:</b> the actual SaaS zod wants <c>result</c> as an
+    /// object (not a JSON string) and returns <c>{commandId, status, updatedAt}</c>
+    /// (not <c>{applied}</c>). We parse the executor's result JSON string back
+    /// to a JsonElement before sending.</para>
     /// </summary>
     public async Task<CommandReportResult> ReportCommandStatusAsync(
         string commandId, string status, string? resultJson = null, CancellationToken ct = default)
@@ -281,12 +310,32 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
             throw new ArgumentException(
                 $"status must be one of {string.Join(", ", CommandStatus.All)} (got '{status}')", nameof(status));
 
+        // Parse the executor's result JSON string back to a JsonElement so the
+        // SaaS zod (`z.record(z.string(), z.unknown())`) accepts it. A null or
+        // malformed string → omit `result` (it's optional in the zod schema).
+        System.Text.Json.JsonElement? resultElement = null;
+        if (!string.IsNullOrWhiteSpace(resultJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(resultJson);
+                // Clone the element (the doc is disposed) — GetRawText + reparse
+                // is the simplest clone that survives the using scope.
+                resultElement = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                    doc.RootElement.GetRawText());
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse result JSON for command {CommandId}; omitting result field", commandId);
+            }
+        }
+
         var url = ApiUrl("companion/commands");
         var body = new ReportCommandRequestDto
         {
             CommandId = commandId,
             Status = status,
-            Result = resultJson,
+            Result = resultElement,
         };
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -295,14 +344,17 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
-        await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             throw new InvalidOperationException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<ReportCommandResponseDto>>(Json, ct)
             ?? throw new InvalidOperationException("Empty command-report response");
-        return new CommandReportResult(Applied: envelope.Data?.Applied ?? false);
+        var dto = envelope.Data;
+        return new CommandReportResult(
+            CommandId: dto?.CommandId,
+            Status: dto?.Status,
+            UpdatedAt: dto?.UpdatedAt);
     }
 
     /// <summary>

@@ -38,7 +38,7 @@ public class MagicLinkPairingServiceTests
         public Task<IReadOnlyList<PendingCommand>> FetchPendingCommandsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<PendingCommand>>(new List<PendingCommand>());
         public Task<CommandReportResult> ReportCommandStatusAsync(string commandId, string status, string? resultJson, CancellationToken ct = default)
-            => Task.FromResult(new CommandReportResult(Applied: true));
+            => Task.FromResult(new CommandReportResult(CommandId: "test", Status: "succeeded", UpdatedAt: DateTimeOffset.UtcNow));
         public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default)
             => Task.FromResult("test-jwt");
         public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)

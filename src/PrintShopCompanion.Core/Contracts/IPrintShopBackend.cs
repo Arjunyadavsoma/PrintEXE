@@ -235,10 +235,25 @@ public sealed record SyncStatusResult(
 /// <summary>
 /// Raised by <see cref="IPrintShopBackend.PairWithTicketAsync"/> when the
 /// backend rejects the pairing ticket for one of the contract's
-/// ticket-specific reasons (contract §2 error table). The
-/// <see cref="Code"/> maps to a distinct user-facing state on the Pair
-/// Computer screen (e.g. TICKET_EXPIRED → "Pairing code expired, generate a
-/// new one"; TICKET_CONSUMED → "Pairing code already used, generate a new one").
+/// ticket-specific reasons. The <see cref="Code"/> maps to a distinct
+/// user-facing state on the Pair Computer screen.
+///
+/// <para><b>Phase 3 correction</b> (see docs/PHASE3_CONTRACT_MATRIX.md Mismatch #4):
+/// the actual SaaS returns these codes (NOT the published contract's
+/// <c>TICKET_EXPIRED</c>/<c>TICKET_CONSUMED</c>):</para>
+/// <list type="bullet">
+///   <item><c>VALIDATION_ERROR</c> (400) — zod rejected the request body.</item>
+///   <item><c>UNAUTHORIZED</c> (401) — ticket unknown, OR ticket expired
+///   (the server deliberately uses the same code for both to prevent ticket
+///   enumeration; the message distinguishes them).</item>
+///   <item><c>PAIRING_TICKET_UNAVAILABLE</c> (409) — ticket exists but status
+///   is not <c>active</c> (e.g. <c>revoked</c>).</item>
+///   <item><c>PAIRING_TICKET_CONSUMED</c> (409) — another request won the
+///   atomic consume race.</item>
+///   <item><c>NOT_FOUND</c> (404) — the shop was deleted between <c>begin</c>
+///   and <c>pair</c>.</item>
+///   <item><c>RATE_LIMITED</c> (429) — more than 10 consumes/min from this IP.</item>
+/// </list>
 /// </summary>
 public sealed class PairingTicketException : Exception
 {
@@ -247,13 +262,22 @@ public sealed class PairingTicketException : Exception
         Code = code;
     }
 
-    /// <summary>The backend's error code: VALIDATION_ERROR, UNAUTHORIZED, TICKET_EXPIRED, TICKET_CONSUMED, or RATE_LIMITED.</summary>
+    /// <summary>The backend's error code. See the class remarks for the actual SaaS codes.</summary>
     public string Code { get; }
 
-    /// <summary>True if this is a ticket-specific error the user can fix by generating a new ticket.</summary>
-    public bool IsTicketError => Code is "TICKET_EXPIRED" or "TICKET_CONSUMED" or "UNAUTHORIZED" or "VALIDATION_ERROR";
+    /// <summary>True if this is a ticket-content error the user can fix by generating a new ticket.</summary>
+    public bool IsTicketError => Code is
+        "UNAUTHORIZED" or                              // unknown OR expired ticket
+        "PAIRING_TICKET_UNAVAILABLE" or                // ticket status not active
+        "PAIRING_TICKET_CONSUMED" or                   // lost the consume race
+        "VALIDATION_ERROR";                            // malformed request
 
-    /// <summary>True if the backend rate-limited the pair attempt (contract §2: 10/min).</summary>
+    /// <summary>True if the server message indicates the ticket expired (vs unknown). Phase 3 — the server uses UNAUTHORIZED for both, with the message distinguishing them.</summary>
+    public bool IsExpired => Code == "UNAUTHORIZED" &&
+        (Message.Contains("expired", StringComparison.OrdinalIgnoreCase) ||
+         Message.Contains("has expired", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True if the backend rate-limited the pair attempt (actual SaaS: 10 consumes/min from IP).</summary>
     public bool IsRateLimited => Code is "RATE_LIMITED";
 }
 

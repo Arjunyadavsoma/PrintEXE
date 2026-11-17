@@ -79,8 +79,28 @@ public class PairingTicketValidationTests
     {
         var backend = MakeBackend();
         var ticket = new string('a', 64);
-        var deviceName = new string('x', 256);  // contract: 1-255
+        // Phase 3 fix: the actual SaaS zod caps deviceName at 120 (not 255 per
+        // the published contract). 121 chars must fail locally before the network.
+        var deviceName = new string('x', 121);
         var act = async () => await backend.PairWithTicketAsync(ticket, deviceName);
+        (await act.Should().ThrowAsync<PairingTicketException>())
+            .Which.Code.Should().Be("VALIDATION_ERROR");
+    }
+
+    [Theory]
+    [InlineData("version", 41)]
+    [InlineData("os", 41)]
+    [InlineData("printerName", 201)]
+    public async Task Rejects_overlong_metadata_fields_with_VALIDATION_ERROR(string field, int len)
+    {
+        var backend = MakeBackend();
+        var ticket = new string('a', 64);
+        var overlong = new string('y', len);
+        var act = async () => await backend.PairWithTicketAsync(
+            ticket, "My-PC",
+            version: field == "version" ? overlong : null,
+            os: field == "os" ? overlong : null,
+            printerName: field == "printerName" ? overlong : null);
         (await act.Should().ThrowAsync<PairingTicketException>())
             .Which.Code.Should().Be("VALIDATION_ERROR");
     }
@@ -102,20 +122,37 @@ public class PairingTicketValidationTests
     }
 
     [Fact]
-    public void PairingTicketException_IsTicketError_distinguishes_ticket_errors_from_rate_limits()
+    public void PairingTicketException_maps_the_actual_SaaS_error_codes_Phase3()
     {
-        var expired = new PairingTicketException("TICKET_EXPIRED", "expired");
-        var consumed = new PairingTicketException("TICKET_CONSUMED", "used");
-        var unauthorized = new PairingTicketException("UNAUTHORIZED", "no ticket");
+        // Phase 3: the actual SaaS returns these codes (NOT the published contract's
+        // TICKET_EXPIRED/TICKET_CONSUMED). See docs/PHASE3_CONTRACT_MATRIX.md Mismatch #4.
+        var unauthorizedExpired = new PairingTicketException("UNAUTHORIZED", "Pairing ticket has expired. Request a new one.");
+        var unauthorizedUnknown = new PairingTicketException("UNAUTHORIZED", "Invalid or unknown pairing ticket.");
+        var unavailable = new PairingTicketException("PAIRING_TICKET_UNAVAILABLE", "status: revoked");
+        var consumed = new PairingTicketException("PAIRING_TICKET_CONSUMED", "lost the race");
+        var validation = new PairingTicketException("VALIDATION_ERROR", "bad body");
         var rateLimited = new PairingTicketException("RATE_LIMITED", "slow down");
+        var notFound = new PairingTicketException("NOT_FOUND", "shop gone");
         var unknown = new PairingTicketException("UNKNOWN", "???");
 
-        expired.IsTicketError.Should().BeTrue();
+        // All ticket-content errors → IsTicketError true (UI says "generate a new code")
+        unauthorizedExpired.IsTicketError.Should().BeTrue();
+        unauthorizedUnknown.IsTicketError.Should().BeTrue();
+        unavailable.IsTicketError.Should().BeTrue();
         consumed.IsTicketError.Should().BeTrue();
-        unauthorized.IsTicketError.Should().BeTrue();
-        rateLimited.IsTicketError.Should().BeFalse("rate limiting is not a ticket-content error");
-        rateLimited.IsRateLimited.Should().BeTrue();
+        validation.IsTicketError.Should().BeTrue();
+        // NOT_FOUND is NOT a ticket-content error (the shop was deleted — different recovery path)
+        notFound.IsTicketError.Should().BeFalse();
+        // Rate limiting + unknown are not ticket-content errors
+        rateLimited.IsTicketError.Should().BeFalse();
         unknown.IsTicketError.Should().BeFalse();
+
+        // IsExpired distinguishes the two UNAUTHORIZED sub-cases (server uses the
+        // same code for unknown + expired; the message distinguishes them).
+        unauthorizedExpired.IsExpired.Should().BeTrue("the message says 'expired'");
+        unauthorizedUnknown.IsExpired.Should().BeFalse("the message says 'unknown'");
+
+        rateLimited.IsRateLimited.Should().BeTrue();
         unknown.IsRateLimited.Should().BeFalse();
     }
 
