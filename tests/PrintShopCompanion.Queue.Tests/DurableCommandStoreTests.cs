@@ -189,7 +189,9 @@ public class DurableCommandStoreTests : IDisposable
 
     public void Dispose()
     {
-        _queue.Dispose();
+        // SqliteJobQueue is not IDisposable; rely on GC + the temp-dir cleanup.
+        // (The connection is per-call in ExecuteInConnectionAsync, so there's
+        // no long-lived handle to dispose.)
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* test isolation */ }
     }
 }
