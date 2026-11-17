@@ -42,7 +42,7 @@ public class CommandExecutorTests
         printers = new FakePrinter();
         backend = new FakeBackend();
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<CommandExecutor>();
-        var printerOpts = Options.Create(new PrinterOptions());
+        var printerOpts = new FakeOptionsMonitor(new PrinterOptions());
         return new CommandExecutor(printers, queue, backend, printerOpts, logger);
     }
 
@@ -297,5 +297,14 @@ public class CommandExecutorTests
             => Task.FromResult(new SyncStatusResult("dev", "shop", null, null, null, true));
         public Task<ReceiptAcknowledgement> MarkJobReceivedAsync(string jobId, string checksum, long fileSize, DateTimeOffset receivedAt, CancellationToken ct = default)
             => Task.FromResult(new ReceiptAcknowledgement(jobId, "received", "local_verified", DateTimeOffset.UtcNow, false, null));
+    }
+
+    private sealed class FakeOptionsMonitor : Microsoft.Extensions.Options.IOptionsMonitor<PrinterOptions>
+    {
+        private readonly PrinterOptions _current;
+        public FakeOptionsMonitor(PrinterOptions current) => _current = current;
+        public PrinterOptions CurrentValue => _current;
+        public PrinterOptions Get(string? name) => _current;
+        public IDisposable? OnChange(Action<PrinterOptions, string?> listener) => null!;
     }
 }
