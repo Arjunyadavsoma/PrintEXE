@@ -343,6 +343,28 @@ public partial class App : Application
             var poller = _host.Services.GetRequiredService<CommandPoller>();
             var backendOpts = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<BackendOptions>>();
 
+            // Phase F (brief §A) — restart recovery. BEFORE the first tick,
+            // recover any commands interrupted by the previous process crash:
+            // 'executing' rows → 'outcome_unknown' (re-reported to SaaS; NEVER
+            // re-executed); 'claimed' rows → 'received' (re-claimed + re-executed
+            // by the next tick, safe because the handler never started). This is
+            // the brief's acceptance criterion #1: "Interrupted non-idempotent
+            // commands cannot be silently re-executed." A failure here is logged
+            // at Error but does NOT abort startup (the poller still runs; the
+            // durable rows are intact; a manual recovery is possible).
+            try
+            {
+                var recovered = await poller.RecoverInterruptedAsync(_appCts.Token);
+                if (recovered.Count > 0)
+                {
+                    Log.Warning("Startup recovery: {Count} command(s) transitioned to outcome_unknown (interrupted by previous crash). The shopkeeper must resolve these on the web dashboard.", recovered.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Restart recovery failed — interrupted commands may be in an uncertain state. The poller will continue; investigate manually.");
+            }
+
             // Wire the realtime client's events:
             //  - CommandIssued → immediate poll (don't wait for the next tick).
             //  - Revoked → clear credential + navigate to Login (the device token

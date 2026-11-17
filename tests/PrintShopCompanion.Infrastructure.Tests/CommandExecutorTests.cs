@@ -155,6 +155,45 @@ public class CommandExecutorTests
     }
 
     [Fact]
+    public async Task CancelJob_rejects_a_job_already_in_the_spooler_PhaseF()
+    {
+        // Phase F §D: a job in Spooled/Printing is already in the Windows
+        // spooler — cancelling the local row would NOT stop the physical print.
+        var exec = Make(out var queue, out _, out _, out _);
+        queue.Jobs["job-sp"] = MakeJob("job-sp", JobStatus.Spooled);
+        var result = await exec.ExecuteAsync(
+            Cmd("c-sp", CommandType.CancelJob, """{"jobId":"job-sp"}"""), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Failed);
+        result.Error.Should().Contain("already in the Windows spooler");
+        queue.Jobs["job-sp"].Status.Should().Be(JobStatus.Spooled, "the local row was NOT cancelled");
+    }
+
+    [Fact]
+    public async Task CancelJob_rejects_an_uncertain_job_PhaseF()
+    {
+        // Phase F §D: an uncertain-outcome job requires operator resolution,
+        // not a remote cancel.
+        var exec = Make(out var queue, out _, out _, out _);
+        queue.Jobs["job-u"] = MakeJob("job-u", JobStatus.UncertainSpooled);
+        var result = await exec.ExecuteAsync(
+            Cmd("c-u", CommandType.CancelJob, """{"jobId":"job-u"}"""), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Failed);
+        result.Error.Should().Contain("uncertain physical outcome");
+    }
+
+    [Fact]
+    public async Task CancelJob_is_a_no_op_for_terminal_jobs()
+    {
+        var exec = Make(out var queue, out _, out _, out _);
+        queue.Jobs["job-done"] = MakeJob("job-done", JobStatus.Printed);
+        var result = await exec.ExecuteAsync(
+            Cmd("c-done", CommandType.CancelJob, """{"jobId":"job-done"}"""), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Succeeded);
+        using var doc = JsonDocument.Parse(result.ResultJson!);
+        doc.RootElement.GetProperty("cancelled").GetBoolean().Should().BeFalse("a terminal job is a no-op");
+    }
+
+    [Fact]
     public async Task RetryJob_requeues_failed_job_to_Pending()
     {
         var exec = Make(out var queue, out _, out _, out _);
@@ -189,13 +228,33 @@ public class CommandExecutorTests
         result.Error.Should().Contain("not found");
     }
 
+    [Theory]
+    [InlineData(JobStatus.UncertainSpooled)]
+    [InlineData(JobStatus.OutcomeUnknown)]
+    public async Task RetryJob_NEVER_retries_an_uncertain_outcome_job_PhaseF(JobStatus uncertain)
+    {
+        // Phase F §A acceptance criterion #9: "Existing print-job recovery does
+        // not turn uncertain outcomes into automatic reprints." A remote
+        // retry_job for an uncertain job is rejected — the shopkeeper must
+        // resolve manually (verify the paper, then mark Resolved or Reprint).
+        var exec = Make(out var queue, out _, out _, out _);
+        queue.Jobs["job-u"] = MakeJob("job-u", uncertain);
+        var result = await exec.ExecuteAsync(
+            Cmd("c-u", CommandType.RetryJob, """{"jobId":"job-u"}"""), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Failed);
+        result.Error.Should().Contain("uncertain physical outcome");
+        result.Error.Should().Contain("DUPLICATE");
+        queue.Jobs["job-u"].Status.Should().Be(uncertain, "the uncertain job was NOT reset to Pending");
+    }
+
     // ─── test_print (must enqueue a durable job, NOT call the spooler directly) ─
 
     [Fact]
-    public async Task TestPrint_enqueues_durable_job_with_stable_idempotent_id()
+    public async Task TestPrint_enqueues_durable_job_with_stable_idempotent_id_when_authorized()
     {
         var exec = Make(out var queue, out var printers, out _, out _);
-        var result = await exec.ExecuteAsync(Cmd("c11", CommandType.TestPrint), CancellationToken.None);
+        var result = await exec.ExecuteAsync(
+            Cmd("c11", CommandType.TestPrint, """{"authorizedBy":"alice@shop"}"""), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Succeeded);
         using var doc = JsonDocument.Parse(result.ResultJson!);
         var jobId = doc.RootElement.GetProperty("jobId").GetString()!;
@@ -204,7 +263,43 @@ public class CommandExecutorTests
         queue.Jobs.Should().ContainKey(jobId);
         queue.Jobs[jobId].Status.Should().Be(JobStatus.Pending);
         queue.Jobs[jobId].Title.Should().Contain("Test Print");
+        doc.RootElement.GetProperty("authorizedBy").GetString().Should().Be("alice@shop");
         printers.SubmitCalls.Should().Be(0, "test_print MUST NOT call the spooler directly — it enqueues a durable job");
+    }
+
+    [Fact]
+    public async Task TestPrint_rejects_without_explicit_operator_authorization_PhaseF()
+    {
+        // Phase F §D: test_print never silently prints paper. The payload MUST
+        // carry an `authorizedBy` field naming the operator who confirmed on
+        // the web dashboard.
+        var exec = Make(out _, out _, out _, out _);
+        var result = await exec.ExecuteAsync(Cmd("c-tp", CommandType.TestPrint), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Failed);
+        result.Error.Should().Contain("authorizedBy");
+    }
+
+    [Fact]
+    public async Task TestPrint_rejects_unknown_payload_fields_PhaseF()
+    {
+        // Phase F §D: the test_print schema is exactly {authorizedBy}; unknown
+        // fields are rejected (no shell/file/URL injection surface).
+        var exec = Make(out _, out _, out _, out _);
+        var result = await exec.ExecuteAsync(
+            Cmd("c-tp2", CommandType.TestPrint, """{"authorizedBy":"alice","printer":"/tmp/x.ps"}"""), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Failed);
+        result.Error.Should().Contain("unknown field");
+    }
+
+    [Fact]
+    public async Task TestPrint_rejects_when_no_printer_selected_PhaseF()
+    {
+        var exec = Make(out _, out var printers, out _, out _);
+        printers.SelectedPrinter = null;   // no printer selected
+        var result = await exec.ExecuteAsync(
+            Cmd("c-tp3", CommandType.TestPrint, """{"authorizedBy":"alice"}"""), CancellationToken.None);
+        result.Status.Should().Be(CommandStatus.Failed);
+        result.Error.Should().Contain("No printer is selected");
     }
 
     // ─── diagnostics ──────────────────────────────────────────────────────
@@ -274,9 +369,11 @@ public class CommandExecutorTests
         };
         public int DiscoverCalls;
         public int SubmitCalls;
+        /// <summary>Phase F — set to null to simulate "no printer selected" (test_print should reject).</summary>
+        public PrinterInfo? SelectedPrinter = Printers[0];
 
         public IReadOnlyList<PrinterInfo> DiscoverPrinters() { DiscoverCalls++; return Printers; }
-        public PrinterInfo? GetSelectedPrinter() => Printers[0];
+        public PrinterInfo? GetSelectedPrinter() => SelectedPrinter;
         public Task SelectPrinterAsync(string printerFullName, CancellationToken ct = default) => Task.CompletedTask;
         public Task<SpoolSubmission> SubmitAsync(PrintJobRecord job, CancellationToken ct = default)
         {

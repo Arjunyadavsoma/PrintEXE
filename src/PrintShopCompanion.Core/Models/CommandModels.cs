@@ -77,10 +77,44 @@ public static class CommandStatus
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";
 
-    /// <summary>All valid status strings the companion may report.</summary>
+    /// <summary>
+    /// Phase F (brief §A) — the handler started but the process crashed
+    /// before confirming the side effect's result. The SaaS accepts this
+    /// (its <c>REPORTABLE_STATUSES</c> enum includes it, commit ce75cd26).
+    /// The companion reports this on restart for any command left 'executing',
+    /// AND a handler may return it directly when it detects an uncertain
+    /// physical outcome (e.g. a spooler submission that returned no
+    /// verifiable completion). The shopkeeper must resolve these manually —
+    /// the system NEVER automatically re-executes or auto-fails them.
+    /// </summary>
+    public const string OutcomeUnknown = "outcome_unknown";
+
+    /// <summary>
+    /// Phase F — expired. Set locally when a fetched command's ExpiresAt has
+    /// passed before execution started. The SaaS uses this server-side too
+    /// (it flips fetched rows past expiry to 'expired' best-effort).
+    /// </summary>
+    public const string Expired = "expired";
+
+    /// <summary>Phase F — cancelled. Server-side only (companion observes, never sets).</summary>
+    public const string Cancelled = "cancelled";
+
+    /// <summary>
+    /// All status strings the companion may report to the SaaS. Matches the
+    /// SaaS <c>REPORTABLE_STATUSES</c> enum (route.ts): delivered, accepted,
+    /// executing, succeeded, failed, outcome_unknown.
+    /// </summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        Delivered, Accepted, Executing, Succeeded, Failed,
+        Delivered, Accepted, Executing, Succeeded, Failed, OutcomeUnknown,
+    };
+
+    /// <summary>
+    /// The terminal statuses (the SaaS treats these as terminal — sets executedAt).
+    /// </summary>
+    public static readonly IReadOnlySet<string> Terminal = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Succeeded, Failed, OutcomeUnknown,
     };
 }
 

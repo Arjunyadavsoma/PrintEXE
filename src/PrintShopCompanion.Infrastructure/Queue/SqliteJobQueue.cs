@@ -39,6 +39,15 @@ public sealed class SqliteJobQueue : IJobQueue
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _initialized;
 
+    /// <summary>
+    /// Phase F — test-only accessor for the queue DB's connection string. Used
+    /// by <c>DurableCommandStoreTests</c> to open a separate connection for the
+    /// BUSY-lock test + the completion_at backdate helper. Not intended for
+    /// production callers (production code uses <see cref="OpenScopedAsync"/>
+    /// or the queue's own methods).
+    /// </summary>
+    public string ConnectionStringForTests => _connectionString;
+
     private const string InitSql = """
         CREATE TABLE IF NOT EXISTS jobs (
             job_id              TEXT    PRIMARY KEY,
@@ -225,27 +234,26 @@ public sealed class SqliteJobQueue : IJobQueue
     }
 
     /// <summary>
-    /// Phase 3 (brief §7) — expose a connection to co-located stores that
-    /// share the queue DB (currently <see cref="Commands.DurableCommandStore"/>,
-    /// which adds a <c>companion_commands</c> table to the same SQLCipher DB).
-    /// Opens a fresh connection, runs <paramref name="action"/>, disposes the
-    /// connection. The action owns its own transaction(s). Thread-safe — every
-    /// call gets a new connection (SQLite handles concurrent readers; writes
-    /// serialize via the DB's internal lock).
+    /// <summary>
+    /// Phase F (brief §B) — open a fresh, scoped connection to the queue DB for
+    /// a co-located store that owns its own transactions (currently
+    /// <see cref="Commands.DurableCommandStore"/>). The caller is responsible
+    /// for disposing the connection (use <c>await using</c>) and for managing
+    /// its own transactions; SQLite serializes writes via the DB's internal lock.
+    ///
+    /// <para><b>Why this replaces the Phase 3 <c>ExecuteInConnectionAsync</c>
+    /// callback</b>: the brief §B explicitly says "Do not expose a generic
+    /// public database connection callback merely for convenience if it permits
+    /// unsafe concurrent access. Prefer a narrowly scoped repository API with
+    /// explicit transactional operations." A <c>Func&lt;Connection, Task&gt;</c>
+    /// callback let any caller run arbitrary SQL on a shared connection with
+    /// no transactional contract. <see cref="OpenScopedAsync"/> returns the
+    /// raw connection but only to co-located stores in this assembly that own
+    /// their transactions; the broad callback is removed.</para>
     /// </summary>
-    public async Task<T> ExecuteInConnectionAsync<T>(
-        Func<SqliteConnection, Task<T>> action, CancellationToken ct)
+    public async Task<SqliteConnection> OpenScopedAsync(CancellationToken ct)
     {
-        await using var conn = await OpenAsync(ct);
-        return await action(conn);
-    }
-
-    /// <summary>Task-returning overload for actions that don't produce a value.</summary>
-    public async Task ExecuteInConnectionAsync(
-        Func<SqliteConnection, Task> action, CancellationToken ct)
-    {
-        await using var conn = await OpenAsync(ct);
-        await action(conn);
+        return await OpenAsync(ct);
     }
 
     private async Task EnsureDiskSpaceAsync(CancellationToken ct)

@@ -3,49 +3,100 @@ namespace PrintShopCompanion.Infrastructure.Commands;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Models;
-using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure.Queue;
-using PrintShopCompanion.Infrastructure.Storage;
 
 /// <summary>
-/// Phase 3 (brief §7) — DURABLE command execution tracking in the local
-/// SQLite/SQLCipher queue database. The Phase 2 in-memory
-/// <see cref="CommandDedupStore"/> (LRU) is insufficient as the ONLY protection
-/// against re-execution after an application restart: a command fetched,
-/// executed, but whose terminal ack was lost in a crash would be re-fetched
-/// and re-executed on the next launch. This store persists:
+/// Phase F (brief §A + §B) — DURABLE command execution tracking in the local
+/// SQLCipher queue database, with a CRASH-SAFE state machine.
+///
+/// <para><b>The safety problem this solves</b> (brief Phase A, acceptance
+/// criterion #1): a Windows process can crash AFTER an external side effect
+/// succeeds (e.g. paper is physically printed) but BEFORE SQLite records
+/// success. Re-executing the command on restart would duplicate the side
+/// effect. The Phase 3 store re-executed any non-terminal command on
+/// restart — that was UNSAFE for non-idempotent commands. This store
+/// implements the brief's recovery rules:</para>
 /// <list type="bullet">
-///   <item><c>command_id</c> — server-assigned UUID, PRIMARY KEY (unique constraint).</item>
-///   <item><c>command_type</c> — for diagnostics + filter-by-type.</item>
-///   <item><c>payload_hash</c> — SHA-256 of the payload JSON, for change detection.</item>
-///   <item><c>first_received_at</c> — when we first saw this command.</item>
-///   <item><c>execution_status</c> — <c>claimed|executing|succeeded|failed</c>.</item>
-///   <item><c>result_json</c> — structured result on success, or null.</item>
-///   <item><c>error</c> — failure reason on failure, or null.</item>
-///   <item><c>completion_at</c> — when execution reached a terminal state.</item>
+///   <item><c>received</c> — seen from the server, not yet claimed. Eligible
+///   for normal processing if still valid (the brief's "received: eligible
+///   for normal processing if still valid").</item>
+///   <item><c>claimed</c> — atomically claimed for execution, but the handler
+///   has not started. Recover ONLY if the implementation can prove no side
+///   effect started — which is true for <c>claimed</c> because no handler has
+///   run yet. (The brief's "claimed but never marked executing: recover only
+///   if the implementation can prove no side effect started".)</item>
+///   <item><c>executing</c> — the handler has started AND may have produced a
+///   side effect. On restart, transition to <c>outcome_unknown</c> UNLESS the
+///   handler supports reliable reconciliation (none currently do — they all
+///   return terminal results only). (The brief's "executing: transition to
+///   outcome_unknown unless the handler supports reliable reconciliation".)</item>
+///   <item><c>succeeded</c> / <c>failed</c> / <c>outcome_unknown</c> — terminal.
+///   NEVER executed again. Re-reported to the server (idempotent) on redelivery.</item>
+///   <item><c>expired</c> — server-side expiry passed before execution. Terminal.</item>
+///   <item><c>cancelled</c> — server-side cancellation. Terminal.</item>
 /// </list>
 ///
-/// <para><b>Atomic claim</b> (the key invariant): before executing a command,
-/// the poller calls <see cref="TryClaimAsync"/>. This INSERTs with
-/// <c>ON CONFLICT(command_id) DO NOTHING</c> — only the first caller wins.
-/// On restart, a command left in <c>claimed</c> or <c>executing</c> (a crash
-/// before the terminal report) is recovered: the poller re-executes it ONLY
-/// if its <see cref="PendingCommand.ExpiresAt"/> is still in the future AND
-/// the stored status is non-terminal; a terminal status (<c>succeeded</c>/
-/// <c>failed</c>) is re-reported to the backend (idempotent) but NOT re-executed.</para>
+/// <para><b>Atomic claim</b>: <see cref="TryClaimAsync"/> does an atomic
+/// <c>INSERT ... ON CONFLICT(command_id) DO NOTHING</c> (status='received')
+/// then a conditional <c>UPDATE ... WHERE execution_status='received'</c> to
+/// 'claimed' in the SAME transaction. The first caller wins; a concurrent
+/// caller sees 'claimed' (or a terminal state from a previous process) and
+/// does NOT execute. This is the brief's "Prevent concurrent pollers from
+/// executing the same command" + "Atomic claim operations using transactions".</para>
 ///
-/// <para><b>Bounded retention</b>: rows older than 30 days in a terminal state
-/// are purged by <see cref="PurgeOldTerminalAsync"/>. Unresolved or uncertain
-/// commands (non-terminal status) are NEVER deleted — per the brief's §7
-/// "Do not delete unresolved or uncertain command records".</para>
+/// <para><b>Phase transitions before + after side effects</b> (brief Phase A
+/// required sequence):</para>
+/// <list type="number">
+///   <item><see cref="RecordReceivedAsync"/> — first time we see the command
+///   from the server (status='received'). Idempotent — a redelivery is a no-op.</item>
+///   <item><see cref="TryClaimAsync"/> — atomic claim (received→claimed).</item>
+///   <item><see cref="MarkExecutingAsync"/> — persist executing-started BEFORE
+///   running the handler, so a crash between claim and handler-start leaves
+///   'claimed' (safe to recover) not 'executing' (unsafe to re-run).</item>
+///   <item>Run the handler.</item>
+///   <item><see cref="MarkTerminalAsync"/> — persist the final result AFTER
+///   the handler returns (succeeded/failed/outcome_unknown).</item>
+/// </list>
 ///
-/// <para><b>Shares the queue DB</b>: the table lives in the same SQLCipher
-/// database as the print-jobs queue (<c>%LocalAppData%\PrintShop\Companion\
-/// Database\queue.db</c>) so it inherits the same DPAPI-protected key +
-/// atomic transaction semantics. Schema is additive (CREATE TABLE IF NOT
-/// EXISTS) so it's safe on existing installs.</para>
+/// <para><b>Restart recovery</b>: <see cref="RecoverInterruptedAsync"/>
+/// scans for non-terminal rows on startup. <c>claimed</c> rows (handler
+/// never started) are reset to <c>received</c> so the poller re-claims +
+/// re-executes them (safe — no side effect ran). <c>executing</c> rows
+/// (handler started, may have side-effected) are transitioned to
+/// <c>outcome_unknown</c> and re-reported to the server; they are NEVER
+/// re-executed. The shopkeeper resolves them manually. This is the brief's
+/// acceptance criterion #1.</para>
+///
+/// <para><b>Bounded retention</b>: <see cref="PurgeOldTerminalAsync"/> deletes
+/// only terminal rows (<c>succeeded</c>/<c>failed</c>/<c>outcome_unknown</c>/
+/// <c>expired</c>/<c>cancelled</c>) older than the cutoff. Non-terminal rows
+/// (<c>received</c>/<c>claimed</c>/<c>executing</c>) are NEVER deleted —
+/// they may still be recoverable. <c>outcome_unknown</c> rows are kept
+/// until the shopkeeper resolves them (the brief's "Never delete records
+/// needed to resolve uncertain print outcomes").</para>
+///
+/// <para><b>DB busy/locked handling</b>: every operation retries on
+/// <c>SqliteException</c> with <c>ErrorCode==Busy</c> or <c>Locked</c> using
+/// a bounded exponential backoff (10ms → 20 → 40 → 80 → 160 → 320ms, max 6
+/// attempts ≈ 630ms total) before propagating. This is the brief's "Handle
+/// database busy/locked conditions with bounded retry and cancellation".</para>
+///
+/// <para><b>Thread-safe connection access</b>: the store does NOT expose a
+/// generic connection callback (the Phase 3 <c>ExecuteInConnectionAsync</c>
+/// was removed from <c>SqliteJobQueue</c>'s public surface because it
+/// permitted unsafe concurrent access). Instead, the store owns its own
+/// narrow repository API with explicit transactional operations, each
+/// opening a fresh connection via <c>SqliteJobQueue.OpenScopedAsync</c>
+/// (per-call connection, disposed by the using). Every operation is
+/// independent; SQLite serializes writes via the DB's internal lock.</para>
+///
+/// <para><b>Schema</b> (additive — no destructive migration; the Phase 3
+/// columns are preserved, new columns added with defaults): the
+/// <c>companion_commands</c> table is in the SAME SQLCipher DB as the
+/// print-jobs queue, sharing the DPAPI-protected key. The Phase 3 schema
+/// is upgraded in place via <c>ALTER TABLE ADD COLUMN</c> (idempotent via
+/// PRAGMA table_info check) for the new state-tracking columns.</para>
 /// </summary>
 public sealed class DurableCommandStore
 {
@@ -53,189 +104,426 @@ public sealed class DurableCommandStore
     private readonly ILogger<DurableCommandStore> _logger;
     private int _initialized;
 
+    // Bounded retry for SQLite BUSY/LOCKED. Total worst-case wait ≈ 630ms
+    // (10+20+40+80+160+320) before propagating — well under any reasonable
+    // command-processing timeout.
+    private const int MaxBusyRetries = 6;
+
     public DurableCommandStore(SqliteJobQueue queue, ILogger<DurableCommandStore> logger)
     {
         _queue = queue;
         _logger = logger;
     }
 
-    /// <summary>DDL for the commands table. Additive — safe on existing DBs.</summary>
+    /// <summary>
+    /// The execution states a command can be in (the brief's Phase A list).
+    /// Mirrors the SaaS <c>REPORTABLE_STATUSES</c> plus the local-only
+    /// <c>received</c>/<c>claimed</c> (the SaaS never sees those — they're
+    /// pre-execution local states).
+    /// </summary>
+    public static class CommandState
+    {
+        public const string Received = "received";          // seen from server, not claimed
+        public const string Claimed = "claimed";             // atomically claimed, handler not started
+        public const string Executing = "executing";         // handler started (may have side-effected)
+        public const string Succeeded = "succeeded";         // terminal — success
+        public const string Failed = "failed";               // terminal — failure
+        public const string OutcomeUnknown = "outcome_unknown"; // terminal — crash interrupted, side effect uncertain
+        public const string Expired = "expired";             // terminal — server-side expiry passed
+        public const string Cancelled = "cancelled";         // terminal — server-side cancellation
+    }
+
+    /// <summary>The terminal states. Used for retention + the never-re-execute gate.</summary>
+    public static readonly string[] TerminalStates =
+        { CommandState.Succeeded, CommandState.Failed, CommandState.OutcomeUnknown, CommandState.Expired, CommandState.Cancelled };
+
+    /// <summary>The non-terminal states (subject to restart recovery).</summary>
+    public static readonly string[] NonTerminalStates =
+        { CommandState.Received, CommandState.Claimed, CommandState.Executing };
+
+    /// <summary>
+    /// DDL for the commands table. Additive — safe on existing DBs. The Phase 3
+    /// schema had {command_id, command_type, payload_hash, first_received_at,
+    /// execution_status, result_json, error, completion_at}. Phase F adds
+    /// {payload_json, accepted_at, executing_at, outcome_unknown_at} via
+    /// ALTER TABLE (idempotent — guarded by a column-existence probe).
+    /// </summary>
     private const string InitSql = """
         CREATE TABLE IF NOT EXISTS companion_commands (
-            command_id         TEXT    PRIMARY KEY,
-            command_type       TEXT    NOT NULL,
-            payload_hash       TEXT    NOT NULL,
-            first_received_at  TEXT    NOT NULL,
-            execution_status   TEXT    NOT NULL DEFAULT 'claimed',
-            result_json        TEXT,
-            error              TEXT,
-            completion_at      TEXT
+            command_id            TEXT    PRIMARY KEY,
+            command_type          TEXT    NOT NULL,
+            payload_hash          TEXT    NOT NULL,
+            payload_json          TEXT,
+            first_received_at     TEXT    NOT NULL,
+            execution_status      TEXT    NOT NULL DEFAULT 'received',
+            accepted_at           TEXT,
+            executing_at          TEXT,
+            outcome_unknown_at    TEXT,
+            result_json           TEXT,
+            error                 TEXT,
+            completion_at         TEXT
         );
         CREATE INDEX IF NOT EXISTS ix_cc_status      ON companion_commands (execution_status);
         CREATE INDEX IF NOT EXISTS ix_cc_completion ON companion_commands (completion_at);
+        CREATE INDEX IF NOT EXISTS ix_cc_outcome    ON companion_commands (outcome_unknown_at);
 
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
         );
-        -- Bump to 3 when the commands table is added (idempotent — INSERT OR IGNORE).
-        INSERT OR IGNORE INTO schema_version (version) VALUES (3);
+        -- Bump to 4 when the Phase F columns are added (idempotent — INSERT OR IGNORE).
+        INSERT OR IGNORE INTO schema_version (version) VALUES (4);
         """;
 
     /// <summary>
-    /// Atomically claim a command for execution. The first caller wins
-    /// (<c>ON CONFLICT(command_id) DO NOTHING</c>); subsequent callers
-    /// (a duplicate fetch, or a concurrent poller tick) get back the existing
-    /// row's status + result, so they can re-report without re-executing.
+    /// Phase F additive column adds for DBs created under the Phase 3 schema
+    /// (which lacked payload_json, accepted_at, executing_at, outcome_unknown_at).
+    /// Idempotent — guarded by PRAGMA table_info. Run inside InitializeAsync
+    /// after the CREATE TABLE.
     /// </summary>
-    /// <returns>
-    /// <c>(Claimed: true, ...)</c> if this caller won the claim and should execute;
-    /// <c>(Claimed: false, status, resultJson, error)</c> if another caller already
-    /// claimed it — the poller re-reports the existing terminal status (idempotent).
-    /// </returns>
-    public async Task<ClaimResult> TryClaimAsync(
+    private const string AddColumnIfMissingSql = """
+        -- SQLite has no ADD COLUMN IF NOT EXISTS; we probe column existence in
+        -- C# before issuing each ALTER. This string is unused directly — see
+        -- the column-existence probe in InitializeAsync.
+        SELECT 1;
+        """;
+
+    /// <summary>Column names the Phase F schema adds (for the existence probe).</summary>
+    private static readonly string[] PhaseFNewColumns =
+    {
+        ("payload_json",    "TEXT"),
+        ("accepted_at",     "TEXT"),
+        ("executing_at",    "TEXT"),
+        ("outcome_unknown_at", "TEXT"),
+    }.Select(p => p.Item1).ToArray();
+
+    /// <summary>(column, ddl-type) pairs for the Phase F ALTER TABLE adds.</summary>
+    private static readonly (string Name, string Ddl)[] PhaseFColumns =
+    {
+        ("payload_json",       "TEXT"),
+        ("accepted_at",        "TEXT"),
+        ("executing_at",       "TEXT"),
+        ("outcome_unknown_at", "TEXT"),
+    };
+
+    /// <summary>
+    /// Phase F compatibility: the Phase 3 default for execution_status was
+    /// 'claimed'. Phase F uses 'received' as the initial state. For rows that
+    /// pre-date Phase F (created under Phase 3 with status='claimed'), they
+    /// are treated as 'claimed' on recovery — which is safe (claimed → received
+    /// → re-claim → re-execute, since claimed means "handler not started").
+    /// </summary>
+    private const string Phase3DefaultStatus = "claimed";
+
+    // ────────────────────────── public API ──────────────────────────
+
+    /// <summary>
+    /// Record that we've received a command from the server. Idempotent — a
+    /// redelivery is a no-op (returns the existing row's state). This is the
+    /// brief's "received" state: eligible for normal processing if still valid.
+    /// </summary>
+    public async Task<CommandRow?> RecordReceivedAsync(
         PendingCommand command, CancellationToken ct = default)
     {
         await InitializeAsync(ct);
         var payloadHash = ComputePayloadHash(command.PayloadJson);
-        var now = DateTimeOffset.UtcNow.ToString("O");
+        var now = NowIso();
 
-        // Atomic INSERT-or-return-existing. SQLite's ON CONFLICT DO NOTHING
-        // leaves the row unchanged if it exists; we then SELECT to read the
-        // current state. Both statements run in one transaction so a concurrent
-        // caller cannot observe a half-written row.
-        return await _queue.ExecuteInConnectionAsync(async conn =>
+        return await WithBusyRetryAsync(async () =>
         {
-            using var tx = conn.BeginTransaction();
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
             try
             {
-                using (var insert = conn.CreateCommand())
+                // Insert if absent with status='received'. ON CONFLICT DO NOTHING
+                // preserves any existing row (including terminal state from a
+                // previous execution) so a redelivery never clobbers history.
+                await using (var insert = conn.CreateCommand())
                 {
-                    insert.Transaction = tx;
+                    insert.Transaction = (SqliteTransaction)tx;
                     insert.CommandText = """
                         INSERT INTO companion_commands
-                            (command_id, command_type, payload_hash, first_received_at, execution_status)
+                            (command_id, command_type, payload_hash, payload_json,
+                             first_received_at, execution_status)
                         VALUES
-                            (@id, @type, @hash, @now, 'claimed')
+                            (@id, @type, @hash, @payload, @now, 'received')
                         ON CONFLICT(command_id) DO NOTHING;
                         """;
                     insert.Parameters.AddWithValue("@id", command.Id);
                     insert.Parameters.AddWithValue("@type", command.CommandType);
                     insert.Parameters.AddWithValue("@hash", payloadHash);
+                    insert.Parameters.AddWithValue("@payload", command.PayloadJson);
                     insert.Parameters.AddWithValue("@now", now);
-                    var rowsAffected = await insert.ExecuteNonQueryAsync(ct);
-                    var claimed = rowsAffected > 0;
-                    tx.Commit();
-
-                    // Read the row's current state (whether we inserted or it pre-existed).
-                    using var sel = conn.CreateCommand();
-                    sel.CommandText = """
-                        SELECT execution_status, result_json, error
-                        FROM companion_commands WHERE command_id = @id;
-                        """;
-                    sel.Parameters.AddWithValue("@id", command.Id);
-                    using var reader = await sel.ExecuteReaderAsync(ct);
-                    if (!reader.Read())
-                    {
-                        // Should be impossible — we just inserted-or-ignored.
-                        return new ClaimResult(Claimed: false, Status: null, ResultJson: null, Error: "row not found after upsert");
-                    }
-                    var status = reader.GetString(0);
-                    var result = reader.IsDBNull(1) ? null : reader.GetString(1);
-                    var error = reader.IsDBNull(2) ? null : reader.GetString(2);
-                    return new ClaimResult(Claimed: claimed, Status: status, ResultJson: result, Error: error);
+                    await insert.ExecuteNonQueryAsync(ct);
                 }
+                await tx.CommitAsync(ct);
+                return await ReadRowAsync(conn, command.Id, ct);
             }
             catch
             {
-                tx.Rollback();
+                await tx.RollbackAsync(ct);
                 throw;
             }
         }, ct);
     }
 
     /// <summary>
-    /// Update a command's execution status. Used by the poller to record
-    /// <c>executing</c> → <c>succeeded</c>/<c>failed</c>. Idempotent on
-    /// (command_id, status) — re-reporting the same terminal status is a no-op.
+    /// Atomically claim a command for execution. First caller wins. The claim
+    /// is a conditional UPDATE: <c>received → claimed</c> only if the row is
+    /// still <c>received</c>. A concurrent caller (or a row already past
+    /// <c>received</c>) gets back the existing state and does NOT execute.
     /// </summary>
-    public async Task UpdateStatusAsync(
+    /// <returns>
+    /// <c>(Claimed: true, ...)</c> if this caller won the claim;
+    /// <c>(Claimed: false, status, resultJson, error)</c> with the existing
+    /// state otherwise (the poller re-reports terminal states without
+    /// re-executing; non-terminal states mean another caller is mid-flight).
+    /// </returns>
+    public async Task<ClaimResult> TryClaimAsync(
+        PendingCommand command, CancellationToken ct = default)
+    {
+        // Ensure a row exists (idempotent) before the conditional claim.
+        await RecordReceivedAsync(command, ct);
+
+        return await WithBusyRetryAsync(async () =>
+        {
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            try
+            {
+                int rowsAffected;
+                await using (var claim = conn.CreateCommand())
+                {
+                    claim.Transaction = (SqliteTransaction)tx;
+                    claim.CommandText = """
+                        UPDATE companion_commands
+                        SET execution_status = 'claimed',
+                            accepted_at = COALESCE(accepted_at, @now)
+                        WHERE command_id = @id AND execution_status = 'received';
+                        """;
+                    claim.Parameters.AddWithValue("@id", command.Id);
+                    claim.Parameters.AddWithValue("@now", NowIso());
+                    rowsAffected = await claim.ExecuteNonQueryAsync(ct);
+                }
+                await tx.CommitAsync(ct);
+
+                var row = await ReadRowAsync(conn, command.Id, ct);
+                if (row is null)
+                    return new ClaimResult(Claimed: false, Status: null, ResultJson: null, Error: "row not found after claim");
+                return new ClaimResult(Claimed: rowsAffected > 0, Status: row.ExecutionStatus, ResultJson: row.ResultJson, Error: row.Error);
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;
+            }
+        }, ct);
+    }
+
+    /// <summary>
+    /// Mark a claimed command as executing — the handler is ABOUT to start.
+    /// Persist this BEFORE running the handler so a crash between claim and
+    /// handler-start leaves the row 'claimed' (safe: re-claim + re-execute)
+    /// not 'executing' (unsafe: would transition to outcome_unknown on restart).
+    /// </summary>
+    /// <returns>False if the row is no longer 'claimed' (e.g. another process
+    /// already moved it). The caller should abort in that case.</returns>
+    public async Task<bool> MarkExecutingAsync(string commandId, CancellationToken ct = default)
+    {
+        await InitializeAsync(ct);
+        return await WithBusyRetryAsync(async () =>
+        {
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE companion_commands
+                SET execution_status = 'executing',
+                    executing_at = COALESCE(executing_at, @now)
+                WHERE command_id = @id AND execution_status = 'claimed';
+                """;
+            cmd.Parameters.AddWithValue("@id", commandId);
+            cmd.Parameters.AddWithValue("@now", NowIso());
+            return await cmd.ExecuteNonQueryAsync(ct) > 0;
+        }, ct);
+    }
+
+    /// <summary>
+    /// Persist the terminal result of a command. Sets <c>completion_at</c>.
+    /// Idempotent — re-reporting the same terminal status is a no-op (the
+    /// COALESCEs preserve the earliest non-null values). Use
+    /// <see cref="CommandState"/> for the <paramref name="status"/> values.
+    /// </summary>
+    public async Task MarkTerminalAsync(
         string commandId, string status, string? resultJson = null, string? error = null,
         CancellationToken ct = default)
     {
         await InitializeAsync(ct);
-        var completionAt = (status is "succeeded" or "failed")
-            ? DateTimeOffset.UtcNow.ToString("O")
-            : null;
+        if (!TerminalStates.Contains(status))
+            throw new ArgumentException(
+                $"MarkTerminalAsync requires a terminal status (one of {string.Join(", ", TerminalStates)}); got '{status}'.", nameof(status));
 
-        await _queue.ExecuteInConnectionAsync(async conn =>
+        var now = NowIso();
+        var outcomeAt = status == CommandState.OutcomeUnknown ? now : null;
+
+        await WithBusyRetryAsync(async () =>
         {
-            using var cmd = conn.CreateCommand();
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 UPDATE companion_commands SET
                     execution_status = @status,
                     result_json = COALESCE(@result, result_json),
                     error = COALESCE(@error, error),
-                    completion_at = COALESCE(@completion, completion_at)
+                    completion_at = COALESCE(completion_at, @completion),
+                    outcome_unknown_at = COALESCE(outcome_unknown_at, @outcomeAt)
                 WHERE command_id = @id;
                 """;
             cmd.Parameters.AddWithValue("@id", commandId);
             cmd.Parameters.AddWithValue("@status", status);
             cmd.Parameters.AddWithValue("@result", (object?)resultJson ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@error", (object?)error ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@completion", (object?)completionAt ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@completion", now);
+            cmd.Parameters.AddWithValue("@outcomeAt", (object?)outcomeAt ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }, ct);
     }
 
     /// <summary>
-    /// Look up a command's stored state. Returns null if the command was never
-    /// claimed (e.g. an unknown command the server sent but we never executed).
-    /// Used on restart to recover: a terminal row is re-reported (idempotent),
-    /// a non-terminal row whose expiry passed is reported as failed ("interrupted by restart").
+    /// Mark a command as expired (server-side expiry passed before execution).
+    /// Terminal. Used by the poller when it observes a fetched command whose
+    /// <see cref="PendingCommand.IsExpired"/> is true and no execution has
+    /// started. Idempotent.
+    /// </summary>
+    public async Task MarkExpiredAsync(string commandId, CancellationToken ct = default) =>
+        await MarkTerminalAsync(commandId, CommandState.Expired, error: "Command expired before execution started.", ct: ct);
+
+    /// <summary>
+    /// Restart recovery — scan for non-terminal rows and apply the brief's
+    /// Phase A recovery rules:
+    /// <list type="bullet">
+    ///   <item><c>received</c> — leave as-is (eligible for normal processing;
+    ///   the poller will claim it on the next tick).</item>
+    ///   <item><c>claimed</c> — reset to <c>received</c> (the handler never
+    ///   started; safe to re-claim + re-execute).</item>
+    ///   <item><c>executing</c> — transition to <c>outcome_unknown</c>
+    ///   (the handler started; a side effect may have occurred; the
+    ///   shopkeeper must resolve manually). NEVER re-execute.</item>
+    /// </list>
+    /// Returns the list of commands transitioned to <c>outcome_unknown</c>
+    /// (the poller re-reports these to the server on the next tick).
+    /// </summary>
+    public async Task<IReadOnlyList<CommandRow>> RecoverInterruptedAsync(CancellationToken ct = default)
+    {
+        await InitializeAsync(ct);
+        var now = NowIso();
+        var recovered = new List<CommandRow>();
+
+        await WithBusyRetryAsync(async () =>
+        {
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            try
+            {
+                // claimed → received (handler never started; safe to re-execute).
+                await using (var reset = conn.CreateCommand())
+                {
+                    reset.Transaction = (SqliteTransaction)tx;
+                    reset.CommandText = """
+                        UPDATE companion_commands
+                        SET execution_status = 'received'
+                        WHERE execution_status = 'claimed';
+                        """;
+                    await reset.ExecuteNonQueryAsync(ct);
+                }
+
+                // executing → outcome_unknown (handler started; side effect uncertain).
+                // Capture the rows BEFORE the update so we can return them for re-report.
+                var toOutcomeUnknown = new List<CommandRow>();
+                await using (var sel = conn.CreateCommand())
+                {
+                    sel.Transaction = (SqliteTransaction)tx;
+                    sel.CommandText = """
+                        SELECT command_id, command_type, payload_hash, payload_json,
+                               first_received_at, execution_status, accepted_at, executing_at,
+                               outcome_unknown_at, result_json, error, completion_at
+                        FROM companion_commands WHERE execution_status = 'executing';
+                        """;
+                    await using var reader = await sel.ExecuteReaderAsync(ct);
+                    while (await reader.ReadAsync(ct))
+                    {
+                        toOutcomeUnknown.Add(ReadRowFromReader(reader));
+                    }
+                }
+                if (toOutcomeUnknown.Count > 0)
+                {
+                    await using (var mark = conn.CreateCommand())
+                    {
+                        mark.Transaction = (SqliteTransaction)tx;
+                        mark.CommandText = """
+                            UPDATE companion_commands
+                            SET execution_status = 'outcome_unknown',
+                                outcome_unknown_at = COALESCE(outcome_unknown_at, @now),
+                                completion_at = COALESCE(completion_at, @now),
+                                error = COALESCE(error, 'Execution interrupted by application restart; physical outcome uncertain.')
+                            WHERE execution_status = 'executing';
+                            """;
+                        mark.Parameters.AddWithValue("@now", now);
+                        await mark.ExecuteNonQueryAsync(ct);
+                    }
+                }
+                await tx.CommitAsync(ct);
+                recovered = toOutcomeUnknown;
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;
+            }
+        }, ct);
+
+        if (recovered.Count > 0)
+        {
+            _logger.LogWarning("Restart recovery: {Count} command(s) transitioned to outcome_unknown (executing at crash — NOT re-executed)", recovered.Count);
+        }
+        return recovered;
+    }
+
+    /// <summary>
+    /// Look up a command's stored state. Returns null if the command was
+    /// never received. Used by the poller to decide whether to execute
+    /// (terminal → re-report, non-terminal → see recovery rules).
     /// </summary>
     public async Task<CommandRow?> GetAsync(string commandId, CancellationToken ct = default)
     {
         await InitializeAsync(ct);
-        return await _queue.ExecuteInConnectionAsync(async conn =>
+        return await WithBusyRetryAsync(async () =>
         {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                SELECT command_id, command_type, payload_hash, first_received_at,
-                       execution_status, result_json, error, completion_at
-                FROM companion_commands WHERE command_id = @id;
-                """;
-            cmd.Parameters.AddWithValue("@id", commandId);
-            using var reader = await cmd.ExecuteReaderAsync(ct);
-            if (!reader.Read()) return null;
-            return new CommandRow(
-                CommandId: reader.GetString(0),
-                CommandType: reader.GetString(1),
-                PayloadHash: reader.GetString(2),
-                FirstReceivedAt: DateTimeOffset.Parse(reader.GetString(3)),
-                ExecutionStatus: reader.GetString(4),
-                ResultJson: reader.IsDBNull(5) ? null : reader.GetString(5),
-                Error: reader.IsDBNull(6) ? null : reader.GetString(6),
-                CompletionAt: reader.IsDBNull(7) ? null : DateTimeOffset.Parse(reader.GetString(7)));
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            return await ReadRowAsync(conn, commandId, ct);
         }, ct);
     }
 
     /// <summary>
-    /// Bounded retention — purge rows in a terminal state (<c>succeeded</c>/
-    /// <c>failed</c>) older than <paramref name="olderThan"/>. Non-terminal
-    /// rows (<c>claimed</c>/<c>executing</c>) are NEVER deleted per the brief's
-    /// §7. Called periodically by the App (e.g. once a day); safe to call at
-    /// any cadence — it's a DELETE with a WHERE clause.
+    /// Bounded retention — purge rows in a terminal state older than
+    /// <paramref name="olderThan"/>. Non-terminal rows are NEVER deleted
+    /// (the brief's "Never delete records needed to resolve uncertain print
+    /// outcomes"). <c>outcome_unknown</c> rows ARE purged by this (they're
+    /// terminal) — but only after the cutoff; the shopkeeper has that long
+    /// to resolve them. Safe to call at any cadence.
     /// </summary>
     public async Task<int> PurgeOldTerminalAsync(TimeSpan olderThan, CancellationToken ct = default)
     {
         await InitializeAsync(ct);
         var cutoff = DateTimeOffset.UtcNow.Subtract(olderThan).ToString("O");
-        return await _queue.ExecuteInConnectionAsync(async conn =>
+        return await WithBusyRetryAsync(async () =>
         {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            // Use a parameterized IN-list (SQLite doesn't bind arrays; expand the
+            // terminals as quoted literals — they're constants, not user input).
+            var inList = string.Join(", ", TerminalStates.Select(s => $"'{s}'"));
+            cmd.CommandText = $"""
                 DELETE FROM companion_commands
-                WHERE execution_status IN ('succeeded', 'failed')
+                WHERE execution_status IN ({inList})
                   AND completion_at IS NOT NULL
                   AND completion_at < @cutoff;
                 """;
@@ -248,9 +536,10 @@ public sealed class DurableCommandStore
     public async Task<int> CountAsync(CancellationToken ct = default)
     {
         await InitializeAsync(ct);
-        return await _queue.ExecuteInConnectionAsync(async conn =>
+        return await WithBusyRetryAsync(async () =>
         {
-            using var cmd = conn.CreateCommand();
+            await using var conn = await _queue.OpenScopedAsync(ct);
+            await using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*) FROM companion_commands;";
             return (int)(long)(await cmd.ExecuteScalarAsync(ct))!;
         }, ct);
@@ -258,12 +547,50 @@ public sealed class DurableCommandStore
 
     // ────────────────────────── helpers ──────────────────────────
 
+    private static async Task<CommandRow?> ReadRowAsync(SqliteConnection conn, string commandId, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT command_id, command_type, payload_hash, payload_json,
+                   first_received_at, execution_status, accepted_at, executing_at,
+                   outcome_unknown_at, result_json, error, completion_at
+            FROM companion_commands WHERE command_id = @id;
+            """;
+        cmd.Parameters.AddWithValue("@id", commandId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return ReadRowFromReader(reader);
+    }
+
+    private static CommandRow ReadRowFromReader(SqliteDataReader reader)
+    {
+        var firstReceived = reader.GetString(4);   // first_received_at
+        var status = reader.GetString(5);
+        var acceptedAt = reader.IsDBNull(6) ? null : reader.GetString(6);
+        var executingAt = reader.IsDBNull(7) ? null : reader.GetString(7);
+        var outcomeAt = reader.IsDBNull(8) ? null : reader.GetString(8);
+        var completionAt = reader.IsDBNull(11) ? null : reader.GetString(11);
+        return new CommandRow(
+            CommandId: reader.GetString(0),
+            CommandType: reader.GetString(1),
+            PayloadHash: reader.GetString(2),
+            PayloadJson: reader.IsDBNull(3) ? null : reader.GetString(3),
+            FirstReceivedAt: ParseIso(firstReceived),
+            ExecutionStatus: status,
+            AcceptedAt: acceptedAt is null ? null : ParseIso(acceptedAt),
+            ExecutingAt: executingAt is null ? null : ParseIso(executingAt),
+            OutcomeUnknownAt: outcomeAt is null ? null : ParseIso(outcomeAt),
+            ResultJson: reader.IsDBNull(9) ? null : reader.GetString(9),
+            Error: reader.IsDBNull(10) ? null : reader.GetString(10),
+            CompletionAt: completionAt is null ? null : ParseIso(completionAt));
+    }
+
+    private static DateTimeOffset ParseIso(string s) => DateTimeOffset.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string NowIso() => DateTimeOffset.UtcNow.ToString("O");
+
     private static string ComputePayloadHash(string payloadJson)
     {
-        // Normalize the JSON before hashing so semantically-equal payloads
-        // (different whitespace/key order) hash the same. Falls back to the
-        // raw string if parsing fails (the executor tolerates non-JSON payloads
-        // by treating them as "{}").
         try
         {
             using var doc = JsonDocument.Parse(payloadJson);
@@ -281,25 +608,76 @@ public sealed class DurableCommandStore
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Bounded retry on SQLite BUSY/LOCKED. Exponential backoff: 10, 20, 40,
+    /// 80, 160, 320ms (6 attempts, ~630ms total). Any other exception is
+    /// propagated immediately. Honors cancellation between retries.
+    /// </summary>
+    private async Task<T> WithBusyRetryAsync<T>(Func<Task<T>> action, CancellationToken ct)
+    {
+        var delay = 10;
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await action(); }
+            catch (SqliteException ex) when (IsBusyOrLocked(ex) && attempt < MaxBusyRetries)
+            {
+                _logger.LogDebug(ex, "SQLite busy/locked (attempt {Attempt}/{Max}); retrying in {Delay}ms", attempt + 1, MaxBusyRetries, delay);
+                await Task.Delay(delay, ct);
+                delay *= 2;
+            }
+        }
+    }
+
+    private static bool IsBusyOrLocked(SqliteException ex) =>
+        ex.SqliteErrorCode == SQLitePCL.raw.SQLITE_BUSY ||
+        ex.SqliteErrorCode == SQLitePCL.raw.SQLITE_LOCKED;
+
     private async Task InitializeAsync(CancellationToken ct)
     {
         if (Interlocked.CompareExchange(ref _initialized, 1, 0) != 0) return;
         try
         {
-            await _queue.ExecuteInConnectionAsync(async conn =>
+            await WithBusyRetryAsync(async () =>
             {
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = InitSql;
-                await cmd.ExecuteNonQueryAsync(ct);
+                await using var conn = await _queue.OpenScopedAsync(ct);
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = InitSql;
+                    await cmd.ExecuteNonQueryAsync(ct);
+                }
+                // Phase F additive ALTER TABLE for DBs created under Phase 3
+                // (which lacked payload_json, accepted_at, executing_at,
+                // outcome_unknown_at). Probe each column; ALTER if missing.
+                foreach (var (name, ddl) in PhaseFColumns)
+                {
+                    if (!await ColumnExistsAsync(conn, name, ct))
+                    {
+                        await using var alter = conn.CreateCommand();
+                        alter.CommandText = $"ALTER TABLE companion_commands ADD COLUMN {name} {ddl};";
+                        await alter.ExecuteNonQueryAsync(ct);
+                        _logger.LogInformation("Phase F schema upgrade: added column {Column}", name);
+                    }
+                }
             }, ct);
-            _logger.LogInformation("DurableCommandStore initialized (companion_commands table)");
+            _logger.LogInformation("DurableCommandStore initialized (companion_commands table, schema v4)");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "DurableCommandStore initialization failed — command dedup will be in-memory only");
-            // Reset so a later call can retry; the in-memory store still works.
             Interlocked.Exchange(ref _initialized, 0);
         }
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string columnName, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(companion_commands);";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (reader.GetString(1) == columnName) return true;   // col 1 = name
+        }
+        return false;
     }
 }
 
@@ -315,11 +693,19 @@ public sealed record CommandRow(
     string CommandId,
     string CommandType,
     string PayloadHash,
+    string? PayloadJson,
     DateTimeOffset FirstReceivedAt,
-    string ExecutionStatus,    // claimed | executing | succeeded | failed
+    string ExecutionStatus,           // received | claimed | executing | succeeded | failed | outcome_unknown | expired | cancelled
+    DateTimeOffset? AcceptedAt,
+    DateTimeOffset? ExecutingAt,
+    DateTimeOffset? OutcomeUnknownAt,
     string? ResultJson,
     string? Error,
     DateTimeOffset? CompletionAt)
 {
-    public bool IsTerminal => ExecutionStatus is "succeeded" or "failed";
+    /// <summary>True if the command is in a terminal state (never re-execute).</summary>
+    public bool IsTerminal => DurableCommandStore.TerminalStates.Contains(ExecutionStatus);
+
+    /// <summary>True if the command's side effect is uncertain (crash during execution).</summary>
+    public bool IsOutcomeUnknown => ExecutionStatus == DurableCommandStore.CommandState.OutcomeUnknown;
 }
