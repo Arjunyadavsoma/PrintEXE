@@ -33,6 +33,7 @@ public sealed class CommandExecutor
     private readonly IPrinterService _printers;
     private readonly IJobQueue _queue;
     private readonly IPrintShopBackend _backend;
+    private readonly IQueueController _queueController;   // Phase 3: pause/resume
     private readonly IOptionsMonitor<PrinterOptions> _printerOpts;
     private readonly ILogger<CommandExecutor> _logger;
 
@@ -40,12 +41,14 @@ public sealed class CommandExecutor
         IPrinterService printers,
         IJobQueue queue,
         IPrintShopBackend backend,
+        IQueueController queueController,
         IOptionsMonitor<PrinterOptions> printerOpts,
         ILogger<CommandExecutor> logger)
     {
         _printers = printers;
         _queue = queue;
         _backend = backend;
+        _queueController = queueController;
         _printerOpts = printerOpts;
         _logger = logger;
     }
@@ -127,24 +130,29 @@ public sealed class CommandExecutor
         return Succeeded(command.Id, JsonSerializer.Serialize(result));
     }
 
-    /// <summary>pause — request the JobProcessor to stop dequeuing. (Wire-up to JobProcessor.PauseAsync is Phase 4 follow-up; for now we record the intent.)</summary>
-    private Task<CommandExecutionResult> PauseAsync(PendingCommand command, CancellationToken ct)
+    /// <summary>
+    /// pause — Phase 3 (brief §7): cooperatively pause the JobProcessor's
+    /// dequeue loop. An in-flight job (if any) finishes cleanly; subsequent
+    /// dequeues block until <c>resume</c>. The pause is NOT persisted across
+    /// restart (the contract treats pause as a transient shopkeeper action).
+    /// </summary>
+    private async Task<CommandExecutionResult> PauseAsync(PendingCommand command, CancellationToken ct)
     {
-        // TODO: JobProcessor exposes a PauseAsync in a follow-up. For now, the
-        // command is acknowledged as succeeded with a note that pause is pending
-        // the JobProcessor wiring. This is honest: we do NOT claim the queue
-        // actually paused; the result payload says "pauseRequested: true, wired: false".
-        var result = new { paused = false, pauseRequested = true, note = "JobProcessor.PauseAsync wiring pending" };
-        _logger.LogInformation("pause command {CommandId}: pause requested (wiring pending)", command.Id);
-        return Task.FromResult(Succeeded(command.Id, JsonSerializer.Serialize(result)));
+        var wasAlreadyPaused = _queueController.IsPaused;
+        await _queueController.PauseAsync(ct);
+        var result = new { paused = true, wasAlreadyPaused };
+        _logger.LogInformation("pause command {CommandId}: queue paused (wasAlreadyPaused={WasAlreadyPaused})", command.Id, wasAlreadyPaused);
+        return Succeeded(command.Id, JsonSerializer.Serialize(result));
     }
 
-    /// <summary>resume — counterpart to pause.</summary>
-    private Task<CommandExecutionResult> ResumeAsync(PendingCommand command, CancellationToken ct)
+    /// <summary>resume — Phase 3 (brief §7): resume the JobProcessor's dequeue loop after a pause.</summary>
+    private async Task<CommandExecutionResult> ResumeAsync(PendingCommand command, CancellationToken ct)
     {
-        var result = new { resumed = false, resumeRequested = true, note = "JobProcessor.ResumeAsync wiring pending" };
-        _logger.LogInformation("resume command {CommandId}: resume requested (wiring pending)", command.Id);
-        return Task.FromResult(Succeeded(command.Id, JsonSerializer.Serialize(result)));
+        var wasPaused = _queueController.IsPaused;
+        await _queueController.ResumeAsync(ct);
+        var result = new { resumed = true, wasPaused };
+        _logger.LogInformation("resume command {CommandId}: queue resumed (wasPaused={WasPaused})", command.Id, wasPaused);
+        return Succeeded(command.Id, JsonSerializer.Serialize(result));
     }
 
     /// <summary>cancel_job — mark a queued/printing job Cancelled in the local queue.</summary>

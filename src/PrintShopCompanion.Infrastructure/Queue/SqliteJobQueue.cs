@@ -224,6 +224,22 @@ public sealed class SqliteJobQueue : IJobQueue
         return conn;
     }
 
+    /// <summary>
+    /// Phase 3 (brief §7) — expose a connection to co-located stores that
+    /// share the queue DB (currently <see cref="Commands.DurableCommandStore"/>,
+    /// which adds a <c>companion_commands</c> table to the same SQLCipher DB).
+    /// Opens a fresh connection, runs <paramref name="action"/>, disposes the
+    /// connection. The action owns its own transaction(s). Thread-safe — every
+    /// call gets a new connection (SQLite handles concurrent readers; writes
+    /// serialize via the DB's internal lock).
+    /// </summary>
+    public async Task<T> ExecuteInConnectionAsync<T>(
+        Func<SqliteConnection, Task<T>> action, CancellationToken ct)
+    {
+        await using var conn = await OpenAsync(ct);
+        return await action(conn);
+    }
+
     private async Task EnsureDiskSpaceAsync(CancellationToken ct)
     {
         try

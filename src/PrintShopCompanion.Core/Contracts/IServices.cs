@@ -50,3 +50,23 @@ public interface ICredentialStore
     Task SaveAsync(StoredCredentials credentials, CancellationToken cancellationToken = default);
     Task ClearAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Phase 3 (brief §7) — minimal control surface over the local print queue's
+/// processing loop, exposed so the <c>pause</c>/<c>resume</c> remote commands
+/// can drive the queue without the CommandExecutor taking a direct dependency
+/// on the concrete JobProcessor (which would create a DI cycle). The pause is
+/// cooperative: an in-flight job finishes; subsequent dequeues block until
+/// <see cref="ResumeAsync"/> is called.
+/// </summary>
+public interface IQueueController
+{
+    /// <summary>True while the processor is paused (won't dequeue new jobs). In-flight jobs finish.</summary>
+    bool IsPaused { get; }
+
+    /// <summary>Pause job processing. Cooperative — the in-flight job, if any, finishes. Idempotent.</summary>
+    Task PauseAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Resume job processing after a pause. Idempotent.</summary>
+    Task ResumeAsync(CancellationToken cancellationToken = default);
+}

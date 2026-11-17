@@ -36,14 +36,26 @@ public class CommandExecutorTests
     private static CommandExecutor Make(
         out FakeQueue queue,
         out FakePrinter printers,
-        out FakeBackend backend)
+        out FakeBackend backend,
+        out FakeQueueController queueController)
     {
         queue = new FakeQueue();
         printers = new FakePrinter();
         backend = new FakeBackend();
+        queueController = new FakeQueueController();
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<CommandExecutor>();
         var printerOpts = new FakeOptionsMonitor(new PrinterOptions());
-        return new CommandExecutor(printers, queue, backend, printerOpts, logger);
+        return new CommandExecutor(printers, queue, backend, queueController, printerOpts, logger);
+    }
+
+    /// <summary>Phase 3 — fake IQueueController for pause/resume command tests.</summary>
+    private sealed class FakeQueueController : IQueueController
+    {
+        public bool IsPaused { get; private set; }
+        public int PauseCalls { get; private set; }
+        public int ResumeCalls { get; private set; }
+        public Task PauseAsync(CancellationToken ct = default) { PauseCalls++; IsPaused = true; return Task.CompletedTask; }
+        public Task ResumeAsync(CancellationToken ct = default) { ResumeCalls++; IsPaused = false; return Task.CompletedTask; }
     }
 
     // ─── allowlist + expiry ───────────────────────────────────────────────
@@ -51,7 +63,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task Rejects_unsupported_command_type()
     {
-        var exec = Make(out _, out _, out _);
+        var exec = Make(out _, out _, out _, out _);
         var result = await exec.ExecuteAsync(Cmd("c1", "run_shell"), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Failed);
         result.Error.Should().Contain("Unsupported command type 'run_shell'");
@@ -60,7 +72,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task Rejects_expired_command()
     {
-        var exec = Make(out _, out _, out _);
+        var exec = Make(out _, out _, out _, out _);
         var expired = Cmd("c2", CommandType.RefreshPrinters,
             expiresAt: DateTimeOffset.UtcNow.AddMinutes(-1));
         var result = await exec.ExecuteAsync(expired, CancellationToken.None);
@@ -73,7 +85,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task RefreshPrinters_returns_discovered_printers_and_pushes_heartbeat()
     {
-        var exec = Make(out _, out var printers, out var backend);
+        var exec = Make(out _, out var printers, out var backend, out _);
         var result = await exec.ExecuteAsync(Cmd("c3", CommandType.RefreshPrinters), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Succeeded);
         backend.Heartbeats.Should().Be(1, "refresh_printers pushes printerName via heartbeat");
@@ -87,13 +99,26 @@ public class CommandExecutorTests
     [Theory]
     [InlineData(CommandType.Pause)]
     [InlineData(CommandType.Resume)]
-    public async Task Pause_and_Resume_report_succeeded_with_wiring_note(string type)
+    public async Task Pause_and_Resume_drive_the_queue_controller_Phase3(string type)
     {
-        var exec = Make(out _, out _, out _);
+        // Phase 3 (brief §7): pause/resume now ACTUALLY call the JobProcessor
+        // (via IQueueController) instead of returning a "wiring pending" stub.
+        var exec = Make(out _, out _, out _, out var queueController);
         var result = await exec.ExecuteAsync(Cmd("c4", type), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Succeeded);
         using var doc = JsonDocument.Parse(result.ResultJson!);
-        doc.RootElement.GetProperty("note").GetString().Should().Contain("wiring pending");
+        if (type == CommandType.Pause)
+        {
+            doc.RootElement.GetProperty("paused").GetBoolean().Should().BeTrue();
+            queueController!.PauseCalls.Should().Be(1);
+            queueController.IsPaused.Should().BeTrue();
+        }
+        else
+        {
+            doc.RootElement.GetProperty("resumed").GetBoolean().Should().BeTrue();
+            queueController!.ResumeCalls.Should().Be(1);
+            queueController.IsPaused.Should().BeFalse();
+        }
     }
 
     // ─── cancel_job / retry_job ───────────────────────────────────────────
@@ -101,7 +126,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task CancelJob_cancels_the_named_job()
     {
-        var exec = Make(out var queue, out _, out _);
+        var exec = Make(out var queue, out _, out _, out _);
         queue.Jobs["job-xyz"] = MakeJob("job-xyz", JobStatus.Pending);
         var result = await exec.ExecuteAsync(
             Cmd("c5", CommandType.CancelJob, """{"jobId":"job-xyz"}"""), CancellationToken.None);
@@ -112,7 +137,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task CancelJob_rejects_payload_missing_jobId()
     {
-        var exec = Make(out _, out _, out _);
+        var exec = Make(out _, out _, out _, out _);
         var result = await exec.ExecuteAsync(
             Cmd("c6", CommandType.CancelJob, "{}"), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Failed);
@@ -122,7 +147,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task CancelJob_rejects_malformed_json_payload()
     {
-        var exec = Make(out _, out _, out _);
+        var exec = Make(out _, out _, out _, out _);
         var result = await exec.ExecuteAsync(
             Cmd("c7", CommandType.CancelJob, "not-json"), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Failed);
@@ -132,7 +157,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task RetryJob_requeues_failed_job_to_Pending()
     {
-        var exec = Make(out var queue, out _, out _);
+        var exec = Make(out var queue, out _, out _, out _);
         queue.Jobs["job-f"] = MakeJob("job-f", JobStatus.Failed);
         var result = await exec.ExecuteAsync(
             Cmd("c8", CommandType.RetryJob, """{"jobId":"job-f"}"""), CancellationToken.None);
@@ -146,7 +171,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task RetryJob_rejects_non_Failed_job()
     {
-        var exec = Make(out var queue, out _, out _);
+        var exec = Make(out var queue, out _, out _, out _);
         queue.Jobs["job-p"] = MakeJob("job-p", JobStatus.Printed);
         var result = await exec.ExecuteAsync(
             Cmd("c9", CommandType.RetryJob, """{"jobId":"job-p"}"""), CancellationToken.None);
@@ -157,7 +182,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task RetryJob_reports_failed_for_unknown_job()
     {
-        var exec = Make(out _, out _, out _);
+        var exec = Make(out _, out _, out _, out _);
         var result = await exec.ExecuteAsync(
             Cmd("c10", CommandType.RetryJob, """{"jobId":"missing"}"""), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Failed);
@@ -169,7 +194,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task TestPrint_enqueues_durable_job_with_stable_idempotent_id()
     {
-        var exec = Make(out var queue, out var printers, out _);
+        var exec = Make(out var queue, out var printers, out _, out _);
         var result = await exec.ExecuteAsync(Cmd("c11", CommandType.TestPrint), CancellationToken.None);
         result.Status.Should().Be(CommandStatus.Succeeded);
         using var doc = JsonDocument.Parse(result.ResultJson!);
@@ -187,7 +212,7 @@ public class CommandExecutorTests
     [Fact]
     public async Task Diagnostics_returns_companion_version_and_queue_summary()
     {
-        var exec = Make(out var queue, out _, out _);
+        var exec = Make(out var queue, out _, out _, out _);
         queue.Jobs["j1"] = MakeJob("j1", JobStatus.Pending);
         queue.Jobs["j2"] = MakeJob("j2", JobStatus.Printed);
         var result = await exec.ExecuteAsync(Cmd("c12", CommandType.Diagnostics), CancellationToken.None);

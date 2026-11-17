@@ -94,11 +94,19 @@ public static class InfrastructureModule
         services.AddSingleton<IPdfRenderer, CompositePdfRenderer>();
         services.AddSingleton<IPrinterService, WindowsPrinterService>();
 
-        // Job processor (started by the App or Worker; not hosted automatically here)
+        // Job processor (started by the App or Worker; not hosted automatically here).
+        // Phase 3: also exposed as IQueueController so the CommandExecutor can
+        // drive pause/resume without a DI cycle. Both registrations resolve to
+        // the SAME singleton instance (the factory returns the JobProcessor).
         services.AddSingleton<JobProcessor>();
+        services.AddSingleton<Core.Contracts.IQueueController>(sp => sp.GetRequiredService<JobProcessor>());
 
         // v1 contract §4 — remote command executor + poller + dedup store.
+        // Phase 3 (brief §7): the in-memory LRU (CommandDedupStore) is kept as a
+        // fast-path cache; the DurableCommandStore (SQLite, shares the queue DB)
+        // is the durable guarantee against re-execution after restart.
         services.AddSingleton<Commands.CommandDedupStore>();
+        services.AddSingleton<Commands.DurableCommandStore>();
         services.AddSingleton<Commands.CommandExecutor>();
         services.AddSingleton<Commands.CommandPoller>();
 

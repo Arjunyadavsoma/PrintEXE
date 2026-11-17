@@ -17,7 +17,7 @@ using PrintShopCompanion.Core.Options;
 ///  <item>Never report success just because the API call succeeded — <c>ReportedPrinted</c> requires the spooler to have confirmed physical printing first.</item>
 /// </list>
 /// </summary>
-public sealed class JobProcessor
+public sealed class JobProcessor : IQueueController
 {
     private readonly IJobQueue _queue;
     private readonly IPrintShopBackend _backend;
@@ -29,6 +29,62 @@ public sealed class JobProcessor
     private readonly SemaphoreSlim _concurrency = new(1, 1);
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
+
+    // Phase 3 (brief §7 pause/resume) — cooperative pause gate. When paused,
+    // the loop blocks on _pauseGate.WaitAsync before dequeueing the next job,
+    // so an in-flight job finishes cleanly. Pause/Resume are thread-safe +
+    // idempotent. The gate is released on Resume; a fresh gate is created on
+    // Pause so previous waiters block again. State is NOT persisted across
+    // restart (the contract treats pause as a transient shopkeeper action;
+    // on restart the queue resumes normally).
+    private readonly SemaphoreSlim _pauseGate = new(1, 1);
+    private volatile bool _paused;
+
+    /// <summary>True while the processor is paused (won't dequeue new jobs). In-flight jobs finish.</summary>
+    public bool IsPaused => _paused;
+
+    /// <summary>
+    /// Phase 3 (brief §7) — pause job processing. Cooperative: the current
+    /// iteration finishes; subsequent iterations block at the pause gate until
+    /// <see cref="ResumeAsync"/> is called. Idempotent — calling while already
+    /// paused is a no-op. Does NOT cancel in-flight print submissions (per the
+    /// brief: "Pause must stop new job processing without corrupting an
+    /// in-flight job").
+    /// </summary>
+    public Task PauseAsync(CancellationToken ct = default)
+    {
+        if (_paused) return Task.CompletedTask;
+        _paused = true;
+        // Acquire the gate (non-blocking — if a waiter holds it, that's the
+        // in-flight iteration finishing, which is fine). We hold it until
+        // Resume releases, so the next iteration's WaitAsync blocks.
+        // Use a non-blocking acquire: if we can't get it immediately, the
+        // in-flight iteration will release it momentarily, and our hold
+        // will take effect for the iteration after.
+        if (_pauseGate.CurrentCount > 0)
+        {
+            _pauseGate.Wait(ct);
+        }
+        _logger.LogInformation("JobProcessor paused (in-flight job, if any, will finish)");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Phase 3 (brief §7) — resume job processing after a <see cref="PauseAsync"/>.
+    /// Idempotent — calling while not paused is a no-op.
+    /// </summary>
+    public Task ResumeAsync(CancellationToken ct = default)
+    {
+        if (!_paused) return Task.CompletedTask;
+        _paused = false;
+        // Release the gate if we're holding it (current count < 1).
+        while (_pauseGate.CurrentCount < 1)
+        {
+            try { _pauseGate.Release(); } catch { break; }
+        }
+        _logger.LogInformation("JobProcessor resumed");
+        return Task.CompletedTask;
+    }
 
     public JobProcessor(
         IJobQueue queue,
@@ -106,6 +162,17 @@ public sealed class JobProcessor
 
     private async Task ProcessOneAsync(CancellationToken ct)
     {
+        // Phase 3 (brief §7) — cooperative pause gate. Blocks before dequeue so
+        // an in-flight job (if any) finishes cleanly and no new job is claimed
+        // while paused. The loop's catch handles cancellation; a paused-wait
+        // that's cancelled propagates as OperationCanceledException, breaking
+        // the outer loop cleanly.
+        if (_paused)
+        {
+            try { await _pauseGate.WaitAsync(ct); _pauseGate.Release(); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        }
+
         var job = await _queue.DequeueAsync(ct);
         if (job is null)
         {
