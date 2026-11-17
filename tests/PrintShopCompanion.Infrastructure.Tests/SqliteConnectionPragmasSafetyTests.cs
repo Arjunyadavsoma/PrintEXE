@@ -67,7 +67,7 @@ public class SqliteConnectionPragmasSafetyTests
     public async Task ApplyTo_Closed_Connection_Throws_Visibly()
     {
         var root = NewTempDir();
-        await using var conn = new SqliteConnection($"Data Source={Path.Combine(root, "queue.db")}");
+        await using var conn = new SqliteConnection($"Data Source={Path.Combine(root, "queue.db")};Pooling=False");
         // NOT opened — the first pragma must fail loudly, not be suppressed.
         await Assert.ThrowsAnyAsync<Exception>(
             () => SqliteConnectionPragmas.ApplyToAsync(conn, CancellationToken.None));
@@ -79,7 +79,7 @@ public class SqliteConnectionPragmasSafetyTests
     {
         var root = NewTempDir();
         var dbPath = Path.Combine(root, "queue.db");
-        await using (var holder = new SqliteConnection($"Data Source={dbPath}"))
+        await using (var holder = new SqliteConnection($"Data Source={dbPath};Pooling=False"))
         {
             await holder.OpenAsync();
             // Fresh file starts in rollback-journal mode; hold an exclusive
@@ -100,7 +100,7 @@ public class SqliteConnectionPragmasSafetyTests
                 // verification catches the un-switched mode — either way the
                 // failure is visible.
                 var ex = await Assert.ThrowsAnyAsync<Exception>(
-                    () => SqliteConnectionPragmas.OpenWithPragmasAsync($"Data Source={dbPath}"));
+                    () => SqliteConnectionPragmas.OpenWithPragmasAsync($"Data Source={dbPath};Pooling=False"));
                 Assert.True(
                     ex is InvalidOperationException
                     || (ex is SqliteException se && se.SqliteErrorCode is 5 or 6),
@@ -109,7 +109,7 @@ public class SqliteConnectionPragmasSafetyTests
         }
         // After the exclusive transaction ends, a normal open succeeds —
         // the visible failure did not corrupt or wedge the database.
-        await using var conn = await SqliteConnectionPragmas.OpenWithPragmasAsync($"Data Source={dbPath}");
+        await using var conn = await SqliteConnectionPragmas.OpenWithPragmasAsync($"Data Source={dbPath};Pooling=False");
         Assert.Equal(1, await QueryIntAsync(conn, "PRAGMA foreign_keys;"));
     }
 
@@ -119,7 +119,7 @@ public class SqliteConnectionPragmasSafetyTests
     {
         var root = NewTempDir();
         var dbPath = Path.Combine(root, "queue.db");
-        await using (var holder = new SqliteConnection($"Data Source={dbPath}"))
+        await using (var holder = new SqliteConnection($"Data Source={dbPath};Pooling=False"))
         {
             await holder.OpenAsync();
             await using (var tx = holder.CreateCommand())
@@ -137,7 +137,7 @@ public class SqliteConnectionPragmasSafetyTests
                 // must surface as OperationCanceledException, NOT be swallowed
                 // by the old catch-all (which would retry for 2s then throw).
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                    () => SqliteConnectionPragmas.OpenWithPragmasAsync($"Data Source={dbPath}", cts.Token));
+                    () => SqliteConnectionPragmas.OpenWithPragmasAsync($"Data Source={dbPath};Pooling=False", cts.Token));
             }
         }
     }
@@ -158,6 +158,12 @@ public class SqliteConnectionPragmasSafetyTests
     public async Task SqlCipher_Queue_Db_Cannot_Be_Opened_As_Plaintext()
     {
         if (!OperatingSystem.IsWindows()) return; // DPAPI + e_sqlcipher are Windows-only here
+        // The invariant this test verifies requires the SQLCipher provider to
+        // actually be loadable. If the native bundle is unavailable in this
+        // environment, the production constructor fails closed (that is the
+        // correct behavior) — skip instead of testing the wrong thing.
+        if (!PrintShopCompanion.Infrastructure.Storage.SqlCipherInitializer.IsEncryptionAvailable)
+            return;
         var root = NewTempDir();
         var layout = new PrintShopCompanion.Infrastructure.Storage.LocalStorageLayout(
             Microsoft.Extensions.Options.Options.Create(new PrintShopCompanion.Core.Options.StorageOptions()), root);
@@ -185,7 +191,7 @@ public class SqliteConnectionPragmasSafetyTests
         // readable plaintext database — the file is ciphertext and SQLite
         // cannot parse its header. A successful read here would mean the
         // encryption silently degraded to plaintext.
-        await using (var plain = new SqliteConnection($"Data Source={Path.Combine(root, "queue.db")}"))
+        await using (var plain = new SqliteConnection($"Data Source={Path.Combine(root, "queue.db")};Pooling=False"))
         {
             plain.Open();
             await using var cmd = plain.CreateCommand();

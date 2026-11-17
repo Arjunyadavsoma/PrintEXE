@@ -139,11 +139,18 @@ internal static class SqliteConnectionPragmas
                 await using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = set;
+                    // Fail fast: Microsoft.Data.Sqlite's default CommandTimeout
+                    // is 30 SECONDS — a pragma attempt against a locked file
+                    // would block the whole window. Pragma application must
+                    // decide quickly; the bounded retry below handles
+                    // transient contention.
+                    cmd.CommandTimeout = 1;
                     await cmd.ExecuteNonQueryAsync(ct);
                 }
                 await using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = verify;
+                    cmd.CommandTimeout = 1;
                     result = await cmd.ExecuteScalarAsync(ct);
                 }
             }
