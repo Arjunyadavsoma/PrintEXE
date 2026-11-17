@@ -86,3 +86,20 @@ SHA-256 checksum if you want to be thorough.
 - You can disable or completely remove a PC from **Shop → Devices** at any
   time; removal instantly blocks that computer.
 - Never share pairing codes or device tokens — treat them like passwords.
+
+
+---
+
+## Phase 3: uncertain jobs and the website "Print Jobs" view
+
+When this companion cannot vouch for a physical outcome (crash after the
+spooler accepted a job, completion report failing after retries, or a
+backend that still shows the job as printing from a previous session), the
+job is parked as **uncertain** — never silently reprinted, never silently
+marked failed.
+
+The shopkeeper resolves these jobs on the website: Shop Portal →
+**Print Jobs** → "Needs review". They inspect the document, the device and
+the selected printer, then record the outcome (Mark printed / Mark failed).
+The resolution is audit-logged with their identity. After resolving, create
+a fresh print request if the paper was not actually produced.

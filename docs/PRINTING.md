@@ -134,3 +134,14 @@ diagnostic tool to verify a printer is working, not a production print job.
 - `src/PrintShopCompanion.Infrastructure/Printers/RawGdiPrinter.cs` — ESC/POS fallback
 - `src/PrintShopCompanion.Infrastructure/Printers/CompositePdfRenderer.cs` — chain
 - `src/PrintShopCompanion.Infrastructure/Queue/JobProcessor.cs` — orchestration
+
+
+---
+
+## Phase 3 troubleshooting additions
+
+| Symptom | Meaning | What to do |
+|---|---|---|
+| Job shows "uncertain" / outcome unknown | Physical result could not be verified (crash, spooler ambiguity, report failure) | Wait for the shopkeeper to resolve it on the website (Print Jobs → Needs review). Do NOT reprint manually unless the operator confirms no paper was produced. |
+| `503 STORAGE_UNAVAILABLE` from pending-jobs poll | The SaaS cannot presign document downloads (storage outage/misconfiguration) | Keep polling with backoff; queued jobs are still queued server-side and will arrive when storage recovers. |
+| `failedJobs: DOCUMENT_MISSING / JOB_INVALID` in a pending response | That specific document cannot be delivered | Stop expecting the job locally; the shop operator resolves it on the website. |
