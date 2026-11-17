@@ -370,7 +370,9 @@ public class CommandExecutorTests
         public int DiscoverCalls;
         public int SubmitCalls;
         /// <summary>Phase F — set to null to simulate "no printer selected" (test_print should reject).</summary>
-        public PrinterInfo? SelectedPrinter = Printers[0];
+        public PrinterInfo? SelectedPrinter;
+
+        public FakePrinter() { SelectedPrinter = Printers[0]; }
 
         public IReadOnlyList<PrinterInfo> DiscoverPrinters() { DiscoverCalls++; return Printers; }
         public PrinterInfo? GetSelectedPrinter() => SelectedPrinter;
