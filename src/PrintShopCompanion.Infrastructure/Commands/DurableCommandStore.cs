@@ -187,15 +187,6 @@ public sealed class DurableCommandStore
         SELECT 1;
         """;
 
-    /// <summary>Column names the Phase F schema adds (for the existence probe).</summary>
-    private static readonly string[] PhaseFNewColumns =
-    {
-        ("payload_json",    "TEXT"),
-        ("accepted_at",     "TEXT"),
-        ("executing_at",    "TEXT"),
-        ("outcome_unknown_at", "TEXT"),
-    }.Select(p => p.Item1).ToArray();
-
     /// <summary>(column, ddl-type) pairs for the Phase F ALTER TABLE adds.</summary>
     private static readonly (string Name, string Ddl)[] PhaseFColumns =
     {
@@ -629,8 +620,10 @@ public sealed class DurableCommandStore
     }
 
     private static bool IsBusyOrLocked(SqliteException ex) =>
-        ex.SqliteErrorCode == SQLitePCL.raw.SQLITE_BUSY ||
-        ex.SqliteErrorCode == SQLitePCL.raw.SQLITE_LOCKED;
+        // SQLITE_BUSY = 5, SQLITE_LOCKED = 6 (per the SQLite C API; the integer
+        // values are stable across SQLitePCLRaw versions, more robust than the
+        // raw.SQLITE_BUSY constant which may not be exposed on all provider builds).
+        ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6;
 
     private async Task InitializeAsync(CancellationToken ct)
     {
