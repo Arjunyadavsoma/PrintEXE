@@ -43,3 +43,24 @@ The 20 deterministic recovery cases from the master prompt, with the implemented
 - `src/PrintShopCompanion.Infrastructure/Queue/JobProcessor.cs` — crash recovery
 - `src/PrintShopCompanion.Infrastructure/Storage/FileRetentionManager.cs` — startup cleanup
 - `tests/PrintShopCompanion.Infrastructure.Tests/OfflineRecoveryTests.cs` — tests for cases 8, 9, 10, 19, 20
+
+
+---
+
+## Phase 3: interrupted command recovery semantics (verified)
+
+Commands are durable in the local queue (SQLite) and processed by
+`CommandPoller` with this restart contract:
+
+- `claimed` (handler never started) → recovered to `received` on restart and
+  re-executed. Safe: no side effect can have occurred yet.
+- `executing` (handler started) → recovered to `outcome_unknown` on restart,
+  re-reported to the SaaS, NEVER re-executed. The external side effect may or
+  may not have happened, so only an operator may resolve it.
+- Results (`succeeded` / `failed` / `outcome_unknown`) are reported
+  best-effort; the durable store is authoritative locally, the SaaS command
+  status is reconciled by re-reporting.
+
+This guarantees no blind replay of commands with external side effects after
+a crash or power loss. See `DurableCommandStoreTests` and
+`CommandPoller.RecoverInterruptedAsync`.

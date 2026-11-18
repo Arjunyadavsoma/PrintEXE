@@ -46,14 +46,14 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
         if (!File.Exists(exePath))
             throw new FileNotFoundException("SumatraPDF.exe not found at: " + exePath);
 
-        var args = new List<string>
-        {
-            "-silent",
-            "-print-to", $"\"{printerFullName}\"",
-            "-print-settings", $"{Math.Max(1, copies)}x"
-        };
+        // Phase 5 fix: ALL settings go into ONE comma-separated
+        // -print-settings argument. Emitting several separate
+        // -print-settings flags made SumatraPDF honor only the last one
+        // (e.g. copies silently discarded when color/paper followed) —
+        // silent wrong physical output.
+        var settings = new List<string> { $"{Math.Max(1, copies)}x" };
         if (!string.IsNullOrEmpty(pageRange))
-            args.AddRange(new[] { "-print-settings", $"r{pageRange}" });
+            settings.Add($"r{pageRange}");
         // Color: SumatraPDF uses `-print-settings color` to force color and
         // `-print-settings monochrome` to force grayscale. The companion's
         // domain model carries both `bool? Color` (legacy) and `string? ColorMode`
@@ -61,11 +61,11 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
         // The legacy `color == false` branch was wrong (it forced color when
         // the caller asked for monochrome); this is now corrected.
         if (color == true)
-            args.AddRange(new[] { "-print-settings", "color" });
+            settings.Add("color");
         else if (color == false)
-            args.AddRange(new[] { "-print-settings", "monochrome" });
+            settings.Add("monochrome");
         if (!string.IsNullOrEmpty(paperSize))
-            args.AddRange(new[] { "-print-settings", $"paper={paperSize}" });
+            settings.Add($"paper={paperSize}");
         if (!string.IsNullOrEmpty(duplex))
         {
             var d = duplex.ToLowerInvariant() switch
@@ -75,11 +75,17 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
                 "horizontal" => "duplexlong",
                 _            => duplex
             };
-            args.AddRange(new[] { "-print-settings", d });
+            settings.Add(d);
         }
 
-        args.Add("-print-stat");
-        args.Add($"\"{pdfPath}\"");
+        var args = new List<string>
+        {
+            "-silent",
+            "-print-to", $"\"{printerFullName}\"",
+            "-print-settings", string.Join(",", settings),
+            "-print-stat",
+            $"\"{pdfPath}\""
+        };
 
         var psi = new ProcessStartInfo
         {
@@ -109,8 +115,14 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
                 return id;
             }
         }
-        _logger.LogInformation("SumatraPDF completed but did not report a spooler job ID; using synthetic ID");
-        return Random.Shared.Next(1_000_000, int.MaxValue);
+        // Phase 5 fix: NO synthetic spooler id. A random id would make the
+        // confirmation poll find no such spooler job and conclude "completed
+        // and purged" — reporting success with zero physical confirmation.
+        // Return 0 (= no id, per IPdfRenderer contract); WindowsPrinterService
+        // maps this to a null SpoolSubmission.SpoolerJobId and the job
+        // processor parks the job as outcome-uncertain instead of printed.
+        _logger.LogInformation("SumatraPDF completed but did not report a spooler job ID — physical outcome cannot be confirmed");
+        return 0;
     }
 
     private string ResolveExePath()

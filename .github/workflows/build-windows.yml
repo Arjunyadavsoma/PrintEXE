@@ -95,7 +95,13 @@ jobs:
           $tag = "${{ github.event.inputs.release-tag }}"
           if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "${{ github.ref_name }}" }
           $ver = $tag -replace '^v',''
-          if (-not ($ver -match '^\d+\.\d+\.\d+')) {
+          # Phase 5 fix: a SemVer pre-release tag (v0.6.1-rc.1) must map to a
+          # VALID System.Version for <AssemblyVersion> — strip everything after
+          # the numeric core. The original tag is preserved for the GitHub
+          # release (the release job uses github.ref_name, not BUILD_VERSION).
+          if ($ver -match '^(\d+\.\d+\.\d+)') {
+            $ver = $Matches[1]
+          } else {
             $ver = "0.0.${{ github.run_number }}"
           }
           Write-Host "Resolved BUILD_VERSION = $ver"
@@ -207,29 +213,24 @@ jobs:
           $size = (Get-ChildItem -Path $pub -Recurse | Measure-Object -Property Length -Sum).Sum
           Write-Host "Publish directory size: $([math]::Round($size / 1MB, 2)) MB"
 
-      - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
+      - name: Startup smoke test (Windows)
         shell: pwsh
         run: |
-          $ver = $env:BUILD_VERSION
-          $zipName = "PrintEXE-v$ver-win-x64.zip"
-          $src = "$env:GITHUB_WORKSPACE\artifacts\app"
-          $dst = "$env:GITHUB_WORKSPACE\artifacts\$zipName"
-          # Use 7-Zip (pre-installed on windows-latest runners) — preserves
-          # file permissions and is faster than Compress-Archive.
-          $7z = "C:\Program Files\7-Zip\7z.exe"
-          if (Test-Path $7z) {
-            & $7z a -tzip $dst "$src\*"
-          } else {
-            Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
-          }
-          if (-not (Test-Path $dst)) {
-            Write-Error "ZIP was not created: $dst"
+          # Phase 5: actually START the published EXE on the Windows runner.
+          # A missing native DLL, bad DI composition, or crash-on-startup would
+          # surface here instead of on a user's machine. The app is a WPF tray
+          # application: unpaired, it shows the login screen and STAYS ALIVE —
+          # exiting early means something failed.
+          $exe = "$env:GITHUB_WORKSPACE\artifacts\app\PrintShopCompanion.exe"
+          if (-not (Test-Path $exe)) { Write-Error "EXE missing for smoke test"; exit 1 }
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) {
+            Write-Error "Smoke test FAILED: PrintShopCompanion.exe exited prematurely with code $($p.ExitCode)"
             exit 1
           }
-          $zip = Get-Item $dst
-          Write-Host "✓ Created $zipName ($([math]::Round($zip.Length / 1MB, 2)) MB)"
-          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_NAME=$zipName" -Encoding utf8NoBOM
-          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_PATH=$dst" -Encoding utf8NoBOM
+          Write-Host "✓ Smoke test passed: process alive after 20s (PID $($p.Id))"
+          try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
 
       - name: Write version metadata (BUILD-INFO.txt)
         shell: pwsh
@@ -251,6 +252,10 @@ jobs:
           Configuration: Release (self-contained, folder distribution)
           Source:       https://github.com/Arjunyadavsoma/PrintEXE
           "@ | Out-File -Encoding utf8 artifacts/BUILD-INFO.txt
+          # Phase 5: the distribution ZIP must CONTAIN build metadata — copy
+          # into the publish directory before packaging (a loose asset copy
+          # also stays next to the ZIP for direct download).
+          Copy-Item artifacts/BUILD-INFO.txt "$env:GITHUB_WORKSPACE\artifacts\app\BUILD-INFO.txt"
           Get-Content artifacts/BUILD-INFO.txt
 
       - name: Write README into artifact (installation instructions)
@@ -279,12 +284,57 @@ jobs:
 
           Built from commit ${{ github.sha }}.
           "@ | Out-File -Encoding utf8 artifacts/README.txt
+          Copy-Item artifacts/README.txt "$env:GITHUB_WORKSPACE\artifacts\app\README.txt"
           Get-Content artifacts/README.txt
+
+      - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
+        shell: pwsh
+        run: |
+          $ver = $env:BUILD_VERSION
+          # Phase 5: on a tag build, name the ZIP after the FULL tag (e.g.
+          # PrintEXE-v0.6.1-rc.2-win-x64.zip) so the asset name matches the
+          # release page instructions exactly; branch/dispatch builds keep
+          # the stripped BUILD_VERSION name.
+          $refTag = "${{ github.ref_name }}"
+          if ($refTag -match '^v\d+\.\d+\.\d+') { $zipName = "PrintEXE-$refTag-win-x64.zip" } else { $zipName = "PrintEXE-v$ver-win-x64.zip" }
+          $src = "$env:GITHUB_WORKSPACE\artifacts\app"
+          $dst = "$env:GITHUB_WORKSPACE\artifacts\$zipName"
+          # Use 7-Zip (pre-installed on windows-latest runners) — preserves
+          # file permissions and is faster than Compress-Archive.
+          $7z = "C:\Program Files\7-Zip\7z.exe"
+          if (Test-Path $7z) {
+            & $7z a -tzip $dst "$src\*"
+          } else {
+            Compress-Archive -Path "$src\*" -DestinationPath $dst -Force
+          }
+          if (-not (Test-Path $dst)) {
+            Write-Error "ZIP was not created: $dst"
+            exit 1
+          }
+          $zip = Get-Item $dst
+          Write-Host "✓ Created $zipName ($([math]::Round($zip.Length / 1MB, 2)) MB)"
+          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_NAME=$zipName" -Encoding utf8NoBOM
+          Add-Content -Path $env:GITHUB_ENV -Value "ZIP_PATH=$dst" -Encoding utf8NoBOM
+          # Phase 6 (review finding): the shipped auto-updater selects assets by
+          # the literal name "PrintShopCompanion-portable.zip"
+          # (GitHubUpdateService.PortableZipName). Without an asset under that
+          # exact name, DownloadUrl resolves to null on EVERY release and no
+          # installed version can ever self-update. Publish the SAME bytes
+          # under the updater's name; the tag-matched ZIP stays the canonical
+          # human download.
+          $portable = "$env:GITHUB_WORKSPACE\artifacts\PrintShopCompanion-portable.zip"
+          Copy-Item $dst $portable -Force
+          if (-not (Test-Path $portable)) { Write-Error "Portable updater ZIP copy failed"; exit 1 }
+          $pzip = Get-Item $portable
+          Write-Host "✓ Created PrintShopCompanion-portable.zip ($([math]::Round($pzip.Length / 1MB, 2)) MB) — byte-identical updater asset"
+          Add-Content -Path $env:GITHUB_ENV -Value "PORTABLE_NAME=PrintShopCompanion-portable.zip" -Encoding utf8NoBOM
+          Add-Content -Path $env:GITHUB_ENV -Value "PORTABLE_PATH=$portable" -Encoding utf8NoBOM
 
       - name: Generate SHA-256 checksums
         shell: pwsh
         run: |
-          # Checksum the ZIP (the primary artifact) + BUILD-INFO.txt.
+          # Checksum the ZIP (primary artifact) + the portable updater asset
+          # (byte-identical copy under the updater's asset name) + BUILD-INFO.txt.
           # Format matches the standard ``sha256sum`` output so users can
           # verify with ``sha256sum -c SHA256SUMS.txt`` on any platform.
           $hashes = @()
@@ -292,6 +342,10 @@ jobs:
           $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLower()
           $hashes += "$sha  $($zip.Name)"
           Write-Host "$sha  $($zip.Name)"
+          $portableItem = Get-Item $env:PORTABLE_PATH
+          $sha3 = (Get-FileHash -Algorithm SHA256 $portableItem.FullName).Hash.ToLower()
+          $hashes += "$sha3  $($portableItem.Name)"
+          Write-Host "$sha3  $($portableItem.Name)"
           $info = Get-Item artifacts/BUILD-INFO.txt
           $sha2 = (Get-FileHash -Algorithm SHA256 $info.FullName).Hash.ToLower()
           $hashes += "$sha2  $($info.Name)"
@@ -333,7 +387,14 @@ jobs:
             Write-Error "Checksum mismatch! Expected: $expected  Actual: $actual"
             exit 1
           }
-          Write-Host "✓ Checksum verified: $actual"
+          # Phase 6: the portable updater asset must be BYTE-IDENTICAL to the
+          # versioned ZIP — it is the same file under the updater's asset name.
+          $portableHash = (Get-FileHash -Algorithm SHA256 $env:PORTABLE_PATH).Hash.ToLower()
+          if ($portableHash -ne $actual) {
+            Write-Error "PrintShopCompanion-portable.zip is not byte-identical to $env:ZIP_NAME"
+            exit 1
+          }
+          Write-Host "✓ Checksum verified: $actual (portable updater asset byte-identical)"
 
       - name: Upload PrintEXE ZIP artifact
         uses: actions/upload-artifact@v4
@@ -341,6 +402,7 @@ jobs:
           name: PrintEXE-win-x64
           path: |
             artifacts/${{ env.ZIP_NAME }}
+            artifacts/PrintShopCompanion-portable.zip
             artifacts/SHA256SUMS.txt
             artifacts/BUILD-INFO.txt
             artifacts/README.txt
@@ -392,8 +454,11 @@ jobs:
           # already exists, fail with a clear message instead of silently
           # replacing assets.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Phase 5 fix: an existing release must FAIL the run, not print an
+            # annotation and silently succeed with no release created.
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::error::Release $TAG already exists. Not overwriting."
+            echo "::error::Release $TAG already exists. Not overwriting — failing so the operator picks a new tag."
+            exit 1
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -441,10 +506,42 @@ jobs:
             exit 1
           fi
           echo "✓ Checksum verified: $ACTUAL"
+          # Phase 6 (updater contract): the portable updater asset MUST be
+          # present and byte-identical to the versioned ZIP — the shipped
+          # GitHubUpdateService can only download an asset with the literal
+          # name "PrintShopCompanion-portable.zip".
+          PORTABLE=$(find release-artifacts -name 'PrintShopCompanion-portable.zip' -type f | head -1)
+          if [ -z "$PORTABLE" ]; then
+            echo "::error::PrintShopCompanion-portable.zip not found in downloaded artifact — the auto-updater (GitHubUpdateService.PortableZipName) could never match this release"
+            exit 1
+          fi
+          PORTABLE_SHA=$(sha256sum "$PORTABLE" | awk '{print $1}')
+          if [ "$PORTABLE_SHA" != "$ACTUAL" ]; then
+            echo "::error::portable ZIP hash differs from the versioned ZIP — refusing to publish a mismatched updater asset"
+            exit 1
+          fi
+          echo "✓ Updater asset verified: $PORTABLE (sha256 $PORTABLE_SHA)"
           # Stash the absolute paths for the release step (softprops/action-gh-release
           # globs relative to the workspace root).
           echo "ZIP_ABS=$ZIP" >> "$GITHUB_ENV"
           echo "SUMS_ABS=$SUMS" >> "$GITHUB_ENV"
+          echo "PORTABLE_ABS=$PORTABLE" >> "$GITHUB_ENV"
+
+      - name: Detect pre-release tag
+        id: pre
+        shell: bash
+        run: |
+          # A SemVer suffix after the numeric core (v0.6.1-rc.1) marks a
+          # pre-release. GitHub excludes pre-releases from /releases/latest,
+          # so the PrintEXE auto-updater (which polls that endpoint) will
+          # never offer an RC to stable users — the explicit guard required
+          # by the release-gate spec.
+          TAG="${{ steps.tag.outputs.tag }}"
+          if echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-'; then
+            echo "is_pre=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_pre=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         if: ${{ steps.check.outputs.exists == 'false' }}
@@ -452,12 +549,14 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: PrintEXE ${{ steps.tag.outputs.tag }}
+          prerelease: ${{ steps.pre.outputs.is_pre == 'true' }}
           body: |
             # PrintEXE ${{ steps.tag.outputs.tag }}
 
             ## Download
 
-            **`PrintEXE-v${{ steps.tag.outputs.tag }}-win-x64.zip`** is the recommended distribution.
+            **`PrintEXE-${{ steps.tag.outputs.tag }}-win-x64.zip`** is the recommended distribution
+            (the file name already carries the leading `v` of the tag).
 
             1. Unzip to a folder (e.g. `C:\PrintEXE\`).
             2. Run `PrintShopCompanion.exe` from inside that folder.
@@ -466,12 +565,16 @@ jobs:
             ## Verify the download
 
             ```
-            sha256sum PrintEXE-v${{ steps.tag.outputs.tag }}-win-x64.zip   # compare with SHA256SUMS.txt
+            sha256sum PrintEXE-${{ steps.tag.outputs.tag }}-win-x64.zip   # compare with SHA256SUMS.txt
             ```
 
             ## What's new
 
             Built from commit ${{ github.sha }} on GitHub Actions run #${{ github.run_number }}.
+
+            > Pre-release note: this build is NOT offered by the in-app
+            > auto-updater (pre-releases are excluded from `/releases/latest`).
+            > Pre-release users upgrade manually or wait for the next stable tag.
 
             Architecture: win-x64
             Configuration: Release (self-contained, folder distribution)
@@ -479,6 +582,33 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             ${{ env.ZIP_ABS }}
+            ${{ env.PORTABLE_ABS }}
             ${{ env.SUMS_ABS }}
             release-artifacts/BUILD-INFO.txt
             release-artifacts/README.txt
+
+      - name: Verify release assets match the updater contract
+        if: ${{ steps.check.outputs.exists == 'false' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Phase 6 regression gate: the published release MUST expose every
+          # asset the auto-updater and the human download instructions depend
+          # on. A missing asset here means a release users cannot verify or
+          # self-update from — fail the run instead of shipping a broken release.
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "=== published assets for $TAG ==="
+          ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          echo "$ASSETS"
+          MISSING=0
+          for required in "PrintEXE-$TAG-win-x64.zip" "PrintShopCompanion-portable.zip" "SHA256SUMS.txt" "README.txt" "BUILD-INFO.txt"; do
+            if ! echo "$ASSETS" | grep -qx "$required"; then
+              echo "::error::Release $TAG is missing required asset '$required' (updater/download contract violation)"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -ne 0 ]; then
+            exit 1
+          fi
+          echo "✓ Updater contract satisfied: all required assets are present"

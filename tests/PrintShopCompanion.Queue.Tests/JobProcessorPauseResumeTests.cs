@@ -89,8 +89,10 @@ public class JobProcessorPauseResumeTests
         })).ToArray();
         await Task.WhenAll(tasks);
         // The final state is one of {paused, resumed} depending on call order;
-        // the invariant is: no exception, no deadlock (WhenAll completed).
-        proc.IsPaused.Should().BeOneOf(true, false);
+        // the invariant is: no exception, no deadlock (WhenAll completed above).
+        // FluentAssertions 7 removed BooleanAssertions.BeOneOf — use xUnit's
+        // native assert to confirm the race settled on a well-defined bool.
+        Assert.IsType<bool>(proc.IsPaused);
     }
 
     [Fact]
@@ -170,15 +172,19 @@ public class JobProcessorPauseResumeTests
         public Task<IReadOnlyList<PendingCommand>> FetchPendingCommandsAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<CommandReportResult> ReportCommandStatusAsync(string commandId, string status, string? resultJson, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default) => Task.FromResult("jwt");
-        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
+        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default, string? printerName = null)
             => Task.FromResult(new HeartbeatResult(ServerTime: DateTimeOffset.UtcNow, TokenStillValid: true, RecommendedBackendVersion: null));
+        public Task<TokenRotationResult> RotateDeviceTokenAsync(CancellationToken ct = default)
+            => throw new NotImplementedException();
         public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<JobStatusReport> ReportJobStatusAsync(string jobId, string status, string? lastError = null, string? printerName = null, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<ReceiptAcknowledgement> MarkJobReceivedAsync(string jobId, string? deliveryAttemptId = null, string? transferId = null, string? checksum = null, long? fileSize = null, DateTimeOffset? receivedAt = null, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task LogoutAsync() { }
-        public Task<SyncPullResult> SyncPullAsync(string? cursor = null, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<SyncPushResult> SyncPushAsync(IReadOnlyList<SyncChange> changes, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<ReceiptAcknowledgement> MarkJobReceivedAsync(string jobId, string checksum, long fileSize, DateTimeOffset receivedAt, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task LogoutAsync() => Task.CompletedTask;
+        public Task<SyncPullResult> SyncPullAsync(string? cursor, int limit, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<SyncPushResult> SyncPushAsync(object changes, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<SyncStatusResult> SyncStatusAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<DownloadedPdf> DownloadPdfAsync(string jobId, Uri pdfUrl, string? expectedSha256, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task RevokeDeviceAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task RestoreAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
@@ -194,7 +200,7 @@ public class JobProcessorPauseResumeTests
 
     private sealed class FakeRenderer : IPdfRenderer
     {
-        public Task<int> PrintAsync(string pdfPath, string printerFullName, string? pageRange = null, int copies = 1, bool? color = null, CancellationToken ct = default)
+        public Task<int> PrintAsync(string pdfPath, string printerFullName, string? pageRange = null, int copies = 1, bool? color = null, string? paperSize = null, string? duplex = null, CancellationToken ct = default)
             => Task.FromResult(0);
     }
 }

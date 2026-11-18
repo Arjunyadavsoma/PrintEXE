@@ -55,6 +55,75 @@ public class GitHubUpdateServiceTests
     }
 
     /// <summary>
+    /// Phase 6 regression test: pin the updater's asset-name contract.
+    /// GitHubUpdateService selects the download by the LITERAL asset name
+    /// "PrintShopCompanion-portable.zip" (PortableZipName). The release
+    /// pipeline (build-windows.yml) publishes the build under that exact
+    /// name in addition to the tag-matched ZIP — if this constant ever
+    /// changes, the pipeline's "Verify release assets" gate must change
+    /// with it, or no release can ever be self-updated from.
+    /// </summary>
+    [Fact]
+    public void PortableZipName_contract_pins_the_release_pipeline_asset()
+    {
+        var field = typeof(GitHubUpdateService).GetField("PortableZipName",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        field.Should().NotBeNull("PortableZipName pins the updater/pipeline contract");
+        var value = field!.GetValue(null) as string;
+        value.Should().Be("PrintShopCompanion-portable.zip",
+            "the release pipeline publishes the updater asset under exactly this name");
+    }
+
+    /// <summary>
+    /// Phase 6 regression test: DownloadUrl resolves ONLY when the release
+    /// publishes the updater's exact asset name. A release that carries just
+    /// the tag-matched ZIP (PrintEXE-vX.Y.Z-win-x64.zip) leaves DownloadUrl
+    /// null — this is the Phase 6 review defect: the pipeline now publishes
+    /// both names, and the workflow's post-release gate fails the run when
+    /// the portable asset is missing.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "https://github.com/Arjunyadavsoma/PrintEXE/releases/download/v1.2.3/PrintShopCompanion-portable.zip")]
+    [InlineData(false, null)]
+    public async Task DownloadUrl_resolves_only_when_portable_asset_is_published(
+        bool includePortableAsset, string? expectedUrl)
+    {
+        var portableAsset = """
+            {
+                "name": "PrintShopCompanion-portable.zip",
+                "browser_download_url": "https://github.com/Arjunyadavsoma/PrintEXE/releases/download/v1.2.3/PrintShopCompanion-portable.zip",
+                "size": 100,
+                "digest": "sha256:deadbeef"
+            }
+            """;
+        var versionedAsset = """
+            {
+                "name": "PrintEXE-v1.2.3-win-x64.zip",
+                "browser_download_url": "https://github.com/Arjunyadavsoma/PrintEXE/releases/download/v1.2.3/PrintEXE-v1.2.3-win-x64.zip",
+                "size": 100,
+                "digest": "sha256:deadbeef"
+            }
+            """;
+        var assets = includePortableAsset ? $"{portableAsset},{versionedAsset}" : versionedAsset;
+        var json = $$"""
+        {
+            "tag_name": "v1.2.3",
+            "name": "PrintEXE v1.2.3",
+            "assets": [ {{assets}} ]
+        }
+        """;
+        var handler = new StubHandler(json);
+        var http = new HttpClient(handler);
+        var svc = new GitHubUpdateService(http, NullLogger<GitHubUpdateService>.Instance);
+        var newer = await svc.CheckForUpdatesAsync();
+        newer.Should().BeTrue("v1.2.3 is newer than the current version");
+        svc.DownloadUrl.Should().Be(expectedUrl,
+            includePortableAsset
+                ? "the portable updater asset must be selected by its literal name"
+                : "without the portable asset the updater must degrade to null (and the pipeline gate must fail such a release)");
+    }
+
+    /// <summary>
     /// Verify that the v-prefix stripping happens at the LatestVersion
     /// property level (not inside IsNewer). This is the contract documented
     /// in the GitHubRelease class: TagName="v0.4.4" → LatestVersion="0.4.4".

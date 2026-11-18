@@ -34,6 +34,16 @@
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
 
+    <!--
+      Allow building the net10.0-windows WPF solution on NON-Windows hosts
+      (Linux CI / agent sandboxes). Without this, restore cannot download the
+      Microsoft.Windows*.App ref packs and `dotnet build` fails immediately,
+      which is exactly what PHASE_STATUS.md's "tests pass on Linux" claim
+      collided with (Phase 0 audit). Windows-only execution still requires a
+      real Windows machine — this property only enables cross-compiling.
+    -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
     <!-- Suppress stylistic warnings that don't block the build.
 
          CA1716: namespace name 'PrintShopCompanion.Shared.Constants' etc. conflicts

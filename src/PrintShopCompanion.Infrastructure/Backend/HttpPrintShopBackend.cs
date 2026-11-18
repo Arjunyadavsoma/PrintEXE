@@ -11,6 +11,7 @@ using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
 using PrintShopCompanion.Core.Options;
 using PrintShopCompanion.Infrastructure.Storage;
+using PrintShopCompanion.Shared.Constants;
 using PrintShopCompanion.Shared.Dto;
 
 /// <summary>
@@ -28,6 +29,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 {
     private readonly HttpClient _http;
     private readonly IOptionsMonitor<BackendOptions> _opts;
+    private readonly IOptionsMonitor<PrinterOptions>? _printerOpts;
     private readonly ILogger<HttpPrintShopBackend> _logger;
     private readonly LocalStorageLayout? _layout;
     private DeviceToken? _token;
@@ -39,10 +41,12 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         HttpClient http,
         IOptionsMonitor<BackendOptions> opts,
         ILogger<HttpPrintShopBackend> logger,
-        LocalStorageLayout? layout = null)
+        LocalStorageLayout? layout = null,
+        IOptionsMonitor<PrinterOptions>? printerOpts = null)
     {
         _http = http;
         _opts = opts;
+        _printerOpts = printerOpts;
         _logger = logger;
         _layout = layout;
     }
@@ -99,18 +103,11 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
                 "Generate a new one from the web dashboard's Printer Setup page.", ex);
         }
 
-        // Persist the token via the credential store (DPAPI-encrypted).
-        // We do this through the static DeviceTokenStore because the credential
-        // store interface is shared with the shopkeeper flow.
+        // Persist the token via the atomic DPAPI helper (.tmp/.bak/verify —
+        // the same safety pattern used for rotation).
         try
         {
-            var credPath = ResolveDeviceTokenPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(credPath)!);
-            byte[] plaintext = System.Text.Encoding.UTF8.GetBytes(deviceToken);
-            byte[] encrypted = System.Security.Cryptography.ProtectedData.Protect(
-                plaintext, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
-            await File.WriteAllBytesAsync(credPath, encrypted, ct);
-            _logger.LogInformation("Device token persisted to {Path}", credPath);
+            await PersistDeviceTokenAsync(deviceToken, ct);
         }
         catch (Exception ex)
         {
@@ -411,14 +408,26 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return envelope.Data.AccessToken;
     }
 
-    /// <summary>POST /api/v1/agents/heartbeat — refresh presence.</summary>
-    public async Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
+    /// <summary>
+    /// POST /api/v1/agents/heartbeat — refresh presence.
+    /// <para><b>printerName fix (Phase 0 audit):</b> previously this sent the
+    /// machine HOSTNAME in the contract's printerName field, so the website's
+    /// Devices page showed a computer name where a printer belongs. It now
+    /// sends the actually-selected printer (explicit parameter, then the
+    /// configured <c>Printer:SelectedPrinter</c>), falling back to the
+    /// hostname only when no printer is known.</para>
+    /// </summary>
+    public async Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default, string? printerName = null)
     {
         EnsureAuthenticated();
         var url = ApiUrl("agents/heartbeat");
+        var resolvedPrinter = printerName
+            ?? _printerOpts?.CurrentValue.SelectedPrinter
+            ?? _device?.Hostname
+            ?? Environment.MachineName;
         var body = new
         {
-            printerName = _device?.Hostname ?? Environment.MachineName,
+            printerName = resolvedPrinter,
             version = ThisApp.Version,
             os = "win32"
         };
@@ -606,6 +615,122 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         _token = null; _device = null; _shop = null;
     }
 
+    /// <summary>
+    /// Rotate the device credential — POST /api/v1/companion/token/rotate.
+    /// The backend mints a new 256-bit token, stores only its HMAC verifier,
+    /// and keeps the previous hash for a 10-minute overlap window.
+    /// <para><b>Persist-before-transition:</b> the new token is DPAPI-encrypted
+    /// and atomically written BEFORE the in-memory credential is switched. If
+    /// the persist fails, the old (still-valid-in-window) credential is kept
+    /// and the rotation can be retried — a failed rotation must not lock out a
+    /// healthy device.</para>
+    /// <para>The caller decides WHEN to rotate (e.g. credential older than a
+    /// policy threshold); this method never rotates automatically on a timer.</para>
+    /// </summary>
+    public async Task<TokenRotationResult> RotateDeviceTokenAsync(CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var url = ApiUrl("companion/token/rotate");
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(new { })
+        };
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("Device token rejected by backend — rotation requires a currently-valid token");
+        resp.EnsureSuccessStatusCode();
+
+        var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<TokenRotationResponseDto>>(Json, ct)
+            ?? throw new InvalidOperationException("Empty token-rotation response");
+        var dto = envelope.Data
+            ?? throw new InvalidOperationException("Token-rotation response missing data field");
+        if (string.IsNullOrWhiteSpace(dto.DeviceToken))
+            throw new InvalidOperationException("Token-rotation response returned an empty device token");
+
+        // 1. Persist the NEW credential FIRST (DPAPI, atomic .tmp/.bak write).
+        //    Only after the write verifies do we switch the in-memory token.
+        await PersistDeviceTokenAsync(dto.DeviceToken, ct);
+
+        var oldToken = _token;
+        _token = new DeviceToken
+        {
+            ShopId = oldToken?.ShopId ?? "",
+            AgentId = dto.AgentId ?? oldToken?.AgentId ?? "",
+            Token = dto.DeviceToken,
+            IssuedAt = DateTimeOffset.UtcNow,
+        };
+
+        _logger.LogInformation(
+            "Device token rotated (agentId={AgentId}, old token accepted until {OverlapExpiresAt})",
+            dto.AgentId, dto.OverlapExpiresAt?.ToString("O") ?? "(unspecified)");
+
+        return new TokenRotationResult(
+            DeviceToken: dto.DeviceToken,
+            RotatedAt: dto.RotatedAt ?? DateTimeOffset.UtcNow,
+            OverlapExpiresAt: dto.OverlapExpiresAt,
+            Warning: dto.Warning);
+    }
+
+    /// <summary>
+    /// DPAPI-encrypt + atomically persist a device token to the credential
+    /// file: write <c>.tmp</c> in the same directory, back up the existing
+    /// file to <c>.bak</c>, atomic <c>File.Move</c>, then a decrypt
+    /// round-trip verification; restore <c>.bak</c> on any failure.
+    /// Mirrors <c>DeviceTokenStore</c>'s write-safety pattern for the raw
+    /// token file used by <see cref="RestoreAsync"/>.
+    /// </summary>
+    public async Task PersistDeviceTokenAsync(string deviceToken, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(deviceToken))
+            throw new InvalidOperationException("Refusing to persist an empty device token");
+
+        var credPath = ResolveDeviceTokenPath();
+        var dir = Path.GetDirectoryName(credPath)!;
+        Directory.CreateDirectory(dir);
+        var tmpPath = credPath + ".tmp";
+        var bakPath = credPath + ".bak";
+
+        byte[] plaintext = System.Text.Encoding.UTF8.GetBytes(deviceToken);
+        byte[] encrypted = System.Security.Cryptography.ProtectedData.Protect(
+            plaintext, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+
+        await File.WriteAllBytesAsync(tmpPath, encrypted, ct);
+
+        // Round-trip verify the .tmp file BEFORE replacing the live credential.
+        var verify = System.Security.Cryptography.ProtectedData.Unprotect(
+            await File.ReadAllBytesAsync(tmpPath, ct), null,
+            System.Security.Cryptography.DataProtectionScope.CurrentUser);
+        if (System.Text.Encoding.UTF8.GetString(verify) != deviceToken)
+        {
+            try { File.Delete(tmpPath); } catch { }
+            throw new InvalidOperationException("DPAPI round-trip verification failed — credential not persisted");
+        }
+
+        if (File.Exists(credPath))
+        {
+            try { File.Copy(credPath, bakPath, overwrite: true); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Could not back up the previous credential file (continuing)"); }
+        }
+
+        try
+        {
+            File.Move(tmpPath, credPath, overwrite: true);
+        }
+        catch
+        {
+            // Restore path: the old credential file was NOT touched if Move
+            // failed before replacing; clean the tmp and rethrow so the
+            // caller keeps the old in-memory token.
+            try { File.Delete(tmpPath); } catch { }
+            throw;
+        }
+
+        try { if (File.Exists(bakPath)) File.Delete(bakPath); } catch { }
+        _logger.LogInformation("Device token persisted to {Path}", credPath);
+    }
+
     // ────────────────────────── sync endpoints ──────────────────────────
 
     public async Task<SyncPullResult> SyncPullAsync(string? cursor, int limit, CancellationToken ct = default)
@@ -724,8 +849,64 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
     private void EnsureAuthenticated()
     {
+        if (_token is null) TryRestoreTokenFromDiskSync();
         if (_token is null)
             throw new InvalidOperationException("Not paired with a shop — paste the device token from the web dashboard first");
+    }
+
+    /// <summary>
+    /// Phase 1 (Defect C fix): lazy, synchronous DPAPI restore when this
+    /// instance has never been authenticated. The typed client is registered
+    /// TRANSIENT, so every DI resolution used to yield a fresh instance with
+    /// <c>_token == null</c> — EnsureAuthenticated threw even though the
+    /// device WAS paired (heartbeat timer, rotation policy, revocation all
+    /// resolved their own instance and silently failed). This loads the
+    /// DPAPI-protected credential from disk WITHOUT network validation (the
+    /// first real call validates it); once, per instance.
+    /// </summary>
+    private bool _restoreAttempted;
+    private void TryRestoreTokenFromDiskSync()
+    {
+        if (_restoreAttempted) return;
+        _restoreAttempted = true;
+        try
+        {
+            var credPath = ResolveDeviceTokenPath();
+            if (!File.Exists(credPath)) return;
+            byte[] encrypted = File.ReadAllBytes(credPath);
+            byte[] plaintext = System.Security.Cryptography.ProtectedData.Unprotect(
+                encrypted, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+            string deviceToken = System.Text.Encoding.UTF8.GetString(plaintext);
+            if (string.IsNullOrWhiteSpace(deviceToken)) return;
+            _token = new DeviceToken
+            {
+                ShopId = "",
+                AgentId = "",
+                Token = deviceToken,
+                IssuedAt = File.GetLastWriteTimeUtc(credPath),
+            };
+            // Phase 5 fix: the restore must also seed _shop, exactly like the
+            // paste-token flow does before its validation heartbeat. Without
+            // it, ApiUrl() dereferences a null _shop (NullReferenceException)
+            // on the very first authenticated call from any instance that did
+            // not pair in-process — the captured transient backends in the
+            // job processor, heartbeat timer, and rotation policy. BaseUrl and
+            // ApiBasePath are deployment configuration, not per-pairing state.
+            var o = _opts.CurrentValue;
+            _shop = new ShopInfo
+            {
+                Id = "",
+                Slug = "",
+                Name = "(restored — shop name pending first sync)",
+                BaseUrl = new Uri(o.BaseUrl),
+                ApiBasePath = o.ApiBasePath,
+            };
+            _logger.LogInformation("Device credential lazily restored from disk (unvalidated — first call will validate)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lazy credential restore failed — treating device as unpaired");
+        }
     }
 
     /// <summary>
@@ -768,12 +949,20 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// integration guide (section 2.1). The previous v0.4.6 code used
     /// custom headers (X-PrintShop-Device-Token) — the production backend
     /// does NOT recognize those.
+    /// <para>Also sends <c>X-PrintShop-Companion-Version</c> so the backend's
+    /// version telemetry / future 426 gate works (Phase 0 audit: the header
+    /// was declared in the contract but never actually sent).</para>
     /// </summary>
     private void AddAuth(HttpRequestMessage req)
     {
         if (_token is null) return;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token.Token);
         req.Headers.UserAgent.Add(new ProductInfoHeaderValue("PrintShopCompanion", ThisApp.Version));
+        if (!string.IsNullOrEmpty(CompanionProtocol.AppVersionHeader))
+        {
+            try { req.Headers.Add(CompanionProtocol.AppVersionHeader, ThisApp.Version); }
+            catch { /* header add is best-effort */ }
+        }
     }
 
     private Uri ApiUrl(string relative) => new(_shop!.BaseUrl, $"{_shop.ApiBasePath.TrimStart('/')}/{relative.TrimStart('/')}");

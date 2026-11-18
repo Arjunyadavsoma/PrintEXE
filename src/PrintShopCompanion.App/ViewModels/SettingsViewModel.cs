@@ -104,22 +104,19 @@ public partial class SettingsViewModel : ObservableObject
 
 internal static class OptionsWriter
 {
+    /// <summary>
+    /// Persists a dotted configuration key to the per-user override file
+    /// (%AppData%\PrintShop\Companion\appsettings.Local.json) via
+    /// LocalSettingsStore. The App/Worker configuration chain loads that file
+    /// AFTER appsettings.json, so the override wins on the next startup.
+    /// <para><b>Phase 0 audit fix:</b> the previous implementation wrote the
+    /// values to a throwaway Utf8JsonWriter and then literally overwrote the
+    /// file with "{}" — every settings save silently DISCARDED all overrides.
+    /// It also targeted the install directory (not writable under Program
+    /// Files). Both bugs are fixed by delegating to LocalSettingsStore.</para>
+    /// </summary>
     public static void Update(string key, string value)
     {
-        // Writes appsettings.Local.json with the override. The next startup picks it up.
-        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "appsettings.Local.json");
-        var json = System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path) : "{}";
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
-        using var ms = new System.IO.MemoryStream();
-        using (var writer = new System.Text.Json.Utf8JsonWriter(ms, new System.Text.Json.JsonWriterOptions { Indented = true }))
-        {
-            writer.WriteStartObject();
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                prop.WriteTo(writer);
-            }
-            writer.WriteEndObject();
-        }
-        System.IO.File.WriteAllText(path, "{}");
+        PrintShopCompanion.Infrastructure.Storage.LocalSettingsStore.Set(key, value);
     }
 }

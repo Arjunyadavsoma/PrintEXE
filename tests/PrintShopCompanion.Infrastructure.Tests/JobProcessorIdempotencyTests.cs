@@ -90,8 +90,10 @@ public class JobProcessorIdempotencyTests
         public Task<CommandReportResult> ReportCommandStatusAsync(string commandId, string status, string? resultJson, CancellationToken ct = default)
             => Task.FromResult(new CommandReportResult(CommandId: "test", Status: "succeeded", UpdatedAt: DateTimeOffset.UtcNow));
         public Task<string> ExchangeDeviceTokenForJwtAsync(CancellationToken ct = default) => Task.FromResult("test-jwt");
-        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default)
+        public Task<HeartbeatResult> HeartbeatAsync(CancellationToken ct = default, string? printerName = null)
             => Task.FromResult(new HeartbeatResult(DateTimeOffset.UtcNow, TokenStillValid: true, RecommendedBackendVersion: null));
+        public Task<TokenRotationResult> RotateDeviceTokenAsync(CancellationToken ct = default)
+            => throw new NotImplementedException();
         public Task<IReadOnlyList<PrintJobRecord>> FetchPendingJobsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<PrintJobRecord>>(new List<PrintJobRecord>());
         public Task<JobStatusReport> ReportJobStatusAsync(string jobId, string status, string? printerName, string? errorMessage, CancellationToken ct = default)
@@ -172,9 +174,9 @@ public class JobProcessorIdempotencyTests
         var one = await q.DequeueAsync(cts.Token);
         one.Should().NotBeNull();
         var sub = await pr.SubmitAsync(one!, cts.Token);
-        var printed = await pr.HasPrintedAsync(sub.SpoolerJobId, cts.Token);
+        var printed = await pr.HasPrintedAsync(sub.SpoolerJobId!.Value, cts.Token);
         printed.Should().BeTrue();
-        await q.MarkPrintedAsync(one!.JobId, DateTimeOffset.UtcNow, sub.SpoolerJobId, cts.Token);
+        await q.MarkPrintedAsync(one!.JobId, DateTimeOffset.UtcNow, sub.SpoolerJobId!.Value, cts.Token);
         // v0.4.7+ contract: status is the string "completed" or "failed" or "printing"
         await be.ReportJobStatusAsync(one.JobId, "completed", printerName: null, errorMessage: null, cts.Token);
         await q.MarkReportedPrintedAsync(one.JobId, cts.Token);

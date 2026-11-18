@@ -15,7 +15,14 @@
 
     <!-- Vulnerable-transitive overrides — same as the production projects. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <!-- Phase 5: use the SQLCipher bundle (matching the app) so the
+         encryption tests exercise the REAL provider. The previous explicit
+         lib.e_sqlite3 reference loaded the plain provider in the testhost,
+         which correctly made SqlCipherInitializer fail closed and made the
+         SQLCipher plaintext test untestable. SQLCipher opens unencrypted
+         databases transparently, so the keyStore:null (plaintext) suites
+         are unaffected. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
   </ItemGroup>
 
   <ItemGroup>

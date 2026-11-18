@@ -228,9 +228,14 @@ public sealed class SqliteJobQueue : IJobQueue
             await EnsureSchemaOrRecoverAsync(ct);
         }
 
-        var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        return conn;
+        // Phase 0 audit: WAL + busy_timeout + synchronous=NORMAL (see
+        // SqliteConnectionPragmas) instead of relying on default rollback
+        // journal + zero busy timeout with C#-side retries as the only
+        // mitigation.
+        // Phase 5: OpenWithPragmasAsync verifies every pragma and DISPOSES
+        // the connection if initialization fails — a connection whose FK or
+        // busy_timeout could not be applied is never handed back silently.
+        return await SqliteConnectionPragmas.OpenWithPragmasAsync(_connectionString, ct);
     }
 
     /// <summary>
@@ -280,6 +285,7 @@ public sealed class SqliteJobQueue : IJobQueue
         {
             await using var c = new SqliteConnection(_connectionString);
             await c.OpenAsync(ct);
+            await SqliteConnectionPragmas.ApplyToAsync(c, ct);
             await using var integrity = c.CreateCommand();
             integrity.CommandText = "PRAGMA integrity_check;";
             var result = (string?)(await integrity.ExecuteScalarAsync(ct));
@@ -952,9 +958,13 @@ public sealed class SqliteJobQueue : IJobQueue
 
     /// <summary>
     /// Mark a job as <see cref="JobStatus.OutcomeUnknown"/>. Used when the companion
-    /// sent a status report to the backend but never received a 2xx confirmation.
-    /// The next heartbeat will try to reconcile by fetching the backend's view of this
-    /// job and updating the local status to match.
+    /// sent a status report to the backend but never received a 2xx confirmation,
+    /// OR when the backend still holds the job 'printing' from a previous process
+    /// run (crash recovery — Phase 1 Defect B fix: the claim-skip path runs on a
+    /// PENDING job, and the old WHERE status=@printed guard matched zero rows, so
+    /// the park was a silent no-op and the job was re-claimed every poll cycle).
+    /// OutcomeUnknown jobs are never auto-processed; they wait for operator
+    /// reconciliation in the Print Queue.
     /// </summary>
     public async Task MarkOutcomeUnknownAsync(string jobId, string reason, CancellationToken ct = default)
     {
@@ -969,10 +979,20 @@ public sealed class SqliteJobQueue : IJobQueue
                        last_error = @reason,
                        updated_at = @now
                  WHERE job_id = @job_id
-                   AND status = @printed;
+                   AND status IN (@printed, @pending, @uncertain, @spooled, @downloading, @rendering);
                 """;
             AddParam(cmd, "@outcome_unknown", (int)JobStatus.OutcomeUnknown);
             AddParam(cmd, "@printed", (int)JobStatus.Printed);
+            AddParam(cmd, "@pending", (int)JobStatus.Pending);
+            AddParam(cmd, "@uncertain", (int)JobStatus.UncertainSpooled);
+            // Phase 5 fix: crash recovery parks jobs whose backend row is
+            // stuck in 'printing' from a previous session — at claim time the
+            // local row sits in Spooled/Downloading/Rendering, so the guard
+            // MUST include them or the park silently matches zero rows and
+            // strands the job outside reconciliation forever.
+            AddParam(cmd, "@spooled", (int)JobStatus.Spooled);
+            AddParam(cmd, "@downloading", (int)JobStatus.Downloading);
+            AddParam(cmd, "@rendering", (int)JobStatus.Rendering);
             AddParam(cmd, "@reason", reason);
             AddParam(cmd, "@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             AddParam(cmd, "@job_id", jobId);

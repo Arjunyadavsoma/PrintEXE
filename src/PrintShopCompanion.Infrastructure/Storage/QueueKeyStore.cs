@@ -57,12 +57,17 @@ public sealed class QueueKeyStore
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to load SQLCipher key from {Path} — the file may be " +
-                    "corrupt or this is a different Windows user. Generating a new key (the old " +
-                    "queue.db will be unreadable — see docs/UPGRADE_FROM_V047.md for recovery).",
-                    _keyPath);
-                // Fall through to generate a new key. The existing queue.db
-                // will need to be re-migrated from the v0.4.7 backup.
+                // Phase 5 fix (fail closed): the previous behavior GENERATED
+                // AND OVERWROTE the key file here — permanently destroying
+                // access to the existing encrypted queue.db (all queued jobs
+                // lost). A wrong DPAPI user context or a transient unprotect
+                // failure must NOT destroy the only copy of the key.
+                throw new InvalidOperationException(
+                    "Failed to load the SQLCipher queue encryption key from " +
+                    _keyPath + ". The encrypted queue database cannot be opened " +
+                    "and the key file was NOT overwritten (no data destroyed). " +
+                    "Restore the correct Windows user profile, or follow the " +
+                    "recovery procedure in docs/UPGRADE_FROM_V047.md.", ex);
             }
         }
 
