@@ -51,38 +51,13 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
         // -print-settings flags made SumatraPDF honor only the last one
         // (e.g. copies silently discarded when color/paper followed) —
         // silent wrong physical output.
-        var settings = new List<string> { $"{Math.Max(1, copies)}x" };
-        if (!string.IsNullOrEmpty(pageRange))
-            settings.Add($"r{pageRange}");
-        // Color: SumatraPDF uses `-print-settings color` to force color and
-        // `-print-settings monochrome` to force grayscale. The companion's
-        // domain model carries both `bool? Color` (legacy) and `string? ColorMode`
-        // ("bw"|"color"). We honour whichever the caller sets; ColorMode wins.
-        // The legacy `color == false` branch was wrong (it forced color when
-        // the caller asked for monochrome); this is now corrected.
-        if (color == true)
-            settings.Add("color");
-        else if (color == false)
-            settings.Add("monochrome");
-        if (!string.IsNullOrEmpty(paperSize))
-            settings.Add($"paper={paperSize}");
-        if (!string.IsNullOrEmpty(duplex))
-        {
-            var d = duplex.ToLowerInvariant() switch
-            {
-                "simplex"    => "simplex",
-                "vertical"   => "duplexshort",
-                "horizontal" => "duplexlong",
-                _            => duplex
-            };
-            settings.Add(d);
-        }
+        var printSettings = BuildPrintSettings(copies, pageRange, color, paperSize, duplex);
 
         var args = new List<string>
         {
             "-silent",
             "-print-to", $"\"{printerFullName}\"",
-            "-print-settings", string.Join(",", settings),
+            "-print-settings", printSettings,
             "-print-stat",
             $"\"{pdfPath}\""
         };
@@ -132,5 +107,63 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
         var appDir = AppContext.BaseDirectory;
         var bundled = Path.Combine(appDir, "runtimes", "win-x64", "native", "SumatraPDF.exe");
         return File.Exists(bundled) ? bundled : Path.Combine(appDir, "SumatraPDF.exe");
+    }
+
+    /// <summary>
+    /// Builds the single comma-separated <c>-print-settings</c> argument:
+    /// copies ("2x"), page range ("1-3,5-6"), color/monochrome, paper, duplex.
+    /// All tokens go into ONE argument — SumatraPDF honours only the last of
+    /// several separate -print-settings flags.
+    /// </summary>
+    public static string BuildPrintSettings(
+        int copies, string? pageRange,
+        bool? color, string? paperSize, string? duplex)
+    {
+        var settings = new List<string> { $"{Math.Max(1, copies)}x" };
+
+        var range = NormalizePageRange(pageRange);
+        if (!string.IsNullOrEmpty(range))
+            settings.Add(range);
+
+        // Color: SumatraPDF uses `-print-settings color` to force color and
+        // `-print-settings monochrome` to force grayscale. The caller may set
+        // either legacy `bool? Color` or `string? ColorMode`; bool wins when set.
+        if (color == true)
+            settings.Add("color");
+        else if (color == false)
+            settings.Add("monochrome");
+
+        if (!string.IsNullOrEmpty(paperSize))
+            settings.Add($"paper={paperSize}");
+
+        if (!string.IsNullOrEmpty(duplex))
+        {
+            settings.Add(duplex.ToLowerInvariant() switch
+            {
+                "simplex"    => "simplex",
+                "vertical"   => "duplexshort",
+                "horizontal" => "duplexlong",
+                _            => duplex
+            });
+        }
+
+        return string.Join(",", settings);
+    }
+
+    /// <summary>
+    /// Normalises a page-range string to SumatraPDF's plain token form
+    /// ("1-3,5-6"). SumatraPDF has NO "r" prefix for ranges — the previous
+    /// "r1-3,5-6" token was invalid and silently IGNORED, so the whole
+    /// document printed even when the customer selected a subset of pages.
+    /// Whitespace is stripped and empty/non-numeric segments are dropped.
+    /// </summary>
+    public static string? NormalizePageRange(string? pageRange)
+    {
+        if (string.IsNullOrWhiteSpace(pageRange)) return null;
+        var parts = pageRange.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var valid = parts
+            .Where(p => p.Length > 0 && p.All(c => char.IsAsciiDigit(c) || c == '-'))
+            .ToArray();
+        return valid.Length > 0 ? string.Join(",", valid) : null;
     }
 }
