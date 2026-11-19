@@ -357,7 +357,9 @@ public sealed class HttpShopBackend : IShopBackend, IDisposable
         CashOnPickup = d.CashOnPickup
     };
 
-    private static OrderRecord MapOrder(OrderDto d)
+    // internal (not private): HttpPrintShopBackend reuses these mappers for the
+    // device-token shop snapshot — the wire shapes are identical by contract.
+    internal static OrderRecord MapOrder(OrderDto d)
     {
         var status = OrderStatusExtensions.ParseWire(d.Status);
         return new OrderRecord
@@ -385,7 +387,7 @@ public sealed class HttpShopBackend : IShopBackend, IDisposable
         PrintedAt = f.PrintedAt, CreatedAt = f.CreatedAt, UpdatedAt = f.UpdatedAt
     };
 
-    private static ShopAnalytics MapAnalytics(AnalyticsDto d) => new()
+    internal static ShopAnalytics MapAnalytics(AnalyticsDto d) => new()
     {
         Revenue = new RevenueSummary(d.Revenue.TotalPaise, d.Revenue.Formatted),
         OrderCount = new OrderCountSummary(d.OrderCount.Total, d.OrderCount.Paid),

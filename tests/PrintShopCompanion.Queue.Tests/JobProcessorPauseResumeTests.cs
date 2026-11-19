@@ -164,6 +164,7 @@ public class JobProcessorPauseResumeTests
 
     private sealed class FakeBackend : IPrintShopBackend
     {
+        public Task<PrintShopCompanion.Core.Models.ShopSnapshot?> GetShopSnapshotAsync(CancellationToken cancellationToken = default) => Task.FromResult<PrintShopCompanion.Core.Models.ShopSnapshot?>(null);
         public bool IsAuthenticated => true;
         public ShopInfo? CurrentShop => new() { Id = "s", Name = "S", Slug = "s", BaseUrl = new Uri("https://x"), ApiBasePath = "/api/v1" };
         public DeviceRegistration? CurrentDevice => new() { DeviceId = "d", ShopId = "s", Hostname = "h", OperatingSystem = "os", AppVersion = "0", RegisteredAt = DateTimeOffset.UtcNow, LastSeenAt = DateTimeOffset.UtcNow, Revoked = false };

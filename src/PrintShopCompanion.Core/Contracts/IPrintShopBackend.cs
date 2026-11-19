@@ -54,6 +54,16 @@ public interface IPrintShopBackend
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Read-only shop snapshot pulled with the DEVICE credential
+    /// (<c>GET /api/v1/companion/shop-snapshot</c>). Used when the companion
+    /// is paired but has no shopkeeper session: session-scoped
+    /// <c>shops/me/*</c> endpoints are closed to device JWTs, so the device
+    /// reads its own shop's queue through its device token (Universal Print
+    /// model). Returns null when the token is rejected (revoked device).
+    /// </summary>
+    Task<ShopSnapshot?> GetShopSnapshotAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// v1 contract §6 — fetch pending remote commands for this device.
     /// <c>GET /api/v1/companion/commands</c>. The backend returns only
     /// commands with <c>status='requested'</c> AND <c>expiresAt &gt; now</c>.

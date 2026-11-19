@@ -20,6 +20,7 @@ public class MagicLinkPairingServiceTests
 {
     private sealed class FakeBackend : IPrintShopBackend
     {
+        public Task<PrintShopCompanion.Core.Models.ShopSnapshot?> GetShopSnapshotAsync(CancellationToken cancellationToken = default) => Task.FromResult<PrintShopCompanion.Core.Models.ShopSnapshot?>(null);
         public bool IsAuthenticated { get; set; }
         public ShopInfo? CurrentShop { get; set; }
         public DeviceRegistration? CurrentDevice { get; set; }

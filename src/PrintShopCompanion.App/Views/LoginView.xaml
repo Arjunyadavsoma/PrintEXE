@@ -115,160 +115,13 @@
                     </Border>
 
                     <!-- ============================== -->
-                    <!-- RECOMMENDED (Phase 3): pairing-ticket pairing (v1 contract §2) -->
+                    <!-- PRIMARY: shopkeeper email + password (live-verified flow) -->
                     <!-- ============================== -->
-                    <TextBlock Text="Pair this computer" FontSize="26" FontWeight="Bold"
+                    <TextBlock Text="Sign in" FontSize="26" FontWeight="Bold"
                                Foreground="#111827" Margin="0,0,0,6"/>
-                    <TextBlock Text="Get a pairing code from your shop's web dashboard (Devices → Add Computer)."
+                    <TextBlock Text="Use your print shop account — the same email and password as the web dashboard."
                                FontSize="13" Foreground="#6B7280" Margin="0,0,0,24"/>
 
-                    <!-- Steps explainer -->
-                    <Border Background="#EFF6FF" CornerRadius="8" Padding="14,12" Margin="0,0,0,20"
-                            BorderBrush="#BFDBFE" BorderThickness="1">
-                        <StackPanel>
-                            <TextBlock Text="HOW TO PAIR (5-MINUTE CODE)" FontSize="10" FontWeight="SemiBold"
-                                       Foreground="#1E40AF" Margin="0,0,0,6"/>
-                            <TextBlock FontSize="11.5" Foreground="#1E3A8A" TextWrapping="Wrap" LineHeight="18">
-                                <Run Text="1." FontWeight="Bold"/>
-                                <Run Text=" Sign in to your shop on the web dashboard"/><LineBreak/>
-                                <Run Text="2." FontWeight="Bold"/>
-                                <Run Text=" Go to Shop → Devices → Add Computer"/><LineBreak/>
-                                <Run Text="3." FontWeight="Bold"/>
-                                <Run Text=" Copy the 64-character pairing code (or scan the QR)"/><LineBreak/>
-                                <Run Text="4." FontWeight="Bold"/>
-                                <Run Text=" Paste it below, name this PC, click Pair"/><LineBreak/>
-                                <Run Text="   " FontWeight="Bold"/>
-                                <Run Text=" The code expires in 5 minutes and works once" Foreground="#6B7280" FontStyle="Italic"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-
-                    <TextBlock Text="PAIRING CODE" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#374151" Margin="0,0,0,6"/>
-                    <TextBox Text="{Binding PairingTicket, UpdateSourceTrigger=PropertyChanged}"
-                             x:Name="PairingTicketBox"
-                             Padding="14,12" FontSize="13" FontFamily="Consolas"
-                             Margin="0,0,0,18"
-                             BorderBrush="#D1D5DB" BorderThickness="1"
-                             VerticalContentAlignment="Center"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             MinHeight="60"
-                             MaxLength="64"
-                             ToolTip="Paste the 64-hex-character pairing code from the web dashboard"/>
-
-                    <TextBlock Text="COMPUTER NAME" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#374151" Margin="0,0,0,6"/>
-                    <TextBox Text="{Binding DeviceName, UpdateSourceTrigger=PropertyChanged}"
-                             x:Name="DeviceNameBox"
-                             Padding="14,12" FontSize="13"
-                             Margin="0,0,0,18"
-                             BorderBrush="#D1D5DB" BorderThickness="1"
-                             VerticalContentAlignment="Center"
-                             MaxLength="120"
-                             ToolTip="A display name for this computer (shown on the website's device list)"/>
-
-                    <!-- Ticket-pairing error message -->
-                    <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
-                            BorderBrush="#FECACA" BorderThickness="1"
-                            Visibility="{Binding TicketErrorMessage, Converter={StaticResource StringToVis}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding TicketErrorMessage}" FontSize="13" Foreground="#BE222A"
-                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Paired success banner (shown transiently before navigation) -->
-                    <Border Background="#ECFDF5" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
-                            BorderBrush="#A7F3D0" BorderThickness="1"
-                            Visibility="{Binding PairedShopName, Converter={StaticResource StringToVis}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="✓" FontSize="14" Foreground="#007F3D" Margin="0,0,8,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock FontSize="13" Foreground="#007F3D" VerticalAlignment="Center" TextWrapping="Wrap">
-                                <Run Text="Paired with "/><Run Text="{Binding PairedShopName}" FontWeight="SemiBold"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Pair button (ticket flow) -->
-                    <Button x:Name="PairWithTicketButton" Content="Pair this computer"
-                            Click="PairWithTicket_Click"
-                            Background="#2858CD" Foreground="White" Padding="0,14"
-                            FontSize="14" FontWeight="SemiBold" BorderThickness="0"
-                            Cursor="Hand" Margin="0,0,0,12"
-                            IsEnabled="{Binding IsPairingWithTicket, Converter={StaticResource InverseBool}}"/>
-
-                    <!-- Loading indicator (ticket flow) -->
-                    <TextBlock Text="Pairing — validating with the server..."
-                               FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center"
-                               Margin="0,0,0,24"
-                               Visibility="{Binding IsPairingWithTicket, Converter={StaticResource BoolToVis}}"/>
-
-                    <!-- Divider -->
-                    <Grid Margin="0,0,0,24">
-                        <Border Height="1" Background="#E5E7EB" VerticalAlignment="Center"/>
-                        <Border Background="#FFFFFF" Padding="10,0" HorizontalAlignment="Center">
-                            <TextBlock Text="OR — LEGACY PASTE-TOKEN / SHOPKEEPER LOGIN" FontSize="10"
-                                       Foreground="#9CA3AF" FontWeight="SemiBold"/>
-                        </Border>
-                    </Grid>
-
-                    <!-- ============================== -->
-                    <!-- LEGACY: paste-token pairing -->
-                    <!-- ============================== -->
-                    <TextBlock Text="Connect with a device token (legacy)" FontSize="16" FontWeight="Bold"
-                               Foreground="#111827" Margin="0,0,0,6"/>
-                    <TextBlock Text="Paste the device token from the web dashboard's Printer Setup page."
-                               FontSize="13" Foreground="#6B7280" Margin="0,0,0,24"/>
-
-                    <TextBlock Text="DEVICE TOKEN" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#374151" Margin="0,0,0,6"/>
-                    <TextBox Text="{Binding DeviceToken, UpdateSourceTrigger=PropertyChanged}"
-                             x:Name="DeviceTokenBox"
-                             Padding="14,12" FontSize="13"
-                             Margin="0,0,0,18"
-                             BorderBrush="#D1D5DB" BorderThickness="1"
-                             VerticalContentAlignment="Center"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             MinHeight="80"
-                             ToolTip="Paste the device token from the web dashboard"/>
-
-                    <!-- Error message (shared by both legacy flows) -->
-                    <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
-                            BorderBrush="#FECACA" BorderThickness="1"
-                            Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#BE222A"
-                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Connect button (paste-token flow) -->
-                    <Button x:Name="ConnectButton" Content="Connect this PC (paste token)"
-                            Click="PairWithToken_Click"
-                            Background="#6B7280" Foreground="White" Padding="0,14"
-                            FontSize="14" FontWeight="SemiBold" BorderThickness="0"
-                            Cursor="Hand" Margin="0,0,0,24"
-                            IsEnabled="{Binding IsPairing, Converter={StaticResource InverseBool}}"/>
-
-                    <!-- Divider -->
-                    <Grid Margin="0,0,0,24">
-                        <Border Height="1" Background="#E5E7EB" VerticalAlignment="Center"/>
-                        <Border Background="#FFFFFF" Padding="10,0" HorizontalAlignment="Center">
-                            <TextBlock Text="OR — LEGACY SHOPKEEPER LOGIN" FontSize="10"
-                                       Foreground="#9CA3AF" FontWeight="SemiBold"/>
-                        </Border>
-                    </Grid>
-
-                    <!-- ============================== -->
-                    <!-- LEGACY: shopkeeper email+password -->
-                    <!-- ============================== -->
                     <TextBlock Text="EMAIL" FontSize="11" FontWeight="SemiBold"
                                Foreground="#374151" Margin="0,0,0,6"/>
                     <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
@@ -298,15 +151,182 @@
                                 Padding="14,0" Margin="0,0,4,0"/>
                     </Grid>
 
-                    <Button Content="Sign In (legacy)" Click="SignIn_Click"
-                            Background="#374151" Foreground="White" Padding="0,12"
-                            FontSize="13" FontWeight="SemiBold" BorderThickness="0"
+                    <!-- Error message (sign-in + paste-token flows share it) -->
+                    <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
+                            BorderBrush="#FECACA" BorderThickness="1"
+                            Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#BE222A"
+                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="Sign In" Click="SignIn_Click"
+                            Background="#2858CD" Foreground="White" Padding="0,14"
+                            FontSize="14" FontWeight="SemiBold" BorderThickness="0"
                             Cursor="Hand" Margin="0,0,0,16"/>
 
                     <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="#9CA3AF" TextWrapping="Wrap">
                         Don't have a shop account?
                         <Run Text="Register on the web dashboard" FontWeight="SemiBold" Foreground="#2858CD"/>
                     </TextBlock>
+
+                    <!-- Divider -->
+                    <Grid Margin="0,28,0,20">
+                        <Border Height="1" Background="#E5E7EB" VerticalAlignment="Center"/>
+                        <Border Background="#FFFFFF" Padding="10,0" HorizontalAlignment="Center">
+                            <TextBlock Text="OR CONNECT THIS COMPUTER" FontSize="10"
+                                       Foreground="#9CA3AF" FontWeight="SemiBold"/>
+                        </Border>
+                    </Grid>
+
+                    <!-- ============================== -->
+                    <!-- Secondary options: small icon buttons (both flows live-verified) -->
+                    <!-- ============================== -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="PairingToggle" Click="TogglePairingPanel_Click"
+                                Background="#FFFFFF" BorderBrush="#D1D5DB" BorderThickness="1"
+                                Foreground="#374151" Padding="0,10" FontSize="12"
+                                FontWeight="SemiBold" Cursor="Hand">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="🎫" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Pairing code" FontSize="12" Margin="8,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="TokenToggle" Grid.Column="2" Click="ToggleTokenPanel_Click"
+                                Background="#FFFFFF" BorderBrush="#D1D5DB" BorderThickness="1"
+                                Foreground="#374151" Padding="0,10" FontSize="12"
+                                FontWeight="SemiBold" Cursor="Hand">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="🔑" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Device token" FontSize="12" Margin="8,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- Collapsible: pairing-ticket panel (v1 contract §2) -->
+                    <StackPanel x:Name="PairingPanel" Visibility="Collapsed" Margin="0,18,0,0">
+                        <TextBlock Text="Pair this computer with a 5-minute pairing code from the web dashboard (Devices → Add Computer)."
+                                   FontSize="12" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
+
+                        <!-- Steps explainer -->
+                        <Border Background="#EFF6FF" CornerRadius="8" Padding="14,12" Margin="0,0,0,18"
+                                BorderBrush="#BFDBFE" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="HOW TO PAIR (5-MINUTE CODE)" FontSize="10" FontWeight="SemiBold"
+                                           Foreground="#1E40AF" Margin="0,0,0,6"/>
+                                <TextBlock FontSize="11.5" Foreground="#1E3A8A" TextWrapping="Wrap" LineHeight="18">
+                                    <Run Text="1." FontWeight="Bold"/>
+                                    <Run Text=" Sign in to your shop on the web dashboard"/><LineBreak/>
+                                    <Run Text="2." FontWeight="Bold"/>
+                                    <Run Text=" Go to Shop → Devices → Add Computer"/><LineBreak/>
+                                    <Run Text="3." FontWeight="Bold"/>
+                                    <Run Text=" Copy the 64-character pairing code (or scan the QR)"/><LineBreak/>
+                                    <Run Text="4." FontWeight="Bold"/>
+                                    <Run Text=" Paste it below, name this PC, click Pair"/><LineBreak/>
+                                    <Run Text="   " FontWeight="Bold"/>
+                                    <Run Text=" The code expires in 5 minutes and works once" Foreground="#6B7280" FontStyle="Italic"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="PAIRING CODE" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#374151" Margin="0,0,0,6"/>
+                        <TextBox Text="{Binding PairingTicket, UpdateSourceTrigger=PropertyChanged}"
+                                 x:Name="PairingTicketBox"
+                                 Padding="14,12" FontSize="13" FontFamily="Consolas"
+                                 Margin="0,0,0,18"
+                                 BorderBrush="#D1D5DB" BorderThickness="1"
+                                 VerticalContentAlignment="Center"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="60"
+                                 MaxLength="64"
+                                 ToolTip="Paste the 64-hex-character pairing code from the web dashboard"/>
+
+                        <TextBlock Text="COMPUTER NAME" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#374151" Margin="0,0,0,6"/>
+                        <TextBox Text="{Binding DeviceName, UpdateSourceTrigger=PropertyChanged}"
+                                 x:Name="DeviceNameBox"
+                                 Padding="14,12" FontSize="13"
+                                 Margin="0,0,0,18"
+                                 BorderBrush="#D1D5DB" BorderThickness="1"
+                                 VerticalContentAlignment="Center"
+                                 MaxLength="120"
+                                 ToolTip="A display name for this computer (shown on the website's device list)"/>
+
+                        <!-- Ticket-pairing error message -->
+                        <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
+                                BorderBrush="#FECACA" BorderThickness="1"
+                                Visibility="{Binding TicketErrorMessage, Converter={StaticResource StringToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding TicketErrorMessage}" FontSize="13" Foreground="#BE222A"
+                                           TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Paired success banner (shown transiently before navigation) -->
+                        <Border Background="#ECFDF5" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
+                                BorderBrush="#A7F3D0" BorderThickness="1"
+                                Visibility="{Binding PairedShopName, Converter={StaticResource StringToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="✓" FontSize="14" Foreground="#007F3D" Margin="0,0,8,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock FontSize="13" Foreground="#007F3D" VerticalAlignment="Center" TextWrapping="Wrap">
+                                    <Run Text="Paired with "/><Run Text="{Binding PairedShopName}" FontWeight="SemiBold"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <Button x:Name="PairWithTicketButton" Content="Pair this computer"
+                                Click="PairWithTicket_Click"
+                                Background="#374151" Foreground="White" Padding="0,12"
+                                FontSize="13" FontWeight="SemiBold" BorderThickness="0"
+                                Cursor="Hand" Margin="0,0,0,12"
+                                IsEnabled="{Binding IsPairingWithTicket, Converter={StaticResource InverseBool}}"/>
+
+                        <TextBlock Text="Pairing — validating with the server..."
+                                   FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center"
+                                   Margin="0,0,0,4"
+                                   Visibility="{Binding IsPairingWithTicket, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+
+                    <!-- Collapsible: paste-token panel -->
+                    <StackPanel x:Name="TokenPanel" Visibility="Collapsed" Margin="0,18,0,0">
+                        <TextBlock Text="Paste the device token from the web dashboard's Printer Setup page."
+                                   FontSize="12" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
+
+                        <TextBlock Text="DEVICE TOKEN" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#374151" Margin="0,0,0,6"/>
+                        <TextBox Text="{Binding DeviceToken, UpdateSourceTrigger=PropertyChanged}"
+                                 x:Name="DeviceTokenBox"
+                                 Padding="14,12" FontSize="13"
+                                 Margin="0,0,0,18"
+                                 BorderBrush="#D1D5DB" BorderThickness="1"
+                                 VerticalContentAlignment="Center"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="80"
+                                 ToolTip="Paste the device token from the web dashboard"/>
+
+                        <Button x:Name="ConnectButton" Content="Connect this PC"
+                                Click="PairWithToken_Click"
+                                Background="#374151" Foreground="White" Padding="0,12"
+                                FontSize="13" FontWeight="SemiBold" BorderThickness="0"
+                                Cursor="Hand" Margin="0,0,0,4"
+                                IsEnabled="{Binding IsPairing, Converter={StaticResource InverseBool}}"/>
+                    </StackPanel>
                 </StackPanel>
                 </ScrollViewer>
 

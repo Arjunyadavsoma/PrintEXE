@@ -15,6 +15,7 @@ using PrintShopCompanion.Core.Services;
 public sealed class SyncEngine
 {
     private readonly IShopBackend _backend;
+    private readonly IPrintShopBackend _printBackend;
     private readonly IPendingOpsQueue _pendingOps;
     private readonly ShopDataStore _store;
     private readonly ILogger<SyncEngine> _logger;
@@ -30,9 +31,15 @@ public sealed class SyncEngine
     public DateTimeOffset LastSyncTime => _lastSyncTime;
     public int PendingOpCount => _pendingOps.GetPendingCount();
 
-    public SyncEngine(IShopBackend backend, IPendingOpsQueue pendingOps, ShopDataStore store, ILogger<SyncEngine> logger)
+    public SyncEngine(
+        IShopBackend backend,
+        IPrintShopBackend printBackend,
+        IPendingOpsQueue pendingOps,
+        ShopDataStore store,
+        ILogger<SyncEngine> logger)
     {
         _backend = backend;
+        _printBackend = printBackend;
         _pendingOps = pendingOps;
         _store = store;
         _logger = logger;
@@ -114,9 +121,43 @@ public sealed class SyncEngine
             _logger.LogInformation("Connectivity changed: {Online}", _isOnline ? "ONLINE" : "OFFLINE");
         }
 
-        if (!_isOnline || !_backend.IsAuthenticated)
+        if (!_isOnline)
         {
-            _logger.LogDebug("Offline or not authenticated — skipping sync");
+            _logger.LogDebug("Offline — skipping sync");
+            return;
+        }
+
+        // Paired-agent mode: the shopkeeper paired this PC (pairing ticket /
+        // device token) but never signed in with email+password, so there is
+        // no shopkeeper SESSION and the session-scoped shops/me/* pulls would
+        // all 401. Instead, pull the read-only shop snapshot through the
+        // DEVICE credential (Universal Print model) so Orders/Overview still
+        // show the live queue. Order-management actions stay session-gated —
+        // they queue as pending ops and push once the shopkeeper signs in.
+        if (!_backend.IsAuthenticated)
+        {
+            if (!_printBackend.IsAuthenticated)
+            {
+                _logger.LogDebug("Not authenticated (no session, no device token) — skipping sync");
+                return;
+            }
+
+            try
+            {
+                var snapshot = await _printBackend.GetShopSnapshotAsync(ct);
+                if (snapshot is not null)
+                {
+                    _store.ApplyShopSnapshot(snapshot.ShopName, snapshot.Analytics, snapshot.Orders,
+                        devices: null, authenticated: false);
+                    _lastSyncTime = DateTimeOffset.UtcNow;
+                    _store.SetSyncState(true, _lastSyncTime);
+                    SyncCompleted?.Invoke();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Device shop-snapshot pull failed (will retry next tick)");
+            }
             return;
         }
 

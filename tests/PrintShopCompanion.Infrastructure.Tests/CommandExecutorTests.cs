@@ -389,6 +389,7 @@ public class CommandExecutorTests
 
     private sealed class FakeBackend : IPrintShopBackend
     {
+        public Task<PrintShopCompanion.Core.Models.ShopSnapshot?> GetShopSnapshotAsync(CancellationToken cancellationToken = default) => Task.FromResult<PrintShopCompanion.Core.Models.ShopSnapshot?>(null);
         public bool IsAuthenticated => true;
         public ShopInfo? CurrentShop => new() { Id = "shop", Name = "Shop", Slug = "s", BaseUrl = new Uri("https://x"), ApiBasePath = "/api/v1" };
         public DeviceRegistration? CurrentDevice => new() { DeviceId = "dev", ShopId = "shop", Hostname = "h", OperatingSystem = "os", AppVersion = "0", RegisteredAt = DateTimeOffset.UtcNow, LastSeenAt = DateTimeOffset.UtcNow, Revoked = false };

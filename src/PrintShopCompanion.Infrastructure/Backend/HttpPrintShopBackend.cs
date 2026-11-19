@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Contracts;
@@ -406,6 +407,75 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
         _logger.LogInformation("Exchanged device token for JWT (expires in {ExpiresIn}s)", envelope.Data.ExpiresIn);
         return envelope.Data.AccessToken;
+    }
+
+    /// <summary>
+    /// GET /api/v1/companion/shop-snapshot — read-only shop data pulled with
+    /// the DEVICE credential. Used when the companion is paired but has no
+    /// shopkeeper session: <c>shops/me/*</c> are session endpoints and are
+    /// closed to device JWTs, so a paired-only PC reads its own shop's queue
+    /// through its device token instead (Universal Print model). The response
+    /// reuses the exact wire shapes of <c>shops/me</c> + <c>shops/me/orders</c>
+    /// + <c>shops/me/analytics</c>, so the mapping is shared with
+    /// <see cref="HttpShopBackend.MapOrder"/> / <see cref="HttpShopBackend.MapAnalytics"/>.
+    /// <para>Returns null when the device token is rejected (revoked device) —
+    /// the caller then treats the device as unauthenticated.</para>
+    /// </summary>
+    public async Task<ShopSnapshot?> GetShopSnapshotAsync(CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var url = ApiUrl("companion/shop-snapshot");
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        AddAuth(req);
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureNotDisabledAsync(resp, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            _logger.LogWarning("Shop snapshot: device token rejected (revoked or rotated away)");
+            return null;
+        }
+        resp.EnsureSuccessStatusCode();
+
+        var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<ShopSnapshotDto>>(Json, ct);
+        var d = envelope?.Data;
+        if (d?.Shop is null)
+        {
+            _logger.LogWarning("Shop snapshot: no shop in response");
+            return null;
+        }
+        return new ShopSnapshot
+        {
+            ShopName = d.Shop.Name,
+            Analytics = d.Analytics is null ? null : HttpShopBackend.MapAnalytics(d.Analytics),
+            Orders = (d.Orders ?? new List<OrderDto>()).Select(HttpShopBackend.MapOrder).ToList()
+        };
+    }
+
+    private sealed class ShopSnapshotDto
+    {
+        [JsonPropertyName("shop")]
+        public SnapshotShopDto? Shop { get; init; }
+
+        [JsonPropertyName("orders")]
+        public List<OrderDto>? Orders { get; init; }
+
+        [JsonPropertyName("analytics")]
+        public AnalyticsDto? Analytics { get; init; }
+    }
+
+    private sealed class SnapshotShopDto
+    {
+        [JsonPropertyName("id")]
+        public required string Id { get; init; }
+
+        [JsonPropertyName("name")]
+        public required string Name { get; init; }
+
+        [JsonPropertyName("slug")]
+        public required string Slug { get; init; }
+
+        [JsonPropertyName("timezone")]
+        public string? Timezone { get; init; }
     }
 
     /// <summary>

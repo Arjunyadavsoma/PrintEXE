@@ -54,6 +54,7 @@ public class JobProcessorIdempotencyTests
 
     private sealed class FakeBackend : IPrintShopBackend
     {
+        public Task<PrintShopCompanion.Core.Models.ShopSnapshot?> GetShopSnapshotAsync(CancellationToken cancellationToken = default) => Task.FromResult<PrintShopCompanion.Core.Models.ShopSnapshot?>(null);
         public bool IsAuthenticated => true;
         public ShopInfo? CurrentShop => new ShopInfo
         {

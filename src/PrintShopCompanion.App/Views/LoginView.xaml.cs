@@ -2,10 +2,14 @@ namespace PrintShopCompanion.App.Views;
 
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using PrintShopCompanion.App.ViewModels;
 
 public partial class LoginView : UserControl
 {
+    private static readonly SolidColorBrush ActiveBorder = new(Color.FromRgb(0x28, 0x58, 0xCD));
+    private static readonly SolidColorBrush IdleBorder = new(Color.FromRgb(0xD1, 0xD5, 0xDB));
+
     private readonly LoginViewModel _vm;
     private bool _suppressRevealSync;
 
@@ -21,9 +25,50 @@ public partial class LoginView : UserControl
         VersionLabel.Text = AppVersion.Prefixed;
         BuildStamp.Text = $"PrintShop Companion  ·  {AppVersion.Prefixed}";
 
+        // Deep link (printshop://pair?ticket=…) pre-filled the form — open the
+        // matching panel so the shopkeeper sees the code waiting for them.
+        if (!string.IsNullOrEmpty(_vm.PairingTicket)) OpenPanels(PairingPanel, TokenPanel, PairingToggle, TokenToggle);
+        else if (!string.IsNullOrEmpty(_vm.DeviceToken)) OpenPanels(TokenPanel, PairingPanel, TokenToggle, PairingToggle);
+
         // The SessionRestoreState singleton outlives this transient view model —
         // unhook when the view goes away (e.g. after pairing navigates to Overview).
         Unloaded += (_, _) => _vm.Detach();
+    }
+
+    // ── Secondary-option accordions ─────────────────────────────────────
+    // Email+password is the PRIMARY form; the pairing-code and device-token
+    // flows live behind these small icon buttons and expand on demand.
+
+    private void TogglePairingPanel_Click(object sender, RoutedEventArgs e)
+        => TogglePanels(PairingPanel, TokenPanel, PairingToggle, TokenToggle);
+
+    private void ToggleTokenPanel_Click(object sender, RoutedEventArgs e)
+        => TogglePanels(TokenPanel, PairingPanel, TokenToggle, PairingToggle);
+
+    private void TogglePanels(StackPanel target, StackPanel other, Button targetBtn, Button otherBtn)
+    {
+        if (target.Visibility == Visibility.Visible)
+        {
+            // Clicking the active option's button collapses it again.
+            target.Visibility = Visibility.Collapsed;
+            targetBtn.BorderBrush = IdleBorder;
+        }
+        else
+        {
+            OpenPanels(target, other, targetBtn, otherBtn);
+            // Stale errors from the other flow would otherwise show in the
+            // newly opened panel — clear both when switching.
+            _vm.ErrorMessage = null;
+            _vm.TicketErrorMessage = null;
+        }
+    }
+
+    private static void OpenPanels(StackPanel target, StackPanel other, Button targetBtn, Button otherBtn)
+    {
+        target.Visibility = Visibility.Visible;
+        other.Visibility = Visibility.Collapsed;
+        targetBtn.BorderBrush = ActiveBorder;
+        otherBtn.BorderBrush = IdleBorder;
     }
 
     private void PasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
