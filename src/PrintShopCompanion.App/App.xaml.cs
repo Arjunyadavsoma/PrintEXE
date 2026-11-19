@@ -49,6 +49,17 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // ── Global safety nets (professional crash handling) ──────────────
+        // Previously NO handler existed, so any unhandled UI-thread exception
+        // (a binding callback, a Loaded handler, a converter) killed the
+        // process with the raw Windows crash dialog — "the app is crashing".
+        // Now: log the full stack, show a readable dialog, and KEEP RUNNING.
+        // A companion app that survives a bad interaction is better than one
+        // that dies; genuinely fatal state still exits via the startup catch.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
         // CLI args
         if (e.Args.Length > 0)
         {
@@ -138,6 +149,10 @@ public partial class App : Application
                             else Dispatcher.Invoke(action);
                         }));
 
+                    // Auto-sign-in status shared between the startup restore task
+                    // and the Login screen's status banner (login-first UX).
+                    services.AddSingleton<PrintShopCompanion.App.Services.SessionRestoreState>();
+
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<MainWindow>();
                     services.AddTransient<LoginViewModel>();
@@ -177,13 +192,23 @@ public partial class App : Application
                 File.Exists(layout.DeviceTokenPath),
                 layout.LegacyDeviceTokenPath is { } lp && File.Exists(lp));
 
-            // Navigate to the right view
+            // Navigate to the right view — ALWAYS Login first (login-first UX).
+            // The previous code jumped straight to Overview when a saved
+            // credential FILE existed, so the shopkeeper saw the orders page
+            // before the app had verified anything with the server — with a
+            // stale/revoked token it flashed Overview and then fell back to
+            // Login, and after an unclean shutdown it showed stale data as if
+            // signed in. Now the app opens on Login with a visible
+            // "Signing you in automatically…" state; the background restore
+            // below navigates to Overview ONLY after the credentials are
+            // actually verified, and otherwise explains why it stayed here.
             var nav = _host.Services.GetRequiredService<INavigationService>();
+            nav.NavigateTo("Login");
+            var restoreState = _host.Services.GetRequiredService<PrintShopCompanion.App.Services.SessionRestoreState>();
             if (hasSavedCredentials)
-                nav.NavigateTo("Overview");  // Will try to restore session in background
-            else
-                nav.NavigateTo("Login");
-            Log.Information("Navigated to: {View}", nav.CurrentView);
+                restoreState.Begin("Signing you in automatically…");
+            Log.Information("Navigated to: {View} (auto-sign-in: {Auto})", nav.CurrentView,
+                hasSavedCredentials ? "pending" : "none");
 
             // Deep-link pairing activation (integration spec §7.3): a
             // printshop://pair?ticket=… (or legacy printshopcompanion://) URI
@@ -220,7 +245,8 @@ public partial class App : Application
                     // Restore credentials — try BOTH paths:
                     //   1. The v0.4.7+ device-token flow (HttpPrintShopBackend.RestoreAsync)
                     //   2. The legacy shopkeeper session flow (HttpShopBackend.RestoreSession)
-                    // If neither succeeds, the user lands on the Login page.
+                    // The app STAYS on the Login screen (with a status line) until one
+                    // of them succeeds; background services start only after that.
                     bool restored = false;
 
                     // Path 1: device-token restore (the recommended v0.4.7+ flow).
@@ -269,15 +295,34 @@ public partial class App : Application
                         }
                     }
 
-                    if (!restored && hasSavedCredentials)
+                    if (restored)
                     {
-                        // Both restore paths failed — go to login so the user can re-pair.
-                        Dispatcher.Invoke(() => nav.NavigateTo("Login"));
-                        Log.Information("Credentials invalid — redirected to Login");
+                        // Credentials verified — NOW enter the app.
+                        Dispatcher.Invoke(() =>
+                        {
+                            restoreState.Succeeded();
+                            restoreState.Reset();
+                            nav.NavigateTo("Overview");
+                        });
+                        Log.Information("Auto sign-in succeeded — navigated to Overview");
+                    }
+                    else
+                    {
+                        // Both restore paths failed — stay on Login and say why.
+                        string reason = hasSavedCredentials
+                            ? "Couldn't sign in automatically — the saved session is no longer valid. Sign in again below, or pair with a new pairing code."
+                            : "Not paired yet — pair this computer with a pairing code from the web dashboard, or sign in.";
+                        Dispatcher.Invoke(() => restoreState.Fail(reason));
+                        Log.Information("Auto sign-in failed — staying on Login");
+                        return; // no credentials → do NOT start background services
                     }
 
                     // Start background services — pass the shared token so they
-                    // all stop together on shutdown.
+                    // all stop together on shutdown. ONLY after credentials are
+                    // verified: the previous code started the sync/print pipeline
+                    // unconditionally, so a device with a dead token kept firing
+                    // authenticated requests (and showed stale UI activity) before
+                    // the restore verdict was in.
                     var queue = _host.Services.GetRequiredService<IJobQueue>();
                     await queue.ReplayInFlightAsync();
                     _host.Services.GetRequiredService<JobProcessor>().StartAsync(_appCts.Token);
@@ -298,15 +343,8 @@ public partial class App : Application
                     // command poller (REST fallback + immediate on device.command.issued),
                     // and a 15s heartbeat timer. These only run if the device is paired
                     // (the realtime client + poller require a valid device token).
-                    if (restored)
-                    {
-                        await StartCloudConnectionAsync();
-                        await TryRotateStaleCredentialAsync();
-                    }
-                    else
-                    {
-                        Log.Information("Cloud connection deferred — device not paired (user will pair via the Login screen)");
-                    }
+                    await StartCloudConnectionAsync();
+                    await TryRotateStaleCredentialAsync();
                 }
                 catch (OperationCanceledException) when (_appCts.IsCancellationRequested)
                 {
@@ -315,6 +353,12 @@ public partial class App : Application
                 catch (Exception ex)
                 {
                     Log.Warning(ex, "Background startup failed (non-fatal)");
+                    try
+                    {
+                        Dispatcher.Invoke(() => restoreState.Fail(
+                            "Something went wrong while signing in automatically. Sign in manually below."));
+                    }
+                    catch { /* shutting down */ }
                 }
             }, _appCts.Token);
 
@@ -378,6 +422,44 @@ public partial class App : Application
                 "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
+    }
+
+    // ── Global exception handlers (see OnStartup) ────────────────────────
+
+    private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        Log.Error(e.Exception, "Unhandled UI-thread exception");
+        try
+        {
+            MessageBox.Show(
+                "Something went wrong, but the app kept running.\n\n" +
+                e.Exception.Message + "\n\n" +
+                "Technical details were written to the log:\n" +
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "PrintShop", "Companion", "logs"),
+                "Unexpected error",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch { /* never let the handler itself crash the app */ }
+        e.Handled = true;
+    }
+
+    private void OnDomainUnhandledException(object? sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception ex)
+            Log.Fatal(ex, "Unhandled non-UI-thread exception (CLR terminating={IsTerminating})", e.IsTerminating);
+        else
+            Log.Fatal("Unhandled non-UI-thread exception object: {ExceptionObject}", e.ExceptionObject);
+        // Domain-level exceptions on terminating paths cannot be converted to
+        // survivable state — but they are now at least captured with a full
+        // stack trace in the rolling log for diagnosis.
+    }
+
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Error(e.Exception, "Unobserved task exception ({Count} inner exception(s))",
+            e.Exception.InnerExceptions.Count);
+        e.SetObserved(); // observed → the CLR will not tear the process down for it
     }
 
     /// <summary>

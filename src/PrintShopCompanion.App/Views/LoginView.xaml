@@ -7,6 +7,10 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     FontFamily="Segoe UI">
 
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
+
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" MinWidth="380"/>
@@ -78,6 +82,37 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                 MaxWidth="420" Margin="40">
+
+                    <!-- Auto-sign-in status (login-first UX): shown while the
+                         startup credential restore runs, or when it failed with
+                         the reason. Blue while in progress, red on failure. -->
+                    <Border Padding="12,10" Margin="0,0,0,18" CornerRadius="8" BorderThickness="1"
+                            Visibility="{Binding ShowAutoSignIn, Converter={StaticResource BoolToVis}}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#FEF2F2"/>
+                                <Setter Property="BorderBrush" Value="#FCA5A5"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding AutoSignInIsError}" Value="False">
+                                        <Setter Property="Background" Value="#EFF6FF"/>
+                                        <Setter Property="BorderBrush" Value="#BFDBFE"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding AutoSignInMessage}" FontSize="13" TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#991B1B"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AutoSignInIsError}" Value="False">
+                                            <Setter Property="Foreground" Value="#1E40AF"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
 
                     <!-- ============================== -->
                     <!-- RECOMMENDED (Phase 3): pairing-ticket pairing (v1 contract §2) -->

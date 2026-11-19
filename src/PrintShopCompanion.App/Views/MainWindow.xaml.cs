@@ -149,10 +149,34 @@ public partial class MainWindow : Window
         if (sender is Button b && b.Tag is string s) _nav.NavigateTo(s);
     }
 
-    private void Logout_Click(object sender, RoutedEventArgs e)
+    private async void Logout_Click(object sender, RoutedEventArgs e)
     {
-        var backend = _services.GetService<IShopBackend>();
-        backend?.SignOutAsync();
+        // Sign out of the shopkeeper session AND clear the persisted session
+        // from the credential bundle. The previous code only cleared the
+        // in-memory session — the DPAPI file kept the old session, so the next
+        // launch auto-restored it and the user appeared logged in again
+        // without ever signing in (the "app opens showing orders" bug).
+        // The device pairing token (if present) is deliberately KEPT: pairing
+        // is a device-level grant, not a user session.
+        try
+        {
+            var backend = _services.GetService<IShopBackend>();
+            if (backend != null) await backend.SignOutAsync();
+
+            var store = _services.GetService<ICredentialStore>();
+            if (store != null)
+            {
+                var creds = await store.LoadAsync();
+                var cleared = creds is null
+                    ? new PrintShopCompanion.Core.Models.StoredCredentials { Session = null }
+                    : creds with { Session = null };
+                await store.SaveAsync(cleared);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Logout: clearing the persisted session failed (non-fatal)");
+        }
         _nav.NavigateTo("Login");
     }
 

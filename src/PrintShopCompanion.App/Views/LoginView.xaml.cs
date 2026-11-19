@@ -20,6 +20,10 @@ public partial class LoginView : UserControl
         // "v0.4.1" was the original symptom of the auto-update bug.
         VersionLabel.Text = AppVersion.Prefixed;
         BuildStamp.Text = $"PrintShop Companion  ·  {AppVersion.Prefixed}";
+
+        // The SessionRestoreState singleton outlives this transient view model —
+        // unhook when the view goes away (e.g. after pairing navigates to Overview).
+        Unloaded += (_, _) => _vm.Detach();
     }
 
     private void PasswordBox_PasswordChanged(object sender, RoutedEventArgs e)

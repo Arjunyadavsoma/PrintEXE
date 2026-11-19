@@ -31,17 +31,28 @@ public partial class LoginViewModel : ObservableObject
     private readonly IPrintShopBackend _printShopBackend;
     private readonly ICredentialStore _store;
     private readonly INavigationService _nav;
+    private readonly SessionRestoreState _restoreState;
 
     public LoginViewModel(
         IShopBackend shopBackend,
         IPrintShopBackend printShopBackend,
         ICredentialStore store,
-        INavigationService nav)
+        INavigationService nav,
+        SessionRestoreState restoreState)
     {
         _shopBackend = shopBackend;
         _printShopBackend = printShopBackend;
         _store = store;
         _nav = nav;
+        _restoreState = restoreState;
+
+        // Auto-sign-in status (login-first UX): the app now ALWAYS opens on
+        // the Login screen; when saved credentials exist, the startup task
+        // verifies them in the background and this banner shows the progress
+        // ("Signing you in automatically…") or the reason it failed. The
+        // Overview page is only entered AFTER credentials are verified — no
+        // more flashing the orders page before any authentication happened.
+        _restoreState.Changed += OnRestoreStateChanged;
 
         // Deep-link pairing (integration spec §7.3): when the OS launched the
         // app with a pairing URI (printshop://pair?ticket=…&shop=… from the
@@ -62,6 +73,24 @@ public partial class LoginViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>Unhook the state subscription (called from the view's Unloaded —
+    /// the state is a singleton and outlives transient view models).</summary>
+    public void Detach() => _restoreState.Changed -= OnRestoreStateChanged;
+
+    private void OnRestoreStateChanged()
+    {
+        OnPropertyChanged(nameof(IsAutoSigningIn));
+        OnPropertyChanged(nameof(AutoSignInMessage));
+        OnPropertyChanged(nameof(ShowAutoSignIn));
+        OnPropertyChanged(nameof(AutoSignInIsError));
+    }
+
+    // ──────────── Auto-sign-in banner (startup credential restore) ────────────
+    public bool IsAutoSigningIn => _restoreState.InProgress;
+    public string? AutoSignInMessage => _restoreState.Message;
+    public bool ShowAutoSignIn => _restoreState.InProgress || _restoreState.Failed;
+    public bool AutoSignInIsError => _restoreState.Failed;
 
     // ──────────── Pairing-ticket flow (v1 contract, recommended) ────────────
     [ObservableProperty] private string _pairingTicket = "";
@@ -180,6 +209,10 @@ public partial class LoginViewModel : ObservableObject
     /// Direct shopkeeper login (legacy). Used by HttpShopBackend against
     /// /api/v1/auth/login. Not the recommended flow for PrintEXE — prefer
     /// PairWithTicketAsync (v1 contract pairing-ticket flow).
+    /// <para>Error mapping: network failures, timeouts and rate limiting get
+    /// plain-language messages — the previous code surfaced raw exception
+    /// strings ("No such host is known", HTTP status text), which read as
+    /// "legacy login is broken" even when the cause was offline Wi-Fi.</para>
     /// </summary>
     public async Task SignInAsync()
     {
@@ -193,19 +226,38 @@ public partial class LoginViewModel : ObservableObject
         try
         {
             var session = await _shopBackend.LoginAsync(Email, Password);
-            // Save credentials so the user doesn't need to log in every time
-            await _store.SaveAsync(new StoredCredentials { Session = session });
+            // Save credentials so the user doesn't need to log in every time.
+            // MERGE into the existing bundle: StoredCredentials holds BOTH the
+            // shopkeeper session and (if present) the paired device token —
+            // saving a fresh bundle with only the Session silently wiped the
+            // device token and broke the paired-device flow after a legacy
+            // sign-in.
+            var existing = await _store.LoadAsync();
+            await _store.SaveAsync((existing ?? new StoredCredentials()) with { Session = session });
+            _restoreState.Reset();
             _nav.NavigateTo("Overview");
         }
         catch (PrintShopApiException ex)
         {
-            ErrorMessage = ex.ErrorCode == "UNAUTHORIZED"
-                ? "Invalid email or password."
-                : ex.Message;
+            ErrorMessage = ex.ErrorCode switch
+            {
+                "UNAUTHORIZED" => "Invalid email or password.",
+                "RATE_LIMITED" => "Too many sign-in attempts. Please wait a minute and try again.",
+                "VALIDATION_ERROR" => "Check the email address — it doesn't look valid.",
+                _ => ex.Message,
+            };
+        }
+        catch (HttpRequestException)
+        {
+            ErrorMessage = "Cannot reach the print shop server. Check your internet connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            ErrorMessage = "The server took too long to respond. Check your internet connection and try again.";
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = $"Sign-in failed: {ex.Message}";
         }
     }
 }
