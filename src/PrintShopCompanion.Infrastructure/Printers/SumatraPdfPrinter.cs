@@ -155,13 +155,16 @@ public sealed class SumatraPdfPrinter : IPdfRenderer
     /// ("1-3,5-6"). SumatraPDF has NO "r" prefix for ranges — the previous
     /// "r1-3,5-6" token was invalid and silently IGNORED, so the whole
     /// document printed even when the customer selected a subset of pages.
-    /// Whitespace is stripped and empty/non-numeric segments are dropped.
+    /// ALL whitespace is stripped (segment edges AND inside ranges — CI caught
+    /// " 1 - 3 , 5 " being rejected because inner spaces survived the trim) and
+    /// empty/non-numeric segments are dropped.
     /// </summary>
     public static string? NormalizePageRange(string? pageRange)
     {
         if (string.IsNullOrWhiteSpace(pageRange)) return null;
         var parts = pageRange.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var valid = parts
+            .Select(p => new string(p.Where(c => !char.IsWhiteSpace(c)).ToArray()))
             .Where(p => p.Length > 0 && p.All(c => char.IsAsciiDigit(c) || c == '-'))
             .ToArray();
         return valid.Length > 0 ? string.Join(",", valid) : null;
