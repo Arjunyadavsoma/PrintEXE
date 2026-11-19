@@ -34,7 +34,10 @@ public class WebUiCatalogTests
     }
 
     [Theory]
-    [InlineData(OrderStatus.AwaitingPayment, "#E48E26")]   // warning
+    // Awaiting payment uses the web's warning-FOREGROUND (dark brown on the
+    // soft amber pill), not the bright warning hue — that's how the web badge
+    // renders; the bright #E48E26 is the warning token itself.
+    [InlineData(OrderStatus.AwaitingPayment, "#7A4B0E")]
     [InlineData(OrderStatus.Paid, "#006E9E")]              // info
     [InlineData(OrderStatus.Ready, "#007F3D")]             // success
     [InlineData(OrderStatus.Collected, "#007F3D")]         // success (Completed)
@@ -42,6 +45,12 @@ public class WebUiCatalogTests
     public void Status_foregrounds_match_web_semantic_tokens(OrderStatus status, string expectedHex)
     {
         StatusPresentation.For(status).Foreground.Should().Be(expectedHex);
+    }
+
+    [Fact]
+    public void AwaitingPayment_pill_uses_warning_soft_background()
+    {
+        StatusPresentation.For(OrderStatus.AwaitingPayment).Background.Should().Be("#FFE8CC");
     }
 
     [Fact]
