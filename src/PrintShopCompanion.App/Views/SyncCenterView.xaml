@@ -24,7 +24,7 @@
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ManualSyncButton" Content="↻  Sync Now" Click="SyncNow_Click"
                             Padding="16,9" FontSize="13"
-                            Background="#D97706" Foreground="White" BorderThickness="0"
+                            Background="#2858CD" Foreground="White" BorderThickness="0"
                             FontWeight="SemiBold" Cursor="Hand" Margin="0,0,8,0"/>
                 </StackPanel>
             </DockPanel>
@@ -80,7 +80,7 @@
                                            FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock x:Name="PendingCountLabel" Text="{Binding PendingCountText}"
-                                       FontSize="22" FontWeight="Bold" Foreground="#D97706"
+                                       FontSize="22" FontWeight="Bold" Foreground="#2858CD"
                                        DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </DockPanel>
                         <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
@@ -146,7 +146,7 @@
                                            FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock x:Name="FailedCountLabel" Text="{Binding FailedCountText}"
-                                       FontSize="22" FontWeight="Bold" Foreground="#DC2626"
+                                       FontSize="22" FontWeight="Bold" Foreground="#BE222A"
                                        DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </DockPanel>
                         <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
@@ -176,7 +176,7 @@
                                                    FontFamily="Consolas" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="2" Text="{Binding LastError}"
-                                                   FontSize="11.5" Foreground="#DC2626" VerticalAlignment="Center"
+                                                   FontSize="11.5" Foreground="#BE222A" VerticalAlignment="Center"
                                                    TextWrapping="Wrap" Margin="12,0,0,0"/>
                                     </Grid>
                                 </DataTemplate>

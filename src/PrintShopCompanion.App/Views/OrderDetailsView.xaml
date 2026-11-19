@@ -1,0 +1,237 @@
+<UserControl
+    x:Class="PrintShopCompanion.App.Views.OrderDetailsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+        <!-- Per-file color-mode pill -->
+        <Style x:Key="FileModePill" TargetType="Border">
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="#F7F7F8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Page header -->
+        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1">
+            <DockPanel Margin="24,18,24,18">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <Button Content="← Back" Click="Back_Click" VerticalAlignment="Center"
+                            Padding="12,8" FontSize="13" Cursor="Hand"
+                            Background="#FFFFFF" Foreground="#374151"
+                            BorderBrush="#E5E7EB" BorderThickness="1" FontWeight="Medium"/>
+                    <TextBlock Text="{Binding Order.TokenNumber, StringFormat=Token {0}}"
+                               FontSize="22" FontWeight="Bold" Foreground="#111827"
+                               VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <Border x:Name="StatusPill" CornerRadius="10" Padding="12,4"
+                            Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="StatusPillText" FontSize="11.5" FontWeight="Medium"/>
+                    </Border>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Start printing" Click="Start_Click" x:Name="StartButton"
+                            Padding="16,9" FontSize="13" Cursor="Hand" Margin="0,0,8,0"
+                            Background="#2858CD" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
+                    <Button Content="Mark completed" Click="Complete_Click" x:Name="CompleteButton"
+                            Padding="16,9" FontSize="13" Cursor="Hand" Margin="0,0,8,0"
+                            Background="#007F3D" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
+                    <Button Content="Cancel order" Click="Cancel_Click" x:Name="CancelButton"
+                            Padding="16,9" FontSize="13" Cursor="Hand"
+                            Background="#FFFFFF" Foreground="#BE222A"
+                            BorderBrush="#E8A9A5" BorderThickness="1" FontWeight="Medium"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Loading state -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Loading order…" FontSize="14" Foreground="#6B7280"/>
+        </StackPanel>
+
+        <!-- Error state -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="24"
+                    Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
+            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#BE222A"
+                       TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" MaxWidth="420"/>
+            <Button Content="Retry" Click="Retry_Click" Padding="20,10"
+                    Background="#2858CD" Foreground="White"
+                    BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
+        </StackPanel>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding IsLoading, Converter={StaticResource InverseBoolToVis}}">
+            <StackPanel Margin="24,20">
+
+                <!-- KPI row -->
+                <WrapPanel Margin="0,0,0,20">
+                    <Border Width="210" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1">
+                        <DockPanel>
+                            <Border Width="3" Background="#2858CD" DockPanel.Dock="Left"/>
+                            <StackPanel Margin="16,14">
+                                <TextBlock Text="AMOUNT" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
+                                <TextBlock Text="{Binding AmountFormatted}" FontSize="22" FontWeight="Bold"
+                                           Foreground="#111827" Margin="0,6,0,0"/>
+                                <TextBlock Text="{Binding Order.PaymentProvider, StringFormat=via {0}, FallbackValue='payment'}"
+                                           FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Width="210" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1">
+                        <DockPanel>
+                            <Border Width="3" Background="#6B7280" DockPanel.Dock="Left"/>
+                            <StackPanel Margin="16,14">
+                                <TextBlock Text="CUSTOMER" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
+                                <TextBlock Text="{Binding Order.CustomerPhone, FallbackValue='—'}" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="#111827" Margin="0,6,0,0"/>
+                                <TextBlock Text="{Binding Order.CreatedAt, StringFormat=placed {0:yyyy-MM-dd HH:mm}}"
+                                           FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Width="210" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
+                            BorderBrush="#E5E7EB" BorderThickness="1">
+                        <DockPanel>
+                            <Border Width="3" Background="#006E9E" DockPanel.Dock="Left"/>
+                            <StackPanel Margin="16,14">
+                                <TextBlock Text="FILES" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
+                                <TextBlock Text="{Binding Files.Count, StringFormat={}{0} file(s)}" FontSize="22" FontWeight="Bold"
+                                           Foreground="#111827" Margin="0,6,0,0"/>
+                                <TextBlock Text="download to reprint locally" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </WrapPanel>
+
+                <!-- Files table -->
+                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                        BorderThickness="1" Margin="0,0,0,20">
+                    <StackPanel>
+                        <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1" Padding="20,12">
+                            <TextBlock Text="FILES &amp; PRINT SETTINGS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        </Border>
+                        <Border Background="#FFFFFF" BorderBrush="#F3F4F6" BorderThickness="0,0,0,1" Padding="20,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="100"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="FILE" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                                <TextBlock Grid.Column="1" Text="PAGES" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                                <TextBlock Grid.Column="2" Text="RANGE" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                                <TextBlock Grid.Column="3" Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                                <TextBlock Grid.Column="4" Text="PAPER" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                                <TextBlock Grid.Column="5" Text="" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                            </Grid>
+                        </Border>
+                        <ListView ItemsSource="{Binding Files}" Background="Transparent" BorderThickness="0">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="Padding" Value="20,10"/>
+                                    <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                                    <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="90"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="100"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding OriginalFilename}" FontSize="13" FontWeight="Medium"
+                                                       Foreground="#111827" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding SizeBytes, StringFormat={}{0:N0} bytes}"
+                                                       FontSize="11" Foreground="#9CA3AF"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Copies, StringFormat={}{0}×}" FontSize="13"
+                                                   Foreground="#374151" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding PageRange, FallbackValue=all}" FontSize="13"
+                                                   Foreground="#374151" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="3" CornerRadius="10" Padding="10,3"
+                                                HorizontalAlignment="Left" VerticalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#DBF3FF"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ColorMode}" Value="color">
+                                                            <Setter Property="Background" Value="#E1EFFF"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding ColorMode}" FontSize="11" FontWeight="Medium">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#006E9E"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding ColorMode}" Value="color">
+                                                                <Setter Property="Foreground" Value="#2858CD"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                        <TextBlock Grid.Column="4" Text="{Binding PaperSize}" FontSize="13"
+                                                   Foreground="#374151" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="5" Content="Download" Click="DownloadFile_Click"
+                                                Padding="10,6" FontSize="12" Cursor="Hand"
+                                                Background="#FFFFFF" Foreground="#2858CD"
+                                                BorderBrush="#AEBEDF" BorderThickness="1" FontWeight="Medium"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock Text="No files on this order" FontSize="13" Foreground="#6B7280"
+                                   HorizontalAlignment="Center" Margin="0,20,0,20"
+                                   Visibility="{Binding Files.Count, Converter={StaticResource InverseBoolToVis}}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Notes editor -->
+                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
+                        BorderThickness="1" Margin="0,0,0,20">
+                    <StackPanel Margin="20,16">
+                        <TextBlock Text="INTERNAL NOTES" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#9CA3AF" Margin="0,0,0,8"/>
+                        <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 MinHeight="70" VerticalScrollBarVisibility="Auto"
+                                 FontSize="13" Padding="10"
+                                 Background="#FAFAFA" BorderBrush="#E5E7EB"/>
+                        <Button Content="Save notes" Click="SaveNotes_Click" x:Name="SaveNotesButton"
+                                HorizontalAlignment="Right" Margin="0,10,0,0"
+                                Padding="14,8" FontSize="12.5" Cursor="Hand"
+                                Background="#2858CD" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

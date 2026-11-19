@@ -5,6 +5,8 @@ using System.Text.Json;
 using PrintShopCompanion.Infrastructure.Backend;
 using Microsoft.Extensions.Logging;
 using PrintShopCompanion.Core.Contracts;
+using PrintShopCompanion.Core.Models;
+using PrintShopCompanion.Core.Services;
 
 /// <summary>
 /// The sync engine. Runs in the background, pushes pending operations to the
@@ -14,6 +16,7 @@ public sealed class SyncEngine
 {
     private readonly IShopBackend _backend;
     private readonly IPendingOpsQueue _pendingOps;
+    private readonly ShopDataStore _store;
     private readonly ILogger<SyncEngine> _logger;
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
@@ -27,10 +30,11 @@ public sealed class SyncEngine
     public DateTimeOffset LastSyncTime => _lastSyncTime;
     public int PendingOpCount => _pendingOps.GetPendingCount();
 
-    public SyncEngine(IShopBackend backend, IPendingOpsQueue pendingOps, ILogger<SyncEngine> logger)
+    public SyncEngine(IShopBackend backend, IPendingOpsQueue pendingOps, ShopDataStore store, ILogger<SyncEngine> logger)
     {
         _backend = backend;
         _pendingOps = pendingOps;
+        _store = store;
         _logger = logger;
     }
 
@@ -100,6 +104,10 @@ public sealed class SyncEngine
             _isOnline = false;
         }
 
+        // Publish connectivity + freshness into the shared store so every
+        // bound page (Overview header "Live" pill, Sync Center) updates.
+        _store.SetSyncState(_isOnline, _isOnline ? DateTimeOffset.UtcNow : _lastSyncTime);
+
         if (wasOnline != _isOnline)
         {
             OnlineStatusChanged?.Invoke(_isOnline);
@@ -167,10 +175,23 @@ public sealed class SyncEngine
     private async Task PullUpdatesAsync(CancellationToken ct)
     {
         if (!_backend.IsAuthenticated) return;
-        try { await _backend.GetShopAsync(ct); } catch { }
-        try { var (orders, total) = await _backend.ListOrdersAsync(limit: 50, ct: ct); } catch { }
-        try { await _backend.GetAnalyticsAsync(ct); } catch { }
-        try { await _backend.ListDevicesAsync(ct); } catch { }
+
+        // Each pull result is WRITTEN INTO the shared ShopDataStore (not
+        // discarded): the Overview/Orders/Sync pages bind to the store, so
+        // one 15s tick refreshes every open page — the app shows the same
+        // numbers the shopkeeper webpage does. Each section is independent;
+        // a failure in one section must not clear the others.
+        string? shopName = null;
+        ShopAnalytics? analytics = null;
+        IReadOnlyList<OrderRecord> orders = Array.Empty<OrderRecord>();
+        IReadOnlyList<DeviceRegistration>? devices = null;
+
+        try { shopName = (await _backend.GetShopAsync(ct)).Name; } catch (Exception ex) { _logger.LogDebug(ex, "Shop pull failed"); }
+        try { orders = (await _backend.ListOrdersAsync(limit: 50, ct: ct)).Orders; } catch (Exception ex) { _logger.LogDebug(ex, "Orders pull failed"); }
+        try { analytics = await _backend.GetAnalyticsAsync(ct); } catch (Exception ex) { _logger.LogDebug(ex, "Analytics pull failed"); }
+        try { devices = await _backend.ListDevicesAsync(ct); } catch (Exception ex) { _logger.LogDebug(ex, "Devices pull failed"); }
+
+        _store.ApplyShopSnapshot(shopName, analytics, orders, devices, authenticated: _backend.IsAuthenticated);
     }
 }
 
@@ -179,6 +200,8 @@ public interface IPendingOpsQueue
 {
     int GetPendingCount();
     IReadOnlyList<PendingOp> GetPendingOps(int limit = 10);
+    /// <summary>All non-completed ops (pending/retry/in_flight/failed) for UI display.</summary>
+    IReadOnlyList<PendingOp> GetAllOps(int limit = 100);
     void Enqueue(string operationType, string targetId, object? payload = null);
     void MarkInFlight(string opId);
     void MarkCompleted(string opId);

@@ -159,6 +159,47 @@ public sealed class SqlitePendingOpsQueue : IPendingOpsQueue
         return list;
     }
 
+    /// <summary>
+    /// Every op regardless of status (pending / retry / in_flight / failed),
+    /// newest first — the Sync Center page's lists. GetPendingOps deliberately
+    /// filters to *dispatchable* rows, which is why the Sync Center previously
+    /// showed ZERO failed ops even when failures existed (its UI filtered the
+    /// dispatchable result set for status=="failed" — never true).
+    /// </summary>
+    public IReadOnlyList<PendingOp> GetAllOps(int limit = 100)
+    {
+        InitAsync().GetAwaiter().GetResult();
+        using var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT * FROM pending_ops
+             WHERE status IN ('pending', 'retry', 'in_flight', 'failed')
+             ORDER BY created_at DESC
+             LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+
+        var list = new List<PendingOp>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            list.Add(new PendingOp
+            {
+                OpId = (string)reader["op_id"],
+                OperationType = (string)reader["operation_type"],
+                TargetId = (string)reader["target_id"],
+                PayloadJson = reader["payload_json"] is DBNull ? "{}" : (string)reader["payload_json"],
+                CreatedAt = DateTimeOffset.Parse((string)reader["created_at"], CultureInfo.InvariantCulture),
+                Attempts = Convert.ToInt32(reader["attempts"]),
+                NextAttemptAt = reader["next_attempt_at"] is DBNull ? null : DateTimeOffset.Parse((string)reader["next_attempt_at"], CultureInfo.InvariantCulture),
+                LastError = reader["last_error"] is DBNull ? null : (string)reader["last_error"],
+                Status = (string)reader["status"]
+            });
+        }
+        return list;
+    }
+
     public void Enqueue(string operationType, string targetId, object? payload = null)
     {
         InitAsync().GetAwaiter().GetResult();

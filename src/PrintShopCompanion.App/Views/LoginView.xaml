@@ -14,13 +14,13 @@
         </Grid.ColumnDefinitions>
 
         <!-- LEFT: brand panel -->
-        <Border Grid.Column="0" Background="#D97706">
+        <Border Grid.Column="0" Background="#2858CD">
             <Grid>
                 <Border HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                     <Border.Background>
                         <RadialGradientBrush>
-                            <GradientStop Offset="0" Color="#F59E0B"/>
-                            <GradientStop Offset="1" Color="#D97706"/>
+                            <GradientStop Offset="0" Color="#1A48BC"/>
+                            <GradientStop Offset="1" Color="#2858CD"/>
                         </RadialGradientBrush>
                     </Border.Background>
                 </Border>
@@ -28,7 +28,7 @@
                 <StackPanel VerticalAlignment="Center" Margin="48,40">
                     <Border Width="56" Height="56" CornerRadius="14" Background="#FFFFFF" Opacity="0.95"
                             HorizontalAlignment="Left" Margin="0,0,0,28">
-                        <TextBlock Text="P" FontSize="28" FontWeight="Bold" Foreground="#D97706"
+                        <TextBlock Text="P" FontSize="28" FontWeight="Bold" Foreground="#2858CD"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
 
@@ -138,9 +138,9 @@
                             BorderBrush="#FECACA" BorderThickness="1"
                             Visibility="{Binding TicketErrorMessage, Converter={StaticResource StringToVis}}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚠" FontSize="14" Foreground="#DC2626" Margin="0,0,8,0"
+                            <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
                                        VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding TicketErrorMessage}" FontSize="13" Foreground="#DC2626"
+                            <TextBlock Text="{Binding TicketErrorMessage}" FontSize="13" Foreground="#BE222A"
                                        TextWrapping="Wrap" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -150,9 +150,9 @@
                             BorderBrush="#A7F3D0" BorderThickness="1"
                             Visibility="{Binding PairedShopName, Converter={StaticResource StringToVis}}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="✓" FontSize="14" Foreground="#059669" Margin="0,0,8,0"
+                            <TextBlock Text="✓" FontSize="14" Foreground="#007F3D" Margin="0,0,8,0"
                                        VerticalAlignment="Center"/>
-                            <TextBlock FontSize="13" Foreground="#065F46" VerticalAlignment="Center" TextWrapping="Wrap">
+                            <TextBlock FontSize="13" Foreground="#007F3D" VerticalAlignment="Center" TextWrapping="Wrap">
                                 <Run Text="Paired with "/><Run Text="{Binding PairedShopName}" FontWeight="SemiBold"/>
                             </TextBlock>
                         </StackPanel>
@@ -161,7 +161,7 @@
                     <!-- Pair button (ticket flow) -->
                     <Button x:Name="PairWithTicketButton" Content="Pair this computer"
                             Click="PairWithTicket_Click"
-                            Background="#D97706" Foreground="White" Padding="0,14"
+                            Background="#2858CD" Foreground="White" Padding="0,14"
                             FontSize="14" FontWeight="SemiBold" BorderThickness="0"
                             Cursor="Hand" Margin="0,0,0,12"
                             IsEnabled="{Binding IsPairingWithTicket, Converter={StaticResource InverseBool}}"/>
@@ -207,9 +207,9 @@
                             BorderBrush="#FECACA" BorderThickness="1"
                             Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚠" FontSize="14" Foreground="#DC2626" Margin="0,0,8,0"
+                            <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
                                        VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#DC2626"
+                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#BE222A"
                                        TextWrapping="Wrap" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -270,7 +270,7 @@
 
                     <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="#9CA3AF" TextWrapping="Wrap">
                         Don't have a shop account?
-                        <Run Text="Register on the web dashboard" FontWeight="SemiBold" Foreground="#D97706"/>
+                        <Run Text="Register on the web dashboard" FontWeight="SemiBold" Foreground="#2858CD"/>
                     </TextBlock>
                 </StackPanel>
                 </ScrollViewer>

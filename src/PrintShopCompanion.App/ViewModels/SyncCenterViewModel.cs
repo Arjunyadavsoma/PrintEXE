@@ -18,16 +18,28 @@ public partial class SyncCenterViewModel : ObservableObject
     private readonly SyncEngine _sync;
     private readonly IPendingOpsQueue _pendingOpsQueue;
     private readonly IShopBackend _backend;
+    private readonly IPrintShopBackend _deviceBackend;
+    private readonly Core.Services.ShopDataStore _store;
 
-    public SyncCenterViewModel(SyncEngine sync, IPendingOpsQueue pendingOps, IShopBackend backend)
+    public SyncCenterViewModel(
+        SyncEngine sync, IPendingOpsQueue pendingOps,
+        IShopBackend backend, IPrintShopBackend deviceBackend,
+        Core.Services.ShopDataStore store)
     {
         _sync = sync;
         _pendingOpsQueue = pendingOps;
         _backend = backend;
+        _deviceBackend = deviceBackend;
+        _store = store;
 
         // Subscribe to engine events so the UI updates live.
         _sync.OnlineStatusChanged += OnOnlineStatusChanged;
         _sync.SyncCompleted += OnSyncCompleted;
+        _store.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Core.Services.ShopDataStore.RealtimeConnected))
+                UpdateConnectionStatus(_sync.IsOnline);
+        };
     }
 
     [ObservableProperty] private bool _isOnline;
@@ -83,18 +95,18 @@ public partial class SyncCenterViewModel : ObservableObject
             ConnectionStatusText = "Connected";
             ConnectionSubText = "Background sync running every 15 seconds";
             ConnectionPillText = "ONLINE";
-            ConnectionPillBackground = new SolidColorBrush(Color.FromRgb(0x16, 0xA3, 0x4A));
+            ConnectionPillBackground = new SolidColorBrush(Color.FromRgb(0x00, 0x7F, 0x3D));
             ConnectionPillForeground = Brushes.White;
-            ConnectionDotBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xA3, 0x4A));
+            ConnectionDotBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x7F, 0x3D));
         }
         else
         {
             ConnectionStatusText = "Offline";
             ConnectionSubText = "Pending operations will sync when connectivity returns";
             ConnectionPillText = "OFFLINE";
-            ConnectionPillBackground = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
+            ConnectionPillBackground = new SolidColorBrush(Color.FromRgb(0xBE, 0x22, 0x2A));
             ConnectionPillForeground = Brushes.White;
-            ConnectionDotBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
+            ConnectionDotBrush = new SolidColorBrush(Color.FromRgb(0xBE, 0x22, 0x2A));
         }
         OnPropertyChanged(nameof(ConnectionPillBrush));
     }
@@ -118,9 +130,15 @@ public partial class SyncCenterViewModel : ObservableObject
 
     private async Task RefreshPendingOpsAsync()
     {
-        var pending = _pendingOpsQueue.GetPendingOps(limit: 50);
+        // GetAllOps (NOT GetPendingOps): the dispatchable filter excluded
+        // 'failed' and 'in_flight' rows, so the failed list below was ALWAYS
+        // empty — real failures were invisible on this page.
+        var ops = _pendingOpsQueue.GetAllOps(limit: 50);
+        var active = ops.Where(p => p.Status is "pending" or "retry" or "in_flight").ToList();
+        var failed = ops.Where(p => p.Status == "failed").ToList();
+
         PendingOps = new ObservableCollection<PendingOpRow>(
-            pending.Select(p => new PendingOpRow
+            active.Select(p => new PendingOpRow
             {
                 OperationType = p.OperationType,
                 TargetId = p.TargetId,
@@ -130,8 +148,6 @@ public partial class SyncCenterViewModel : ObservableObject
         PendingCountText = PendingOps.Count.ToString();
         HasNoPending = PendingOps.Count == 0 ? "yes" : "";
 
-        // Failed ops are those whose status is "Failed"
-        var failed = pending.Where(p => p.Status == "Failed").ToList();
         FailedOps = new ObservableCollection<PendingOpRow>(
             failed.Select(p => new PendingOpRow
             {
@@ -148,15 +164,10 @@ public partial class SyncCenterViewModel : ObservableObject
     {
         try
         {
-            if (_backend.CurrentShop is null)
-            {
-                await _backend.GetShopAsync();
-            }
-            // Device ID would come from the device-token store if exposed; for
-            // now we use the shop ID as a proxy so the user sees something
-            // meaningful. This can be replaced with a real device ID display
-            // once the credential store exposes it.
-            DeviceId = _backend.CurrentShop?.Id ?? "—";
+            // The REAL device id — GET /api/v1/sync/status returns it for the
+            // paired device. (The old code used the shop id as a stand-in.)
+            var status = await _deviceBackend.SyncStatusAsync();
+            DeviceId = status.DeviceId ?? status.ShopId ?? "—";
         }
         catch
         {

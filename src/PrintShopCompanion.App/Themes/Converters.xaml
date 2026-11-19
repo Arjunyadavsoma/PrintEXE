@@ -8,4 +8,14 @@
     <conv:InverseBoolConverter x:Key="InverseBool" />
     <conv:StringToVisibilityConverter x:Key="StringToVis" />
     <conv:InverseStringToVisibilityConverter x:Key="InverseStringToVis" />
+    <!-- Web-parity presentation converters -->
+    <conv:PaiseToRupeesConverter x:Key="Rupees" />
+    <conv:OrderStatusLabelConverter x:Key="StatusLabel" />
+    <conv:OrderStatusBrushConverter x:Key="StatusBg" />
+    <conv:OrderStatusBrushConverter x:Key="StatusFg" Mode="fg" />
+    <conv:OrderStatusBrushConverter x:Key="StatusBorder" Mode="border" />
+    <conv:UtcToLocalTimeConverter x:Key="LocalTime" />
+    <conv:BoolToLiveBrushConverter x:Key="BoolToLiveBrush" />
+    <conv:FilterChipBrushConverter x:Key="ChipBg" />
+    <conv:FilterChipBrushConverter x:Key="ChipFg" Mode="fg" />
 </ResourceDictionary>

@@ -128,6 +128,16 @@ public partial class App : Application
 
                     services.AddPrintShopCompanionInfrastructure();
 
+                    // Shared observable shop-data store: SyncEngine pulls and
+                    // Socket.IO realtime events write into it; every page binds
+                    // to it so the app matches the shopkeeper webpage live.
+                    services.AddSingleton<PrintShopCompanion.Core.Services.ShopDataStore>(_ =>
+                        new PrintShopCompanion.Core.Services.ShopDataStore(action =>
+                        {
+                            if (Dispatcher.CheckAccess()) action();
+                            else Dispatcher.Invoke(action);
+                        }));
+
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<MainWindow>();
                     services.AddTransient<LoginViewModel>();
@@ -137,6 +147,7 @@ public partial class App : Application
                     services.AddTransient<PrintQueueViewModel>();
                     services.AddTransient<SyncCenterViewModel>();
                     services.AddTransient<SettingsViewModel>();
+                    services.AddTransient<OrderDetailsViewModel>();
                     services.AddTransient<LoginView>();
                     services.AddTransient<OverviewView>();
                     services.AddTransient<OrdersView>();
@@ -144,6 +155,7 @@ public partial class App : Application
                     services.AddTransient<PrintQueueView>();
                     services.AddTransient<SyncCenterView>();
                     services.AddTransient<SettingsView>();
+                    services.AddTransient<OrderDetailsView>();
                     services.AddSingleton<TrayIconHost>();
                 })
                 .Build();
@@ -418,6 +430,21 @@ public partial class App : Application
                     try { await poller.TickOnceAsync(_appCts.Token); }
                     catch (Exception ex) { Log.Debug(ex, "Immediate command poll after device.command.issued failed (will retry on next tick)"); }
                 });
+            };
+
+            // Realtime → shared store: connection state feeds the "Live" pill
+            // on Overview/Sync Center; a job.dispatch means the local print
+            // queue changed → bump the revision so the Print Queue page
+            // refreshes immediately instead of waiting for its poll tick.
+            realtime.ConnectionChanged += connected =>
+            {
+                var store = _host.Services.GetRequiredService<PrintShopCompanion.Core.Services.ShopDataStore>();
+                store.SetRealtimeConnected(connected);
+            };
+            realtime.JobDelivered += job =>
+            {
+                var store = _host.Services.GetRequiredService<PrintShopCompanion.Core.Services.ShopDataStore>();
+                store.BumpQueueRevision();
             };
             realtime.Revoked += () =>
             {

@@ -44,8 +44,8 @@
 
         <!-- Active nav item — amber tint + amber left accent strip -->
         <Style x:Key="NavItemActive" TargetType="Button" BasedOn="{StaticResource NavItem}">
-            <Setter Property="Background" Value="#FFF7ED"/>
-            <Setter Property="Foreground" Value="#B45309"/>
+            <Setter Property="Background" Value="#E9F2FF"/>
+            <Setter Property="Foreground" Value="#1638A0"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
     </Window.Resources>
@@ -63,7 +63,7 @@
                 <!-- Brand header -->
                 <StackPanel DockPanel.Dock="Top" Margin="20,20,20,20">
                     <StackPanel Orientation="Horizontal">
-                        <Border Width="36" Height="36" CornerRadius="9" Background="#D97706">
+                        <Border Width="36" Height="36" CornerRadius="9" Background="#2858CD">
                             <TextBlock Text="P" FontSize="18" FontWeight="Bold" Foreground="White"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
@@ -125,26 +125,26 @@
             </Grid.RowDefinitions>
 
             <Border x:Name="UpdateBanner" Grid.Row="0" Background="#FFFBEB"
-                    BorderBrush="#FDE68A" BorderThickness="0,0,0,1"
+                    BorderBrush="#AEBEDF" BorderThickness="0,0,0,1"
                     Padding="20,12" Visibility="Collapsed">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock x:Name="UpdateStateIcon" Text="●" FontSize="13" Foreground="#D97706"
+                        <TextBlock x:Name="UpdateStateIcon" Text="●" FontSize="13" Foreground="#2858CD"
                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <TextBlock x:Name="UpdateText" FontSize="13" FontWeight="Medium"
-                                   Foreground="#92400E" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                   Foreground="#1638A0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                        <TextBlock x:Name="UpdateProgressText" FontSize="12" Foreground="#92400E"
+                        <TextBlock x:Name="UpdateProgressText" FontSize="12" Foreground="#1638A0"
                                    VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed"/>
                         <ProgressBar x:Name="UpdateProgress" Width="120" Height="6"
                                      VerticalAlignment="Center" Margin="0,0,12,0"
                                      Visibility="Collapsed" Maximum="100"/>
                         <Button x:Name="UpdateButton" Content="Update Now" Click="Update_Click"
-                                Background="#D97706" Foreground="White" Padding="20,8"
+                                Background="#2858CD" Foreground="White" Padding="20,8"
                                 BorderThickness="0" FontWeight="SemiBold" FontSize="13" Cursor="Hand"/>
                         <Button x:Name="UpdateDismissButton" Content="Dismiss" Click="UpdateDismiss_Click"
-                                Background="Transparent" Foreground="#92400E" Padding="14,8"
+                                Background="Transparent" Foreground="#1638A0" Padding="14,8"
                                 BorderThickness="0" FontSize="12" Cursor="Hand" Margin="4,0,0,0"
                                 ToolTip="Hide this banner until next check"/>
                     </StackPanel>

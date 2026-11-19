@@ -8,11 +8,18 @@
          Centralized design tokens. Use these everywhere; do not hardcode
          colors, fonts, sizes, or spacing in views.
 
-         Color palette:
-           Brand      D97706 (amber)      primary actions, brand identity
-           Accent     F59E0B (yellow)     secondary highlights
-           Soft       FEF3C7 (pale amber) hover backgrounds, pill backgrounds
-           Softer     FFF7ED (light amber) active nav item background
+         Color palette (WEB-PARITY — mirrors printshop-saas src/app/globals.css
+         oklch tokens, converted to sRGB; see Core/Presentation/WebUiCatalog.cs):
+           Brand      2858CD (indigo 264)  primary actions, brand identity
+                                          = web brand token oklch(0.50 0.19 264)
+           Accent     1A48BC (indigo hover) = web brand-hover
+           Dark       1638A0 (indigo deep)  pressed/selected text
+           Soft       E1EFFF (indigo tint)  = web brand-soft
+           Softer     E9F2FF (indigo tint)  active nav item background
+           Info       006E9E / DBF3FF       = web info (paid)
+           Success    007F3D / E0F5E5       = web success (ready/completed)
+           Warning    E48E26 / FFE8CC       = web warning (awaiting payment)
+           Danger     BE222A / FFE7E4       = web danger (cancelled)
            Border     E5E7EB (gray-200)  card borders, divider lines
            Surface    FFFFFF              cards, panels
            Background F7F7F8              page background
@@ -20,40 +27,15 @@
            TextBody   374151 (gray-700)  body text
            TextMuted  6B7280 (gray-500)  secondary text
            TextSubtle 9CA3AF (gray-400)  captions, micro labels
-           Success    16A34A (green-600)
-           Warning    F59E0B (amber-500)
-           Danger     DC2626 (red-600)
-
-         Typography:
-           FontFamily  Segoe UI (system default on Windows 10/11)
-           Display     22   page titles (Overview, Orders, etc.)
-           H1          16   card titles, shop name
-           H2          14   section titles within cards
-           Body        13   primary body text
-           Small       12   secondary text, captions
-           Micro       11   KPI labels, micro labels (UPPERCASE)
-           Tiny        10   section dividers ("MENU", "SYSTEM")
-
-         Spacing (multiples of 4):
-           XS   4   pill padding vertical, small gaps
-           SM   8   row gaps, button padding vertical
-           MD  12   nav item margin, list row vertical
-           LG  16   card padding, button padding horizontal
-           XL  20   page header horizontal margin
-           XXL 24   section spacing on pages
-
-         Corner radius:
-           Pill     12   small badges, status pills
-           Card     10   cards, panels
-           Control   6   buttons, inputs, nav items
     ==================================================================== -->
 
     <!-- ==================== COLORS ==================== -->
-    <Color x:Key="BrandColor">#D97706</Color>
-    <Color x:Key="BrandAccentColor">#F59E0B</Color>
-    <Color x:Key="BrandDarkColor">#B45309</Color>
-    <Color x:Key="BrandSoftColor">#FEF3C7</Color>
-    <Color x:Key="BrandSofterColor">#FFF7ED</Color>
+    <Color x:Key="BrandColor">#2858CD</Color>
+    <Color x:Key="BrandAccentColor">#1A48BC</Color>
+    <Color x:Key="BrandDarkColor">#1638A0</Color>
+    <Color x:Key="BrandSoftColor">#E1EFFF</Color>
+    <Color x:Key="BrandSofterColor">#E9F2FF</Color>
+    <Color x:Key="BrandBorderColor">#AEBEDF</Color>
     <Color x:Key="SurfaceColor">#FFFFFF</Color>
     <Color x:Key="BackgroundColor">#F7F7F8</Color>
     <Color x:Key="BorderColor">#E5E7EB</Color>
@@ -62,19 +44,26 @@
     <Color x:Key="TextBodyColor">#374151</Color>
     <Color x:Key="TextMutedColor">#6B7280</Color>
     <Color x:Key="TextSubtleColor">#9CA3AF</Color>
-    <Color x:Key="SuccessColor">#16A34A</Color>
-    <Color x:Key="SuccessSoftColor">#D1FAE5</Color>
-    <Color x:Key="WarningColor">#F59E0B</Color>
-    <Color x:Key="DangerColor">#DC2626</Color>
-    <Color x:Key="DangerSoftColor">#FEE2E2</Color>
-    <Color x:Key="InfoColor">#2563EB</Color>
-    <Color x:Key="InfoSoftColor">#DBEAFE</Color>
+    <Color x:Key="SuccessColor">#007F3D</Color>
+    <Color x:Key="SuccessSoftColor">#E0F5E5</Color>
+    <Color x:Key="SuccessBorderColor">#A3D8B5</Color>
+    <Color x:Key="WarningColor">#E48E26</Color>
+    <Color x:Key="WarningSoftColor">#FFE8CC</Color>
+    <Color x:Key="WarningBorderColor">#E3B888</Color>
+    <Color x:Key="WarningForegroundColor">#7A4B0E</Color>
+    <Color x:Key="DangerColor">#BE222A</Color>
+    <Color x:Key="DangerSoftColor">#FFE7E4</Color>
+    <Color x:Key="DangerBorderColor">#E8A9A5</Color>
+    <Color x:Key="InfoColor">#006E9E</Color>
+    <Color x:Key="InfoSoftColor">#DBF3FF</Color>
+    <Color x:Key="InfoBorderColor">#9ECAE4</Color>
 
     <SolidColorBrush x:Key="BrandBrush" Color="{StaticResource BrandColor}" />
     <SolidColorBrush x:Key="BrandAccentBrush" Color="{StaticResource BrandAccentColor}" />
     <SolidColorBrush x:Key="BrandDarkBrush" Color="{StaticResource BrandDarkColor}" />
     <SolidColorBrush x:Key="BrandSoftBrush" Color="{StaticResource BrandSoftColor}" />
     <SolidColorBrush x:Key="BrandSofterBrush" Color="{StaticResource BrandSofterColor}" />
+    <SolidColorBrush x:Key="BrandBorderBrush" Color="{StaticResource BrandBorderColor}" />
     <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
     <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
     <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
@@ -85,11 +74,17 @@
     <SolidColorBrush x:Key="TextSubtleBrush" Color="{StaticResource TextSubtleColor}" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
     <SolidColorBrush x:Key="SuccessSoftBrush" Color="{StaticResource SuccessSoftColor}" />
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="{StaticResource SuccessBorderColor}" />
     <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="{StaticResource WarningSoftColor}" />
+    <SolidColorBrush x:Key="WarningBorderBrush" Color="{StaticResource WarningBorderColor}" />
+    <SolidColorBrush x:Key="WarningForegroundBrush" Color="{StaticResource WarningForegroundColor}" />
     <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
     <SolidColorBrush x:Key="DangerSoftBrush" Color="{StaticResource DangerSoftColor}" />
+    <SolidColorBrush x:Key="DangerBorderBrush" Color="{StaticResource DangerBorderColor}" />
     <SolidColorBrush x:Key="InfoBrush" Color="{StaticResource InfoColor}" />
     <SolidColorBrush x:Key="InfoSoftBrush" Color="{StaticResource InfoSoftColor}" />
+    <SolidColorBrush x:Key="InfoBorderBrush" Color="{StaticResource InfoBorderColor}" />
 
     <!-- ==================== TYPOGRAPHY ==================== -->
     <FontFamily x:Key="AppFontFamily">Segoe UI</FontFamily>

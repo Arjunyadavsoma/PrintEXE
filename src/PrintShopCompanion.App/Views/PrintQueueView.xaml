@@ -8,26 +8,41 @@
     FontFamily="Segoe UI">
 
     <UserControl.Resources>
-        <!-- Status pill color picker -->
+        <!-- Job status pill — web semantic colors (soft bg + strong text).
+             Uncertain/unknown states get the warning amber: they REQUIRE
+             operator reconciliation, so they must stand out. -->
         <Style x:Key="StatusPill" TargetType="Border">
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Padding" Value="10,3"/>
             <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="Background" Value="#F3F4F6"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Pending">
                     <Setter Property="Background" Value="#F3F4F6"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Downloading">
-                    <Setter Property="Background" Value="#DBEAFE"/>
+                    <Setter Property="Background" Value="#DBF3FF"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Rendering">
+                    <Setter Property="Background" Value="#DBF3FF"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Spooled">
-                    <Setter Property="Background" Value="#FEF3C7"/>
+                    <Setter Property="Background" Value="#E1EFFF"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Printed">
-                    <Setter Property="Background" Value="#D1FAE5"/>
+                    <Setter Property="Background" Value="#E0F5E5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="ReportedPrinted">
+                    <Setter Property="Background" Value="#E0F5E5"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter Property="Background" Value="#FEE2E2"/>
+                    <Setter Property="Background" Value="#FFE7E4"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="UncertainSpooled">
+                    <Setter Property="Background" Value="#FFE8CC"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="OutcomeUnknown">
+                    <Setter Property="Background" Value="#FFE8CC"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Cancelled">
                     <Setter Property="Background" Value="#F3F4F6"/>
@@ -38,21 +53,31 @@
         <Style x:Key="StatusPillText" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Foreground" Value="#374151"/>
             <Style.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Pending">
-                    <Setter Property="Foreground" Value="#374151"/>
-                </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Downloading">
-                    <Setter Property="Foreground" Value="#1E40AF"/>
+                    <Setter Property="Foreground" Value="#006E9E"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Rendering">
+                    <Setter Property="Foreground" Value="#006E9E"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Spooled">
-                    <Setter Property="Foreground" Value="#92400E"/>
+                    <Setter Property="Foreground" Value="#2858CD"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Printed">
-                    <Setter Property="Foreground" Value="#065F46"/>
+                    <Setter Property="Foreground" Value="#007F3D"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="ReportedPrinted">
+                    <Setter Property="Foreground" Value="#007F3D"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter Property="Foreground" Value="#991B1B"/>
+                    <Setter Property="Foreground" Value="#BE222A"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="UncertainSpooled">
+                    <Setter Property="Foreground" Value="#7A4B0E"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="OutcomeUnknown">
+                    <Setter Property="Foreground" Value="#7A4B0E"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Cancelled">
                     <Setter Property="Foreground" Value="#6B7280"/>
@@ -72,8 +97,8 @@
             <DockPanel Margin="24,18,24,18">
                 <StackPanel DockPanel.Dock="Left">
                     <TextBlock Text="Print Queue" FontSize="22" FontWeight="Bold" Foreground="#111827"/>
-                    <TextBlock Text="Local print jobs and their status" FontSize="12.5"
-                               Foreground="#6B7280" Margin="0,3,0,0"/>
+                    <TextBlock Text="Local print jobs — refreshes live as jobs dispatch and print"
+                               FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,0"/>
                 </StackPanel>
                 <Button Content="↻  Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
                         HorizontalAlignment="Right" Padding="16,9" FontSize="13"
@@ -86,7 +111,7 @@
         <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
                 BorderThickness="1" Margin="24,20">
             <StackPanel>
-                <!-- Header row -->
+                <!-- Header row + summary chips -->
                 <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
                         Padding="20,14">
                     <DockPanel>
@@ -95,6 +120,29 @@
                         <TextBlock Text="{Binding Jobs.Count, StringFormat={}{0} jobs}"
                                    FontSize="12" Foreground="#6B7280"
                                    DockPanel.Dock="Left" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                            <Border Background="#F3F4F6" CornerRadius="12" Padding="12,4" Margin="0,0,8,0">
+                                <TextBlock FontSize="11" Foreground="#374151">
+                                    <Run Text="{Binding PendingCount, Mode=OneWay}"/><Run Text=" pending"/>
+                                </TextBlock>
+                            </Border>
+                            <Border Background="#E1EFFF" CornerRadius="12" Padding="12,4" Margin="0,0,8,0">
+                                <TextBlock FontSize="11" Foreground="#2858CD">
+                                    <Run Text="{Binding ActiveCount, Mode=OneWay}"/><Run Text=" active"/>
+                                </TextBlock>
+                            </Border>
+                            <Border Background="#E0F5E5" CornerRadius="12" Padding="12,4" Margin="0,0,8,0">
+                                <TextBlock FontSize="11" Foreground="#007F3D">
+                                    <Run Text="{Binding PrintedCount, Mode=OneWay}"/><Run Text=" printed"/>
+                                </TextBlock>
+                            </Border>
+                            <Border Background="#FFE7E4" CornerRadius="12" Padding="12,4">
+                                <TextBlock FontSize="11" Foreground="#BE222A">
+                                    <Run Text="{Binding FailedCount, Mode=OneWay}"/><Run Text=" failed"/>
+                                </TextBlock>
+                            </Border>
+                        </StackPanel>
                     </DockPanel>
                 </Border>
 
@@ -103,15 +151,19 @@
                         Padding="20,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="300"/>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="130"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="TITLE" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="1" Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="2" Text="ATTEMPTS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="3" Text="LAST ERROR" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="0" Text="JOB" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="1" Text="TOKEN" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="2" Text="PAGES" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="3" Text="COPIES" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="4" Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="5" Text="LAST ERROR" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
                     </Grid>
                 </Border>
 
@@ -120,35 +172,78 @@
                           SelectedItem="{Binding Selected, Mode=TwoWay}">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
-                            <Setter Property="Padding" Value="20,12"/>
+                            <Setter Property="Padding" Value="20,10"/>
                             <Setter Property="BorderBrush" Value="#F3F4F6"/>
                             <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                            <Setter Property="Background" Value="Transparent"/>
                         </Style>
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate>
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="300"/>
-                                    <ColumnDefinition Width="120"/>
-                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="130"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding Title}"
-                                           FontSize="13" FontWeight="Medium" Foreground="#111827"
-                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                <Border Grid.Column="1" Style="{StaticResource StatusPill}" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Status}" Style="{StaticResource StatusPillText}"/>
-                                </Border>
-                                <TextBlock Grid.Column="2" Text="{Binding AttemptCount}"
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium"
+                                               Foreground="#111827" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding CreatedAt, Converter={StaticResource LocalTime}}"
+                                               FontSize="11" Foreground="#9CA3AF"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding OrderToken, FallbackValue='—'}"
                                            FontSize="13" Foreground="#374151" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="3" Text="{Binding LastError}"
-                                           FontSize="12" Foreground="#9CA3AF" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="2" FontSize="13" Foreground="#374151"
+                                           VerticalAlignment="Center">
+                                    <Run Text="{Binding PageCount, Mode=OneWay}"/>
+                                    <Run Text="{Binding PageRange, Mode=OneWay, FallbackValue=''}" FontSize="11" Foreground="#6B7280"/>
+                                </TextBlock>
+                                <TextBlock Grid.Column="3" Text="{Binding Copies}" FontSize="13"
+                                           Foreground="#374151" VerticalAlignment="Center"/>
+                                <Border Grid.Column="4" Style="{StaticResource StatusPill}" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource StatusPillText}"
+                                               Text="{Binding Status}"/>
+                                </Border>
+                                <TextBlock Grid.Column="5" Text="{Binding LastError, FallbackValue='—'}"
+                                           FontSize="12" Foreground="#BE222A" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"/>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <!-- Selection action bar — the operator commands now have UI -->
+                <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,1"
+                        Padding="20,12">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="#6B7280">
+                            <Run Text="Selected: " />
+                            <Run Text="{Binding Selected.Title, Mode=OneWay, FallbackValue='—'}"/>
+                        </TextBlock>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Retry" Click="Retry_Click" Padding="14,7" FontSize="12" Cursor="Hand"
+                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#2858CD"
+                                    BorderBrush="#AEBEDF" BorderThickness="1" FontWeight="Medium"/>
+                            <Button Content="Mark resolved" Click="MarkResolved_Click" Padding="14,7" FontSize="12" Cursor="Hand"
+                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#007F3D"
+                                    BorderBrush="#A3D8B5" BorderThickness="1" FontWeight="Medium"/>
+                            <Button Content="Reprint" Click="Reprint_Click" Padding="14,7" FontSize="12" Cursor="Hand"
+                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#2858CD"
+                                    BorderBrush="#AEBEDF" BorderThickness="1" FontWeight="Medium"/>
+                            <Button Content="Cancel job" Click="CancelJob_Click" Padding="14,7" FontSize="12" Cursor="Hand"
+                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#BE222A"
+                                    BorderBrush="#E8A9A5" BorderThickness="1" FontWeight="Medium"/>
+                            <Button Content="Clear failed" Click="ClearFailed_Click" Padding="14,7" FontSize="12" Cursor="Hand"
+                                    Background="#FFFFFF" Foreground="#BE222A"
+                                    BorderBrush="#E8A9A5" BorderThickness="1" FontWeight="Medium"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
 
                 <!-- Empty state -->
                 <StackPanel HorizontalAlignment="Center" Margin="0,40"
@@ -158,7 +253,7 @@
                     </Border>
                     <TextBlock Text="Queue is empty" FontSize="14" FontWeight="Medium"
                                Foreground="#111827" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Print jobs from your shop will appear here"
+                    <TextBlock Text="New print jobs appear here the moment the dashboard dispatches them"
                                FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                 </StackPanel>
             </StackPanel>

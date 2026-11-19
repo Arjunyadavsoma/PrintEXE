@@ -2,16 +2,19 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- PrintShop brand colors from globals.css -->
-    <SolidColorBrush x:Key="BrandPrimaryBrush"  Color="#D97706" />
-    <SolidColorBrush x:Key="BrandAccentBrush"   Color="#F59E0B" />
-    <SolidColorBrush x:Key="BrandSoftBrush"     Color="#FEF3C7" />
+    <!-- PrintShop brand colors — WEB-PARITY (printshop-saas globals.css).
+         NOTE: this dictionary is merged AFTER Tokens.xaml and its
+         BrandAccentBrush / BrandSoftBrush keys intentionally win there;
+         every value here must therefore agree with Tokens.xaml. -->
+    <SolidColorBrush x:Key="BrandPrimaryBrush"  Color="#2858CD" />
+    <SolidColorBrush x:Key="BrandAccentBrush"   Color="#1A48BC" />
+    <SolidColorBrush x:Key="BrandSoftBrush"     Color="#E1EFFF" />
     <SolidColorBrush x:Key="BrandForegroundBrush" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="BrandDangerBrush"   Color="#DC2626" />
-    <SolidColorBrush x:Key="BrandWarningBrush"  Color="#F59E0B" />
-    <SolidColorBrush x:Key="BrandSuccessBrush"  Color="#16A34A" />
-    <SolidColorBrush x:Key="StatusPendingBrush"   Color="#F59E0B" />
-    <SolidColorBrush x:Key="StatusPrintingBrush"  Color="#D97706" />
-    <SolidColorBrush x:Key="StatusCompletedBrush" Color="#16A34A" />
-    <SolidColorBrush x:Key="StatusFailedBrush"    Color="#DC2626" />
+    <SolidColorBrush x:Key="BrandDangerBrush"   Color="#BE222A" />
+    <SolidColorBrush x:Key="BrandWarningBrush"  Color="#E48E26" />
+    <SolidColorBrush x:Key="BrandSuccessBrush"  Color="#007F3D" />
+    <SolidColorBrush x:Key="StatusPendingBrush"   Color="#E48E26" />
+    <SolidColorBrush x:Key="StatusPrintingBrush"  Color="#2858CD" />
+    <SolidColorBrush x:Key="StatusCompletedBrush" Color="#007F3D" />
+    <SolidColorBrush x:Key="StatusFailedBrush"    Color="#BE222A" />
 </ResourceDictionary>

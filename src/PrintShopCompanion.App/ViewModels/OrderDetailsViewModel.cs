@@ -35,7 +35,19 @@ public partial class OrderDetailsViewModel : ObservableObject
     [ObservableProperty] private bool _canComplete;
     [ObservableProperty] private bool _canCancel;
 
-    public string? OrderId => null;
+    /// <summary>
+    /// The order to load. Set by MainWindow BEFORE the view's Loaded handler
+    /// fires (was a hardcoded <c>=&gt; null</c> which made the page navigate
+    /// back to Orders instantly — the whole details screen was dead).
+    /// </summary>
+    public string? OrderId { get; set; }
+
+    /// <summary>Presentation for the status pill (web ORDER_STATUS_CONFIG parity).</summary>
+    public Core.Presentation.StatusPresentation.StatusStyle? StatusStyle =>
+        Order is null ? null : Core.Presentation.StatusPresentation.For(Order.Status);
+
+    /// <summary>Amount formatted like the web (₹ with INR grouping).</summary>
+    public string AmountFormatted => Order is null ? "—" : Core.Presentation.Rupees.Format(Order.TotalAmountPaise);
 
     [RelayCommand]
     public async Task LoadAsync()
@@ -51,6 +63,8 @@ public partial class OrderDetailsViewModel : ObservableObject
             CanStart    = Order.Status.CanTransitionTo(OrderStatus.Printing);
             CanComplete = Order.Status.CanTransitionTo(OrderStatus.Collected);
             CanCancel   = Order.Status.CanTransitionTo(OrderStatus.Cancelled);
+            OnPropertyChanged(nameof(StatusStyle));
+            OnPropertyChanged(nameof(AmountFormatted));
         }
         catch (Exception ex)
         {

@@ -15,8 +15,12 @@
                 <!-- Legacy color/theme resources kept for backward compatibility -->
                 <ResourceDictionary Source="Themes/Colors.xaml" />
                 <ResourceDictionary Source="Themes/Fluent.xaml" />
+                <!-- Active theme — ThemeService swaps Light.xaml ↔ Dark.xaml in
+                     place (matched by Source). Only ONE theme dictionary is
+                     merged at a time: previously BOTH were merged, and because
+                     duplicate keys resolve to the LAST dictionary, the "light"
+                     theme silently rendered the dark values. -->
                 <ResourceDictionary Source="Themes/Light.xaml" />
-                <ResourceDictionary Source="Themes/Dark.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

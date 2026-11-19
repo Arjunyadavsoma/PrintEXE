@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
 using PrintShopCompanion.App.Services;
 using PrintShopCompanion.App.Tray;
+using PrintShopCompanion.App.ViewModels;
 using PrintShopCompanion.Core.Contracts;
 
 public partial class MainWindow : Window
@@ -105,16 +106,31 @@ public partial class MainWindow : Window
             Sidebar.Visibility = Visibility.Visible;
         }
 
-        // Highlight the active nav button (and demote the rest)
+        // Highlight the active nav button (and demote the rest). OrderDetails
+        // is reached FROM Orders — keep the Orders rail item highlighted.
+        var navHighlight = current == "OrderDetails" ? "Orders" : current;
         foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "SyncCenter", "Settings" })
         {
             var btn = FindName("Nav" + name) as Button;
             if (btn == null) continue;
-            var isActive = name == current;
+            var isActive = name == navHighlight;
             btn.Style = (Style)FindResource(isActive ? "NavItemActive" : "NavItem");
         }
 
-        // Show the right view
+        // Show the right view. OrderDetails consumes the navigation parameter
+        // (the order id) BEFORE its Loaded handler fires LoadAsync.
+        if (current == "OrderDetails")
+        {
+            var detailsVm = _services.GetRequiredService<OrderDetailsViewModel>();
+            detailsVm.OrderId = _nav.CurrentParam as string;
+            ContentArea.Content = _services.GetRequiredService<OrderDetailsView>();
+            // The view resolves its own VM from DI; handing it the VM we
+            // parameterised keeps id/VM/view consistent.
+            var view = (OrderDetailsView)ContentArea.Content;
+            view.AttachViewModel(detailsVm);
+            return;
+        }
+
         ContentArea.Content = current switch
         {
             "Login" => _services.GetRequiredService<LoginView>(),
