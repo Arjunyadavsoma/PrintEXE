@@ -56,6 +56,23 @@
     <None Update="Assets\Icons\app.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="Assets\Icons\tray-connected.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Icons\tray-offline.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Icons\tray-error.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Icons\app.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
+
+  <!-- B-017: real brand icon for the exe + taskbar (previously no .ico existed). -->
+  <PropertyGroup>
+    <ApplicationIcon>Assets\Icons\app.ico</ApplicationIcon>
+  </PropertyGroup>
 
 </Project>

@@ -589,8 +589,25 @@ public partial class App : Application
             _heartbeatTimer = new System.Threading.Timer(
                 async _ =>
                 {
-                    try { await backend.HeartbeatAsync(_appCts.Token); }
-                    catch (Exception ex) { Log.Debug(ex, "Heartbeat tick failed (will retry)"); }
+                    // Phase 5 (B-017): the tray now reflects the REAL connection
+                    // state — success ⇒ Connected, auth rejection ⇒ Error, any
+                    // other failure or unpaired state ⇒ Offline. Previously the
+                    // tray icon was static and lied about connectivity.
+                    try
+                    {
+                        await backend.HeartbeatAsync(_appCts.Token);
+                        _tray?.SetState(Tray.TrayIconHost.ConnectionState.Connected);
+                    }
+                    catch (InvalidOperationException ex) when (ex.Message.Contains("Device token rejected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _tray?.SetState(Tray.TrayIconHost.ConnectionState.Error);
+                        Log.Debug(ex, "Heartbeat rejected — tray set to Error");
+                    }
+                    catch (Exception ex)
+                    {
+                        _tray?.SetState(Tray.TrayIconHost.ConnectionState.Offline);
+                        Log.Debug(ex, "Heartbeat tick failed (will retry) — tray set to Offline");
+                    }
                 },
                 null,
                 dueTime: TimeSpan.Zero,                       // send one immediately on connect
