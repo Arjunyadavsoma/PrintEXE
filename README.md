@@ -85,9 +85,9 @@ The companion honours:
 
 - Not a fake `EXE`. No binary installer exists in this delivery because this Linux sandbox cannot compile WPF. See `HONEST-STATUS.md` for the actual path to a real `.exe`.
 - Not tested on real printer hardware. The Phase 9 hardware tests have not been performed.
-- Not paired against the production backend. The real backend at `https://printshop-saas-three.vercel.app` does not yet expose the routes the companion needs; see `docs/BACKEND-MAPPING.md` §4 for the list of routes that must be added.
+- Not yet validated end-to-end against the PRODUCTION deployment. The backend contract itself is implemented and verified — the full companion surface (pair, heartbeat, commands, jobs, snapshot, token rotate) exists on SaaS `main` and passes an 18-check local probe (`docs/audit/phase0/15-companion-probe-local.log` in the SaaS repo). The authoritative interface is **`docs/contracts/companion-v1.schema.json`** (copy of the SaaS `companion-v1` artifact, enforced by `CompanionContractTests`); older notes (`docs/BACKEND-MAPPING.md`, `docs/PROTOCOL.md`) are historical and lose on conflict.
 
-The first milestone is: install the MSI on a Windows 11 PC, pair with the mock backend, pick a real printer, and produce a real test print. **That has not been done yet.**
+The first milestone is: install the MSI on a Windows 11 PC, pair with the real website, pick a real printer, and produce a real test print. **That has not been done yet.**
 
 ## Local mock backend (for development)
 
@@ -97,6 +97,8 @@ For pairing and test-printing without touching real PrintShop infrastructure:
 dotnet run --project src\PrintShopCompanion.Backend\PrintShopCompanion.Backend.csproj
 # Mock backend listens on https://localhost:5241
 ```
+
+> NOTE (baseline B-014): the mock backend serves an OLD contract shape (custom `X-PrintShop-*` headers, `/pair`, `/heartbeat`); the production client speaks the v1 contract (`Authorization: Bearer`, `/api/v1/companion/*`), so it cannot stand in for the real SaaS yet. For full-contract local testing, run the SaaS locally (Next.js + Postgres — see the SaaS repo `scripts/phase0/boot_local_stack.sh`).
 
 Then set `Backend:BaseUrl` to `https://localhost:5241` and `Backend:BypassTlsVerification` to `true` in `src\PrintShopCompanion.App\appsettings.Local.json` (dev only — never in production).
 

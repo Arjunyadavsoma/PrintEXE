@@ -7,6 +7,14 @@ namespace PrintShopCompanion.Shared.Constants;
 /// </summary>
 public static class CompanionProtocol
 {
+    /// <summary>
+    /// Version of the companion API contract this client implements
+    /// (docs/contracts/companion-v1.schema.json, contractVersion field).
+    /// Bump together with the SaaS contract (COMPANION_V1_CONTRACT.md §17)
+    /// and the artifact copy — CompanionContractTests fails otherwise.
+    /// </summary>
+    public const string ExpectedContractVersion = "1.1";
+
     /// <summary>Custom URL scheme registered with Windows during install.</summary>
     public const string UrlScheme = "printshopcompanion";
 

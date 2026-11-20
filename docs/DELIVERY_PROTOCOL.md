@@ -1,5 +1,12 @@
 # Delivery Protocol — PrintEXE v0.5
 
+> **⚠ 2026-11-20 (Phase 1): SINGLE SOURCE OF TRUTH.** The contract is now
+> `docs/contracts/companion-v1.schema.json` (byte-identical copy of the SaaS
+> artifact) + the SaaS doc `docs/integration/COMPANION_V1_CONTRACT.md` v1.1.
+> Contract drift is enforced by tests on BOTH repos (`CompanionContractTests`
+> here; `companion.contract.test.ts` there). THIS document is historical
+> context only — where it disagrees with the artifact or the SaaS doc, they win.
+
 The transfer protocol for getting a customer's PDF from the website to the shopkeeper's Windows PC.
 
 ## Two delivery modes

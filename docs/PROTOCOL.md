@@ -1,5 +1,12 @@
 # Companion ⇄ Backend Wire Protocol
 
+> **⚠ 2026-11-20 (Phase 1): SINGLE SOURCE OF TRUTH.** The contract is now
+> `docs/contracts/companion-v1.schema.json` (byte-identical copy of the SaaS
+> artifact) + the SaaS doc `docs/integration/COMPANION_V1_CONTRACT.md` v1.1.
+> Contract drift is enforced by tests on BOTH repos (`CompanionContractTests`
+> here; `companion.contract.test.ts` there). THIS document is historical
+> context only — where it disagrees with the artifact or the SaaS doc, they win.
+
 > **Status:** Reconciled against the real SaaS backend (`Arjunyadavsoma/printshop-saas`) on 2026-11-16.
 > The authoritative contract is published by the SaaS repo under `docs/integration/PRINTEXE_*`.
 > This document is a companion-side summary; the **source of truth is the SaaS repo**.

@@ -1,5 +1,12 @@
 # PrintShop Backend Mapping
 
+> **⚠ 2026-11-20 (Phase 1): SINGLE SOURCE OF TRUTH.** The contract is now
+> `docs/contracts/companion-v1.schema.json` (byte-identical copy of the SaaS
+> artifact) + the SaaS doc `docs/integration/COMPANION_V1_CONTRACT.md` v1.1.
+> Contract drift is enforced by tests on BOTH repos (`CompanionContractTests`
+> here; `companion.contract.test.ts` there). THIS document is historical
+> context only — where it disagrees with the artifact or the SaaS doc, they win.
+
 > **⚠ RECONCILED 2026-11-16.** The sections below this banner are **preliminary work
 > product from 2026-11-05** — they were written before the real SaaS route handlers
 > were inspected, and contain "inferred" endpoint/field assumptions that are now
