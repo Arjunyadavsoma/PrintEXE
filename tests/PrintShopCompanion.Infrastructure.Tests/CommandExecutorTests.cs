@@ -382,7 +382,7 @@ public class CommandExecutorTests
             SubmitCalls++;
             return Task.FromResult(new SpoolSubmission(1, job.PrinterName ?? "x", DateTimeOffset.UtcNow));
         }
-        public Task<bool> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<SpoolConfirmation> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default) => Task.FromResult(SpoolConfirmation.Printed);
         public Task<TestPrintResult> TestPrintAsync(string printerFullName, CancellationToken ct = default)
             => Task.FromResult(new TestPrintResult { Success = true, SpoolerJobId = 1 });
     }

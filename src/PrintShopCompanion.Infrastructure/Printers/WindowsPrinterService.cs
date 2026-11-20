@@ -129,20 +129,58 @@ public sealed class WindowsPrinterService : IPrinterService
         return new SpoolSubmission(spoolerJobId > 0 ? spoolerJobId : null, printerName, DateTimeOffset.UtcNow);
     }
 
-    public async Task<bool> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default)
+    // Phase 4 (B-008) — honest three-state confirmation. The old boolean
+    // treated "job not found in any queue" as printed, which is a false
+    // positive when the spooler purged a job that FAILED or was deleted
+    // before ever printing. Windows purges jobs soon after they print, so
+    // a vanished job is only evidence of printing if we SAW it alive in an
+    // earlier poll — tracked here per spooler job id. Entries are removed
+    // as soon as they resolve to Printed/Failed so the dictionary stays small.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte> _everSeenAlive = new();
+
+    public async Task<SpoolConfirmation> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default)
     {
         var server = new LocalPrintServer();
         foreach (var q in server.GetPrintQueues(new[] { EnumeratedPrintQueueTypes.Local, EnumeratedPrintQueueTypes.Connections }))
         {
             var info = q.GetJob(spoolerJobId);
             if (info is null) continue;
-            // JobStatus.Printed means the document has physically left the printer.
-            return info.JobStatus.HasFlag(PrintJobStatus.Printed)
-                || await Task.FromResult(info.JobStatus.HasFlag(PrintJobStatus.Completed));
+
+            _everSeenAlive[spoolerJobId] = 1; // seen alive — vanish later ⇒ purged-after-print
+
+            var status = info.JobStatus;
+            if (status.HasFlag(PrintJobStatus.Printed) || status.HasFlag(PrintJobStatus.Completed))
+            {
+                _everSeenAlive.TryRemove(spoolerJobId, out _);
+                return SpoolConfirmation.Printed;
+            }
+            if (status.HasFlag(PrintJobStatus.Error) || status.HasFlag(PrintJobStatus.Deleted)
+                || status.HasFlag(PrintJobStatus.Offline) || status.HasFlag(PrintJobStatus.PaperOut)
+                || status.HasFlag(PrintJobStatus.Blocked) || status.HasFlag(PrintJobStatus.UserIntervention))
+            {
+                // Terminal trouble: report FAILED so the caller can mark the job
+                // failed immediately instead of waiting out the confirm timeout.
+                _everSeenAlive.TryRemove(spoolerJobId, out _);
+                _logger.LogWarning("Spooler job #{Id} reports error status {Status} — will never print", spoolerJobId, status);
+                return SpoolConfirmation.Failed;
+            }
+            // Still in flight (spooling/printing/retained/…): no evidence yet.
+            return await Task.FromResult(SpoolConfirmation.Unknown);
         }
-        // Job not found in any queue → already purged by the spooler. Treat as printed.
-        _logger.LogInformation("Spooler job #{Id} not found; assuming completed and purged", spoolerJobId);
-        return true;
+
+        if (_everSeenAlive.TryRemove(spoolerJobId, out _))
+        {
+            // We watched this job in-flight and it has now vanished — the
+            // spooler purged it, which for a previously-alive job means printed.
+            _logger.LogInformation("Spooler job #{Id} vanished after being seen alive — treating as purged-after-print", spoolerJobId);
+            return SpoolConfirmation.Printed;
+        }
+
+        // Never seen in ANY poll of ANY queue → no evidence it ever spooled
+        // (error-purged before our first poll, or the wrong queue set).
+        // The OLD code returned true here — a fabricated "printed".
+        _logger.LogInformation("Spooler job #{Id} not found and never seen alive — outcome unknown", spoolerJobId);
+        return SpoolConfirmation.Unknown;
     }
 
     public async Task<TestPrintResult> TestPrintAsync(string printerFullName, CancellationToken ct = default)

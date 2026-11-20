@@ -1079,7 +1079,11 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         Color = dto.ColorMode == "color",
         Duplex = dto.Duplex,
         PdfUrl = Uri.TryCreate(dto.DownloadUrl, UriKind.Absolute, out var u) ? u : null,
-        PdfSha256 = null,
+        // Phase 4 (B-010): carry the backend's stored SHA-256 into the job so
+        // DownloadPdfAsync can verify the downloaded bytes before printing.
+        // The DTO already had the field; the mapping used to drop it (null),
+        // silently skipping content verification on the print path.
+        PdfSha256 = string.IsNullOrWhiteSpace(dto.PdfSha256) ? null : dto.PdfSha256,
         Status = JobStatus.Pending,
         AttemptCount = 0,
         CreatedAt = DateTimeOffset.UtcNow,

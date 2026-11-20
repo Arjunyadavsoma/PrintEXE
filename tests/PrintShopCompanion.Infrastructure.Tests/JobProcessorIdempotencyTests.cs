@@ -123,7 +123,7 @@ public class JobProcessorIdempotencyTests
     {
         public int SubmitCalls { get; private set; }
         public int ConfirmCalls { get; private set; }
-        public bool AlwaysPrinted { get; set; } = true;
+        public SpoolConfirmation AlwaysPrinted { get; set; } = SpoolConfirmation.Printed;
 
         public IReadOnlyList<PrinterInfo> DiscoverPrinters() => throw new NotImplementedException();
         public PrinterInfo? GetSelectedPrinter() => throw new NotImplementedException();
@@ -133,7 +133,7 @@ public class JobProcessorIdempotencyTests
             SubmitCalls++;
             return Task.FromResult(new SpoolSubmission(123, "Microsoft Print to PDF", DateTimeOffset.UtcNow));
         }
-        public Task<bool> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default)
+        public Task<SpoolConfirmation> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default)
         {
             ConfirmCalls++;
             return Task.FromResult(AlwaysPrinted);
@@ -176,7 +176,7 @@ public class JobProcessorIdempotencyTests
         one.Should().NotBeNull();
         var sub = await pr.SubmitAsync(one!, cts.Token);
         var printed = await pr.HasPrintedAsync(sub.SpoolerJobId!.Value, cts.Token);
-        printed.Should().BeTrue();
+        printed.Should().Be(SpoolConfirmation.Printed);
         await q.MarkPrintedAsync(one!.JobId, DateTimeOffset.UtcNow, sub.SpoolerJobId!.Value, cts.Token);
         // v0.4.7+ contract: status is the string "completed" or "failed" or "printing"
         await be.ReportJobStatusAsync(one.JobId, "completed", printerName: null, errorMessage: null, cts.Token);

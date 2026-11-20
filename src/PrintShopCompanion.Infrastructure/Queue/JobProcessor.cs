@@ -362,17 +362,33 @@ public sealed class JobProcessor : IQueueController
         // can never be polled for confirmation — the loop is skipped and the
         // job goes to the honest uncertain path instead of the old flow where
         // a synthetic id made HasPrintedAsync conclude "completed and purged".
+        // Phase 4 fix (B-008): the poll is now THREE-state. Failed (spooler
+        // reports an error status) terminates the wait immediately with an
+        // honest failure; Unknown (in flight, or vanished without ever being
+        // seen) keeps polling until the deadline and then parks the job as
+        // outcome-uncertain instead of the old boolean that conflated
+        // "purged" with "printed".
         var deadline = DateTimeOffset.UtcNow + _options.Value.PrintConfirmTimeout;
-        bool printed = false;
+        var confirmed = SpoolConfirmation.Unknown;
         while (sub.SpoolerJobId is not null && DateTimeOffset.UtcNow < deadline)
         {
-            try { printed = await _printers.HasPrintedAsync(sub.SpoolerJobId.Value, ct); }
+            try { confirmed = await _printers.HasPrintedAsync(sub.SpoolerJobId.Value, ct); }
             catch (Exception ex) { _logger.LogWarning(ex, "Spooler status poll failed; will retry"); }
-            if (printed) break;
+            if (confirmed != SpoolConfirmation.Unknown) break;
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
         }
 
-        if (!printed)
+        if (confirmed == SpoolConfirmation.Failed)
+        {
+            // The spooler says the job errored/deleted/aborted — it will never
+            // print. Mark failed (transient=false would prevent retries on a
+            // jam that an operator clears, so keep it retryable until the
+            // attempt budget is spent) and report honestly to the backend.
+            await FailAsync(job, "Spooler reported an error status for the print job — physical print did not complete", permanent: false, ct);
+            return;
+        }
+
+        if (confirmed != SpoolConfirmation.Printed)
         {
             // Spooler did not confirm physical printing within the timeout. This is the
             // "uncertain outcome" case the spec calls out: never auto-reprint, surface to the operator.

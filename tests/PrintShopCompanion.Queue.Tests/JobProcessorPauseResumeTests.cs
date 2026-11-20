@@ -195,7 +195,7 @@ public class JobProcessorPauseResumeTests
         public PrinterInfo? GetSelectedPrinter() => null;
         public Task SelectPrinterAsync(string printerFullName, CancellationToken ct = default) => Task.CompletedTask;
         public Task<SpoolSubmission> SubmitAsync(PrintJobRecord job, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<bool> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<SpoolConfirmation> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default) => Task.FromResult(SpoolConfirmation.Printed);
         public Task<TestPrintResult> TestPrintAsync(string printerFullName, CancellationToken ct = default) => throw new NotImplementedException();
     }
 

@@ -78,10 +78,19 @@ public partial class App : Application
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PrintShop", "Companion", "logs");
         Directory.CreateDirectory(logDir);
-        Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
+        // Phase 4 (B-012): the File sink is wrapped in the DeviceTokenRedactor
+        // so both property values AND message-template text are scrubbed of
+        // device tokens / bearer / authorization secrets before they hit disk.
+        // (The redactor existed but was never wired — tokens could reach logs.)
+        // Cascade: outer logger → redactor (sink decorator) → inner File logger.
+        var fileLogger = new LoggerConfiguration()
+            .MinimumLevel.Verbose()
             .WriteTo.File(Path.Combine(logDir, "companion-.log"),
                 rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14)
+            .CreateLogger();
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .WriteTo.Sink(new PrintShopCompanion.App.Services.DeviceTokenRedactor(fileLogger))
             .CreateLogger();
 
         Log.Information("=== PrintShop Companion v{Version} starting ===", AppVersion.Short);

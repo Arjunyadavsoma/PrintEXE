@@ -403,6 +403,12 @@ public sealed class PrintJobDto
 
     [JsonPropertyName("pageRange")]
     public string? PageRange { get; init; }
+
+    // Phase 4 (B-010): the backend's stored SHA-256 of the file. Null when the
+    // backend couldn't hash at upload time — the companion then verifies
+    // nothing locally but still reports the computed hash after download.
+    [JsonPropertyName("pdfSha256")]
+    public string? PdfSha256 { get; init; }
 }
 
 /// <summary>Response envelope for GET /agents/jobs/pending (envelope-wrapped).</summary>
