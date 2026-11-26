@@ -31,8 +31,12 @@ dotnet publish src\PrintShopCompanion.App\PrintShopCompanion.App.csproj `
 
 # 3. Place SumatraPDF.exe in installer/redist/
 mkdir installer\redist
-curl -L -o installer\redist\SumatraPDF.exe https://www.sumatrapdfreader.org/download/sumatra-prerel-64.zip
-# Unzip and move SumatraPDF.exe into installer\redist\.
+# The portable 64-bit zip (v0.7.4: the old /dl/Rel/3.5.1/ path was retired;
+# the current download page is /download-free-pdf-viewer and serves /dl/rel/<ver>/).
+curl -L -A "Mozilla/5.0" -o sumatra.zip https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip
+# Unzip and rename the versioned exe (e.g. SumatraPDF-3.6.1-64.exe) into place:
+Expand-Archive sumatra.zip -DestinationPath sumatra
+Copy-Item sumatra\SumatraPDF-3.6.1-64.exe installer\redist\SumatraPDF.exe
 
 # 4. Build the .msi
 installer\BuildInstaller.bat

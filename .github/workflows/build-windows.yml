@@ -219,6 +219,41 @@ jobs:
           $size = (Get-ChildItem -Path $pub -Recurse | Measure-Object -Property Length -Sum).Sum
           Write-Host "Publish directory size: $([math]::Round($size / 1MB, 2)) MB"
 
+      - name: Bundle SumatraPDF into the ZIP distribution
+        shell: pwsh
+        run: |
+          # v0.7.4 fix: the v0.7.3 ZIP shipped WITHOUT SumatraPDF.exe, so on a
+          # real machine every print fell through to the GDI fallback
+          # (log: "SumatraPDF.exe not found ... trying next" / "physical
+          # outcome cannot be confirmed"). SumatraPdfPrinter.ResolveExePath()
+          # looks for SumatraPDF.exe next to the app EXE (after
+          # runtimes/win-x64/native and the configured path) — placing it in
+          # the publish root makes the ZIP self-contained. The MSI job does
+          # the same for the installer layout (installer/redist).
+          $candidates = @(
+            'https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip',
+            'https://files.sumatrapdfreader.org/software/sumatrapdf/rel/3.6.1/SumatraPDF-3.6.1-64.zip',
+            'https://www.sumatrapdfreader.org/dl/Rel/3.5.1/SumatraPDF-3.5.1-64.zip'
+          )
+          $ok = $false
+          foreach ($url in $candidates) {
+            try {
+              Write-Host "Trying $url"
+              Invoke-WebRequest -Uri $url -OutFile sumatra.zip `
+                -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' -TimeoutSec 120
+              if ((Get-Item sumatra.zip).Length -gt 1MB) { $ok = $true; Write-Host "Downloaded $url"; break }
+              Write-Host "Suspiciously small download from $url — trying next"
+            } catch { Write-Host "FAILED ${url}: $($_.Exception.Message)" }
+          }
+          if (-not $ok) { Write-Error 'All SumatraPDF download URLs failed'; exit 1 }
+          Expand-Archive sumatra.zip -DestinationPath sumatra -Force
+          $exe = Get-ChildItem -Path sumatra -Filter 'SumatraPDF*.exe' | Select-Object -First 1
+          if (-not $exe) { Write-Error 'SumatraPDF exe not found inside the downloaded zip'; exit 1 }
+          $dst = "$env:GITHUB_WORKSPACE\artifacts\app\SumatraPDF.exe"
+          Copy-Item $exe.FullName $dst -Force
+          if (-not (Test-Path $dst)) { Write-Error "Copy to $dst failed"; exit 1 }
+          Write-Host "✓ Bundled SumatraPDF into the ZIP distribution: $dst ($([math]::Round((Get-Item $dst).Length / 1MB, 2)) MB)"
+
       - name: Startup smoke test (Windows)
         shell: pwsh
         run: |
@@ -237,6 +272,10 @@ jobs:
           }
           Write-Host "✓ Smoke test passed: process alive after 20s (PID $($p.Id))"
           try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+          # v0.7.4: also kill any SumatraPDF.exe the smoke test may have
+          # spawned — a lingering renderer process would block the upload
+          # step's file handles on the publish directory.
+          try { Get-Process -Name SumatraPDF -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
 
       - name: Write version metadata (BUILD-INFO.txt)
         shell: pwsh
@@ -453,11 +492,36 @@ jobs:
       - name: Download SumatraPDF (bundled renderer)
         shell: pwsh
         run: |
-          $url = 'https://www.sumatrapdfreader.org/dl/Rel/3.5.1/SumatraPDF-3.5.1-64.zip'
-          Invoke-WebRequest -Uri $url -OutFile sumatra.zip
-          Expand-Archive sumatra.zip -DestinationPath sumatra
+          # v0.7.4 fix: the pinned 3.5.1 URL (uppercase /dl/Rel/) was removed
+          # from the SumatraPDF CDN (307 -> 404) and broke the v0.7.3 MSI job.
+          # Current source of truth: https://www.sumatrapdfreader.org/download-free-pdf-viewer
+          # which serves /dl/rel/3.6.1/... (lowercase). Try the current version
+          # first, then pinned fallbacks (direct files CDN + the legacy 3.5.1
+          # path), so one CDN reshuffle cannot kill the release again.
+          # NOTE: the zips contain SumatraPDF-<version>-64.exe (not SumatraPDF.exe).
+          $candidates = @(
+            'https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip',
+            'https://files.sumatrapdfreader.org/software/sumatrapdf/rel/3.6.1/SumatraPDF-3.6.1-64.zip',
+            'https://www.sumatrapdfreader.org/dl/Rel/3.5.1/SumatraPDF-3.5.1-64.zip'
+          )
+          $ok = $false
+          foreach ($url in $candidates) {
+            try {
+              Write-Host "Trying $url"
+              # Use a browser UA: the CDN 403s python-urllib/curl-default agents.
+              Invoke-WebRequest -Uri $url -OutFile sumatra.zip `
+                -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' -TimeoutSec 120
+              if ((Get-Item sumatra.zip).Length -gt 1MB) { $ok = $true; Write-Host "Downloaded $url"; break }
+              Write-Host "Suspiciously small download from $url — trying next"
+            } catch { Write-Host "FAILED ${url}: $($_.Exception.Message)" }
+          }
+          if (-not $ok) { Write-Error 'All SumatraPDF download URLs failed'; exit 1 }
+          Expand-Archive sumatra.zip -DestinationPath sumatra -Force
+          $exe = Get-ChildItem -Path sumatra -Filter 'SumatraPDF*.exe' | Select-Object -First 1
+          if (-not $exe) { Write-Error 'SumatraPDF exe not found inside the downloaded zip'; exit 1 }
           New-Item -ItemType Directory -Force -Path installer/redist | Out-Null
-          Copy-Item sumatra/SumatraPDF.exe installer/redist/SumatraPDF.exe
+          Copy-Item $exe.FullName installer/redist/SumatraPDF.exe -Force
+          Write-Host "Bundled $($exe.Name) as installer/redist/SumatraPDF.exe"
 
       - name: Publish app (win-x64)
         run: dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:BUILD_VERSION=${{ github.event.inputs.release-tag || github.ref_name }} -o publish

@@ -76,7 +76,17 @@ public static class InfrastructureModule
         services.AddSingleton<QueueKeyStore>();
         services.AddSingleton<FileRetentionManager>();
 
-        services.AddSingleton<IJobQueue, SqliteJobQueue>();
+        // v0.7.4 fix: register the CONCRETE type first, then map the interface
+        // to the SAME singleton. DurableCommandStore (and any future consumer)
+        // takes SqliteJobQueue by its concrete type — with only the interface
+        // registration, GetRequiredService<SqliteJobQueue>() threw
+        // "Unable to resolve service for type 'SqliteJobQueue' while attempting
+        // to activate 'DurableCommandStore'", which killed StartCloudConnection
+        // (Socket.IO realtime + heartbeat timer + command poller never started;
+        // the server marked the device offline 30s later). Mirrors the
+        // JobProcessor/IQueueController pattern below.
+        services.AddSingleton<SqliteJobQueue>();
+        services.AddSingleton<IJobQueue>(sp => sp.GetRequiredService<SqliteJobQueue>());
 
         // Realtime (Socket.IO + HTTP poll fallback)
         services.AddHttpClient<HttpFallbackPoller>();

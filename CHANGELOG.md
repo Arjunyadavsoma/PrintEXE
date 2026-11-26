@@ -1,5 +1,54 @@
 # PrintShop Companion — Changelog
 
+## v0.7.4 — 2026-11-26 — Restore the cloud connection, ship the renderer in every distribution
+
+Diagnosed from a real Windows machine's v0.7.3 session log: the app started,
+SQLCipher opened, and sign-in worked — but three defects remained. The first
+was silent and severe: the device never went truly online. The second broke
+PDF printing on every portable-ZIP install. The third failed the v0.7.3
+release pipeline's MSI job, so the release page shipped without an installer.
+
+### Fixed — the cloud connection never started (critical)
+- `InfrastructureModule` registered `SqliteJobQueue` ONLY as `IJobQueue`, but
+  `DurableCommandStore` takes the CONCRETE type in its constructor. Every
+  startup logged `StartCloudConnectionAsync failed: Unable to resolve service
+  for type 'SqliteJobQueue' while attempting to activate 'DurableCommandStore'`
+  as a non-fatal warning, so Socket.IO realtime, the 15s heartbeat timer, and
+  the command poller NEVER ran — the backend marked the device offline 30
+  seconds after each launch and no remote command ever reached the shop.
+- `SqliteJobQueue` is now registered by concrete type first, with `IJobQueue`
+  mapped to the same singleton (the existing `JobProcessor`/`IQueueController`
+  pattern).
+- New `InfrastructureDiCompositionTests` (5 tests) build the real service
+  collection and resolve `SqliteJobQueue`, `DurableCommandStore`,
+  `CommandPoller`, and `IPendingOpsQueue`, and assert the interface + concrete
+  registrations share one singleton — the exact resolutions that threw in
+  v0.7.3, now pinned so a future refactor cannot silently re-break them.
+
+### Fixed — the portable ZIP shipped without the PDF renderer
+- Real-machine log: `SumatraPDF.exe not found at: ...New folder\SumatraPDF.exe
+  — Renderer sumatra failed; trying next`, then the raw-GDI fallback printed
+  without a confirmable spooler job. The build job now downloads SumatraPDF
+  into the publish directory before packaging, so `SumatraPdfPrinter.
+  ResolveExePath()` finds it next to the EXE in every ZIP install.
+
+### Fixed — v0.7.3 MSI job failure (release pipeline)
+- The pinned download `https://www.sumatrapdfreader.org/dl/Rel/3.5.1/
+  SumatraPDF-3.5.1-64.zip` was retired from the CDN (307 → 404) and broke the
+  v0.7.3 tag build's "Download SumatraPDF" step; the release page ended up
+  without an MSI. Both the MSI job and the new ZIP-bundling step now walk a
+  fallback chain (current 3.6.1 via `/dl/rel/…` → the files CDN → the legacy
+  3.5.1 path) with a browser User-Agent, and handle the versioned inner exe
+  name (`SumatraPDF-3.6.1-64.exe`).
+- `installer/README.md` local-build instructions updated to the live URL.
+- The smoke test now also kills any `SumatraPDF.exe` it may have spawned so a
+  lingering renderer can't block the artifact upload.
+
+### Verified
+- SumatraPDF source URL, size (10,031,830 bytes) and SHA-256
+  (`98b33a518d42986856d225064b0cd2d3643ecf78cbf84ab873d26cc51877a544`)
+  recorded from a live download on 2026-11-26.
+
 ## v0.7.3 — 2026-11-26 — Point the companion at the printelyx.cc.cd production origin
 
 The deployed Printelyx backend is canonically served at `https://printelyx.cc.cd`
