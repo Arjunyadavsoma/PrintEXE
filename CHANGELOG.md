@@ -1,5 +1,63 @@
 # PrintShop Companion — Changelog
 
+## v0.7.0 — 2026-11-26 — Research-driven reliability + diagnostics release
+
+This release implements the competitor-research program (QZ Tray, PaperCut Mobility
+Print, ZMA printer agent, PrintNode — see `docs/research/`) as concrete engineering
+decisions (`docs/research/PRINTEXE_ENGINEERING_DECISIONS.md`, D-01..D-15).
+
+### Reliability (printer engine)
+- **Honest spooler outcomes (D-03):** tri-state `SpoolerOutcome` replaces the old
+  boolean poll whose "job not found in any queue → assume printed" rule produced
+  false-positive completions. Seen-then-purged = printed; never-seen = keep polling
+  → UncertainSpooled. Encoded by `SpoolerOutcomeTrackerTests`.
+- **Real raw-GDI fallback (D-05):** the GDI renderer rasterises the ACTUAL PDF pages
+  via PDFium (paper size, duplex, copies honored) instead of printing a placeholder
+  string; synthetic random spooler ids removed (parity with the Sumatra path).
+- **Managed PDF inspection before printing (D-04):** encrypted/corrupt/empty/oversized
+  documents are refused permanently with precise reasons (`PdfDocumentInspector`,
+  PDFtoImage/PDFium); page count is filled locally when the backend omits it;
+  spec-correct test-page generator replaces the hand-crafted PDF with wrong /Length.
+- **Operator priority + due time (D-08):** v0.6 queue schema adds `priority`/`due_at`;
+  dequeue order is `priority DESC, queued_at ASC` (rush jobs jump the line).
+
+### Security
+- **Log redactor wired (D-06):** `DeviceTokenRedactor` now attached to BOTH Serilog
+  pipelines (App + Worker); token/secret/password properties masked at write time.
+- **Shop-ownership enforcement (D-12):** received jobs are validated against the
+  paired device's shop (Socket.IO and poll paths); mismatched jobs are rejected.
+  `ShopId` is now stamped on every record (was always empty — audit finding).
+- **Explicit `ProtectedData` package reference** (audit §3 compile risk removed).
+- **Approval gate (D-11):** delivery-failed jobs refuse to reprint without operator
+  action; the atomic backend claim remains the authorization point (contract-faithful
+  — no invented approval fields).
+
+### Desktop experience
+- **Diagnostics screen (D-07):** one view answering "is the agent healthy?" (cloud,
+  auth, device, DB, queue worker, printers, disk, last successful print) + one-shot
+  diagnostics export (zip: diagnostics.json + redacted logs) — QZ/PaperCut pattern.
+- **Tray pause/resume wired (D-09):** the tray item drives the real queue controller
+  (was a stub) and reflects live state; Diagnostics entry added to the tray.
+
+### Build & test
+- **Multi-target (D-10):** `net10.0;net10.0-windows` — the OS-agnostic suite now
+  RUNS on Linux/any OS (was Windows-CI-only); 247 tests total (was 216), including
+  **new integration tests against a REAL HTTP server** implementing the production
+  agent contract (audit §14: "no integration test against any HTTP server" — fixed).
+- **RID pinning:** native runtime copies (PDFium/SkiaSharp) limited to the host RID
+  (linux-x64 tests / win-x64 production); hundreds of MB saved per checkout.
+- **Installer assets (D-13):** original app.ico/app.png generated; side-by-side exe
+  manifest produced; silent-install flags documented (`docs/PRINTEXE_INSTALLATION.md`);
+  optional CI job builds the MSI with WiX v5 on tags.
+- Explicit `System.Security.Cryptography.ProtectedData` package (audit compile risk).
+
+### Docs
+- New: `docs/research/PRINTEXE_COMPETITOR_RESEARCH.md`, `PRINTEXE_FEATURE_COMPARISON.md`,
+  `PRINTEXE_ENGINEERING_DECISIONS.md`, `docs/PRINTEXE_EXISTING_ARCHITECTURE.md`,
+  `PRINTEXE_TARGET_ARCHITECTURE.md` (+ Mermaid diagram), `PRINTEXE_API_CONTRACTS.md`,
+  `PRINTEXE_SECURITY.md`, `PRINTEXE_INSTALLATION.md`, `PRINTEXE_TROUBLESHOOTING.md`,
+  `PRINTEXE_TESTING.md`, `docs/THIRD_PARTY_NOTICES.md`.
+
 ## v0.4.4 — 2026-11-08 — Production Audit + Lifecycle + SHA-256 + Sync Center
 
 ### Phase Zero — Audit (`docs/PRODUCTION_AUDIT.md`)

@@ -35,8 +35,10 @@ public class JobProcessorPauseResumeTests
             new FakeBackend(),
             new FakePrinter(),
             new FakeRenderer(),
+            new PrintShopCompanion.Infrastructure.Pdf.PdfDocumentInspector(new Microsoft.Extensions.Logging.Abstractions.NullLogger<PrintShopCompanion.Infrastructure.Pdf.PdfDocumentInspector>()),
             opts,
             backendOpts,
+            Options.Create(new PrintShopCompanion.Core.Options.StorageOptions()),
             new Microsoft.Extensions.Logging.Abstractions.NullLogger<JobProcessor>());
     }
 

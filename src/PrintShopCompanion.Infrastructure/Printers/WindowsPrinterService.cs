@@ -12,13 +12,22 @@ using PrintShopCompanion.Core.Options;
 /// submits jobs to the local spooler. Discovery and spooler ID tracking are the only
 /// two responsibilities here — actual PDF rasterisation is delegated to an
 /// <see cref="IPdfRenderer"/> implementation.
+///
+/// <para>Phase 0-audit fix (decision D-03): implements <see cref="ISpoolerMonitor"/>
+/// with the honest tri-state model. The old boolean <see cref="HasPrintedAsync"/>
+/// returned <c>true</c> when a spooler job was "not found in any queue", which
+/// mis-classified never-spooled or failed jobs as printed. The tracker now
+/// distinguishes "observed then purged" (normal Windows behaviour, maps to printed)
+/// from "never observed" (keeps polling; the confirm-loop timeout parks the job as
+/// UncertainSpooled).</para>
 /// </summary>
-public sealed class WindowsPrinterService : IPrinterService
+public sealed class WindowsPrinterService : IPrinterService, ISpoolerMonitor
 {
     private readonly IPdfRenderer _renderer;
     private readonly IOptionsMonitor<PrinterOptions> _options;
     private readonly ILogger<WindowsPrinterService> _logger;
     private readonly Dictionary<int, (string JobId, DateTimeOffset SubmittedAt)> _spoolerTag = new();
+    private readonly SpoolerOutcomeTracker _outcomeTracker = new();
 
     public WindowsPrinterService(IPdfRenderer renderer, IOptionsMonitor<PrinterOptions> options, ILogger<WindowsPrinterService> logger)
     {
@@ -131,18 +140,29 @@ public sealed class WindowsPrinterService : IPrinterService
 
     public async Task<bool> HasPrintedAsync(int spoolerJobId, CancellationToken ct = default)
     {
+        var outcome = await GetOutcomeAsync(spoolerJobId, ct);
+        return outcome is SpoolerOutcome.Printed or SpoolerOutcome.PurgedAfterSeen;
+    }
+
+    /// <summary>
+    /// Tri-state spooler outcome (decision D-03). See <see cref="SpoolerOutcomeTracker"/>
+    /// for the state machine; this method supplies the observations from the spooler.
+    /// </summary>
+    public async Task<SpoolerOutcome> GetOutcomeAsync(int spoolerJobId, CancellationToken ct = default)
+    {
         var server = new LocalPrintServer();
         foreach (var q in server.GetPrintQueues(new[] { EnumeratedPrintQueueTypes.Local, EnumeratedPrintQueueTypes.Connections }))
         {
             var info = q.GetJob(spoolerJobId);
             if (info is null) continue;
             // JobStatus.Printed means the document has physically left the printer.
-            return info.JobStatus.HasFlag(PrintJobStatus.Printed)
-                || await Task.FromResult(info.JobStatus.HasFlag(PrintJobStatus.Completed));
+            var printed = info.JobStatus.HasFlag(PrintJobStatus.Printed)
+                          || info.JobStatus.HasFlag(PrintJobStatus.Completed);
+            return await Task.FromResult(_outcomeTracker.Observe(spoolerJobId, foundInQueue: true, reportedPrinted: printed));
         }
-        // Job not found in any queue → already purged by the spooler. Treat as printed.
-        _logger.LogInformation("Spooler job #{Id} not found; assuming completed and purged", spoolerJobId);
-        return true;
+        // Not found in any queue this poll. The tracker decides honestly:
+        // seen-before → purged after success; never-seen → keep polling.
+        return await Task.FromResult(_outcomeTracker.Observe(spoolerJobId, foundInQueue: false, reportedPrinted: false));
     }
 
     public async Task<TestPrintResult> TestPrintAsync(string printerFullName, CancellationToken ct = default)
@@ -150,8 +170,10 @@ public sealed class WindowsPrinterService : IPrinterService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            // Generate a 1-page test PDF in temp dir and print it.
-            var testPdf = await TestPdfGenerator.GenerateAsync(ct);
+            // Generate a spec-correct 1-page test PDF in temp dir and print it
+            // (decision D-04: xref offsets are computed, /Length is exact).
+            var testPdf = await Pdf.TestPagePdf.WriteAsync(
+                Path.Combine(Path.GetTempPath(), "PrintShop", "test-print.pdf"), ct);
             var spoolerId = await _renderer.PrintAsync(testPdf, printerFullName, cancellationToken: ct);
             _logger.LogInformation("Test print spooled to {Printer} as job #{Id}", printerFullName, spoolerId);
             return new TestPrintResult { Success = true, SpoolerJobId = spoolerId, Duration = sw.Elapsed };
@@ -160,43 +182,5 @@ public sealed class WindowsPrinterService : IPrinterService
         {
             return new TestPrintResult { Success = false, ErrorMessage = ex.Message, Duration = sw.Elapsed };
         }
-    }
-}
-
-/// <summary>Generates a minimal 1-page PDF for the test-print flow.</summary>
-internal static class TestPdfGenerator
-{
-    public static async Task<string> GenerateAsync(CancellationToken ct)
-    {
-        var path = Path.Combine(Path.GetTempPath(), "PrintShop", "test-print.pdf");
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        // A tiny but valid PDF: 1 page with the text "PrintShop Companion test print".
-        // This is hand-crafted so we don't depend on a PDF library at runtime; the
-        // renderer (PDFium) opens it as a normal PDF.
-        var content = """
-            %PDF-1.4
-            1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-            2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] >> endobj
-            3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]
-                       /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
-            4 0 obj << /Length 90 >> stream
-            BT /F1 24 Tf 80 760 Td (PrintShop Companion test print) Tj ET
-            endstream endobj
-            5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
-            xref
-            0 6
-            0000000000 65535 f 
-            0000000010 00000 n 
-            0000000060 00000 n 
-            0000000110 00000 n 
-            0000000260 00000 n 
-            0000000390 00000 n 
-            trailer << /Size 6 /Root 1 0 R >>
-            startxref
-            450
-            %%EOF
-            """;
-        await File.WriteAllTextAsync(path, content, ct);
-        return path;
     }
 }

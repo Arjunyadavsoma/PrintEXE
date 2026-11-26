@@ -1,5 +1,38 @@
 # HONEST STATUS — Read This First
 
+> **⚠ v0.7.0 UPDATE 2026-11-26** (branch: research-implementation pass on `main`,
+> competitor-research program: QZ Tray / PaperCut Mobility Print / ZMA printer agent /
+> PrintNode → `docs/research/PRINTEXE_*` + engineering decisions D-01..D-15).
+>
+> **Implemented and TESTED on Linux (net10.0 neutral TFM):**
+> - Multi-target build: the OS-agnostic suite now RUNS on any OS (was Windows-CI-only
+>   build; the "tests pass on Linux" claim finally became true). RID pinning trims
+>   native runtime copies to the host.
+> - **247 tests** (was 216): + spooler tri-state tracker, shop-ownership validator,
+>   PDF inspection (real PDFium: valid/empty/corrupt/non-PDF/preview), log redactor,
+>   diagnostics aggregation/export, v0.6 priority/due-time queue round-trips, and a
+>   **10-test integration suite against a REAL HTTP server** implementing the
+>   production agent contract (audit §14 gap closed).
+> - D-03 honest spooler outcomes; D-04 managed PDF inspection (encrypted/corrupt/
+>   empty refused before printing); D-05 real GDI raster fallback (placeholder +
+>   synthetic spooler id REMOVED); D-06 redactor wired into both Serilog pipelines;
+>   D-08 priority/due_at (v0.6 migration); D-09 tray pause/resume live; D-11 approval/
+>   delivery-failed reprint refusal; D-12 shop stamping + ownership enforcement on
+>   both receive paths (ShopId was always "" — fixed).
+> - New Diagnostics screen + export (D-07); installer assets (ico/png/manifest, D-13);
+>   optional CI MSI job (WiX v5, tag-only); version 0.7.0.
+>
+> **Still NOT verified (requires a Windows machine + real printer + live backend):**
+> physical test print and spooler confirmation on real hardware, real-device pairing
+> end-to-end, the MSI build output, tray UX on a real Windows session, DPAPI paths
+> (auto-skip on Linux; run on windows-latest CI). The integration fake proves the
+> REST contract shape; Socket.IO remains source-verified only.
+>
+> The banners below (Phase 1/Phase 2, 2026-11-16/17) are the historical record;
+> `docs/PRINTEXE_EXISTING_ARCHITECTURE.md` maps every audit item to its current
+> state. Nothing above is claimed as Windows-runtime-verified.
+
+---
 > **⚠ PHASE-2 UPDATE 2026-11-17** (branch `feat/unified-print-exe-cloud-integration`,
 > commit `dc5ab4d`). Agent 1 published the frozen v1 contract
 > (`docs/integration/COMPANION_V1_CONTRACT.md`, SaaS commit `ffd0bb3`).

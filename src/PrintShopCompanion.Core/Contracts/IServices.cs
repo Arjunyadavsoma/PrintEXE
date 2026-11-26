@@ -70,3 +70,106 @@ public interface IQueueController
     /// <summary>Resume job processing after a pause. Idempotent.</summary>
     Task ResumeAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Result of a managed inspection of a downloaded PDF, performed BEFORE the
+/// job is claimed and spooled (decision D-04). The companion must know what a
+/// document is before it prints it; an unusable file is failed permanently
+/// with a precise reason instead of producing garbage paper.
+/// </summary>
+public enum PdfInspectionError
+{
+    /// <summary>The document opened cleanly.</summary>
+    None = 0,
+
+    /// <summary>File missing or empty (0 bytes).</summary>
+    Empty = 1,
+
+    /// <summary>PDFium could not parse the bytes — corrupt/truncated/HTML-error-page.</summary>
+    Corrupt = 2,
+
+    /// <summary>The document is password-protected; the companion has no password.</summary>
+    Encrypted = 3,
+
+    /// <summary>Not a PDF (missing %PDF- header).</summary>
+    Unsupported = 4,
+
+    /// <summary>Larger than the configured maximum.</summary>
+    Oversized = 5,
+
+    /// <summary>Zero pages after successful parse.</summary>
+    NoPages = 6
+}
+
+public sealed record PdfInspectionResult
+{
+    public bool IsValid => Error == PdfInspectionError.None;
+
+    /// <summary>Classification when the document cannot be printed safely.</summary>
+    public PdfInspectionError Error { get; init; } = PdfInspectionError.None;
+
+    /// <summary>Human-readable detail for logs and the UI (no document content).</summary>
+    public string? Message { get; init; }
+
+    /// <summary>Number of pages, when the document parsed (0 otherwise).</summary>
+    public int PageCount { get; init; }
+
+    /// <summary>First-page width in PDF points (1/72 in), when parsed.</summary>
+    public double? PageWidthPt { get; init; }
+
+    /// <summary>First-page height in PDF points (1/72 in), when parsed.</summary>
+    public double? PageHeightPt { get; init; }
+}
+
+/// <summary>Managed (in-process) PDF inspection. Implementations must be thread-safe: PDFium serializes internally.</summary>
+public interface IPdfInspector
+{
+    /// <summary>Open and classify the PDF at <paramref name="pdfPath"/>. Never prints; never modifies the file.</summary>
+    Task<PdfInspectionResult> InspectAsync(string pdfPath, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Tri-state physical outcome of a spooler job (decision D-03). Replaces the
+/// old boolean poll whose "not found in any queue → assume printed" rule
+/// produced false-positive completions for purged or never-spooled jobs.
+/// </summary>
+public enum SpoolerOutcome
+{
+    /// <summary>The job has not been observed in a queue yet; keep polling.</summary>
+    StillQueued = 0,
+
+    /// <summary>The spooler reported the document as printed/completed.</summary>
+    Printed = 1,
+
+    /// <summary>The job was observed in a queue earlier and is now gone — the spooler purged it after success.</summary>
+    PurgedAfterSeen = 2
+}
+
+/// <summary>
+/// Monitors spooler jobs with the honest tri-state model. Implemented by the
+/// Windows printer service; optional capability — callers use
+/// <c>as ISpoolerMonitor</c> so fakes without spooler access keep working.
+/// </summary>
+public interface ISpoolerMonitor
+{
+    /// <summary>
+    /// Classify the current physical outcome of a spooler job. Must be called
+    /// repeatedly by the confirm loop; classifications are monotonic per job
+    /// (StillQueued → Printed or PurgedAfterSeen).
+    /// </summary>
+    Task<SpoolerOutcome> GetOutcomeAsync(int spoolerJobId, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Read-only queue statistics for the Diagnostics screen (decision D-07).
+/// Implemented by <c>SqliteJobQueue</c>; optional dependency — callers use
+/// <c>as IQueueDiagnostics</c> or DI-resolve it directly.
+/// </summary>
+public interface IQueueDiagnostics
+{
+    /// <summary>Count of jobs per <see cref="JobStatus"/> (all statuses, zero included when queried).</summary>
+    Task<IReadOnlyDictionary<JobStatus, int>> GetCountsByStatusAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The most recent <c>printed_at</c> in the queue, or null when nothing has printed yet.</summary>
+    Task<DateTimeOffset?> GetLastPrintedAtAsync(CancellationToken cancellationToken = default);
+}

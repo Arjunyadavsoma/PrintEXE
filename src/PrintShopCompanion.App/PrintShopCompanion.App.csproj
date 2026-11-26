@@ -56,6 +56,13 @@
     <None Update="Assets\Icons\app.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- Side-by-side manifest packaged by the MSI (installer references
+         $(var.PublishDir)\PrintShopCompanion.exe.manifest). Kept as a copy
+         item rather than ApplicationManifest: embedding triggers SxS lookups
+         that complicate the portable layout (see comment at the top of file). -->
+    <None Include="PrintShopCompanion.exe.manifest">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

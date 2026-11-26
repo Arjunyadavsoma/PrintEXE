@@ -324,10 +324,16 @@ public sealed class GitHubUpdateService : IUpdateService
             progress?.Report(100);
 
             // 6. Exit the app so the .bat can swap files.
+#if WINDOWS
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
                 System.Windows.Application.Current.Shutdown();
             });
+#else
+            // Neutral TFM (unit tests / non-WPF hosts): the host application owns
+            // its own lifetime; the updater stops after staging the files.
+            await Task.CompletedTask;
+#endif
         }
         catch (Exception ex)
         {

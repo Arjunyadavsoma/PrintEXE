@@ -34,6 +34,8 @@ public static class Program
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
             .Enrich.FromLogContext()
+            // Decision D-06: redact token/secret properties (same rule as the App).
+            .Enrich.With(new PrintShopCompanion.Infrastructure.Logging.DeviceTokenRedactor())
             .WriteTo.File(
                 System.IO.Path.Combine(logDir, "worker-.log"),
                 rollingInterval: RollingInterval.Day,

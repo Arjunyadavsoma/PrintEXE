@@ -1,17 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Multi-targeted (see Directory.Build.props): net10.0 for platform-neutral
+         test execution, net10.0-windows for the full Windows surface. -->
     <RootNamespace>PrintShopCompanion.Infrastructure</RootNamespace>
     <AssemblyName>PrintShopCompanion.Infrastructure</AssemblyName>
     <!-- System.Printing and System.Drawing.Printing live in the Windows Desktop
          framework (Microsoft.WindowsDesktop.App). UseWPF=true brings them in
          without forcing a hard dependency on WPF UI assemblies — Infrastructure
          itself never opens a Window, but it does enumerate PrintQueues and
-         submit PrintDocuments. -->
-    <UseWPF>true</UseWPF>
+         submit PrintDocuments. Only set on the windows TFM so the neutral
+         net10.0 build has no WindowsDesktop dependency at all. -->
+    <UseWPF Condition="'$(TargetFramework)' == 'net10.0-windows'">true</UseWPF>
     <UseWindowsForms>false</UseWindowsForms>
   </PropertyGroup>
+
+  <!-- Windows-only sources: System.Printing / System.Drawing.Printing are
+       unavailable on the neutral TFM. Excluded there; compiled on windows. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Printers/WindowsPrinterService.cs" />
+    <Compile Remove="Printers/RawGdiPrinter.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
@@ -20,9 +29,17 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.2" />
+    <PackageReference Include="PDFtoImage" Version="5.4.0" />
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.EventLog" Version="4.0.0" />
+
+    <!-- DPAPI (DeviceTokenStore / QueueKeyStore). Was previously resolved only
+         transitively from the Windows Desktop SDK — an unverified compile risk
+         flagged by the Phase 0 audit (docs/AUDIT.md §3). Now explicit. The
+         API compiles on the neutral TFM but throws at runtime on non-Windows;
+         callers guard with OperatingSystem.IsWindows(). -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.2" />
 
     <!-- SocketIOClient: bumped to 3.2.0 (the latest stable on NuGet as of 2024).
          3.2.0 multi-targets net6.0/net7.0/net8.0 — when consumed by net10.0 it

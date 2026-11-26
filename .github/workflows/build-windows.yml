@@ -421,6 +421,59 @@ jobs:
   # release. This job has `contents: write` to create the release; the
   # build job is read-only.
   # ──────────────────────────────────────────────────────────────────────
+
+  # Optional MSI build (WiX v5). The research phase (PRINTEXE_ENGINEERING_DECISIONS
+  # D-13) found the WiX sources were never built by CI and shipped with missing
+  # assets; this job exercises them on tags. SumatraPDF.exe is downloaded from the
+  # official release (GPL-3.0, invoked as a separate process only — see
+  # docs/THIRD_PARTY_NOTICES.md).
+  msi:
+    name: Build MSI (installer, tag only)
+    needs: build
+    if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install WiX v5 tooling
+        run: dotnet tool install --global wix
+
+      - name: Download SumatraPDF (bundled renderer)
+        shell: pwsh
+        run: |
+          $url = 'https://www.sumatrapdfreader.org/dl/Rel/3.5.1/SumatraPDF-3.5.1-64.zip'
+          Invoke-WebRequest -Uri $url -OutFile sumatra.zip
+          Expand-Archive sumatra.zip -DestinationPath sumatra
+          New-Item -ItemType Directory -Force -Path installer/redist | Out-Null
+          Copy-Item sumatra/SumatraPDF.exe installer/redist/SumatraPDF.exe
+
+      - name: Publish app (win-x64)
+        run: dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:BUILD_VERSION=${{ github.event.inputs.release-tag || github.ref_name }} -o publish
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $version = '${{ github.event.inputs.release-tag || github.ref_name }}' -replace '^v',''
+          wix build -arch x64 `
+            -d PublishDir=publish `
+            -d RepoRoot=$env:GITHUB_WORKSPACE `
+            -d Version=$version `
+            -out "PrintShopCompanion-$version-x64.msi" `
+            installer/PrintShopCompanion.Installer.wxs
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintShopCompanion-msi
+          path: PrintShopCompanion-*.msi
+        if: always()
+
   release:
     name: Create GitHub Release (tag only)
     needs: build

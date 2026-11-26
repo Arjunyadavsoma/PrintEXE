@@ -80,6 +80,10 @@ public partial class App : Application
         Directory.CreateDirectory(logDir);
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
+            // Decision D-06: the token redactor is now actually wired (Phase 0
+            // audit found the enricher existed but was never attached). Device
+            // tokens / secrets must never reach any log file.
+            .Enrich.With(new PrintShopCompanion.Infrastructure.Logging.DeviceTokenRedactor())
             .WriteTo.File(Path.Combine(logDir, "companion-.log"),
                 rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14)
             .CreateLogger();
@@ -163,6 +167,7 @@ public partial class App : Application
                     services.AddTransient<SyncCenterViewModel>();
                     services.AddTransient<SettingsViewModel>();
                     services.AddTransient<OrderDetailsViewModel>();
+                    services.AddTransient<DiagnosticsViewModel>();
                     services.AddTransient<LoginView>();
                     services.AddTransient<OverviewView>();
                     services.AddTransient<OrdersView>();
@@ -171,6 +176,7 @@ public partial class App : Application
                     services.AddTransient<SyncCenterView>();
                     services.AddTransient<SettingsView>();
                     services.AddTransient<OrderDetailsView>();
+                    services.AddTransient<DiagnosticsView>();
                     services.AddSingleton<TrayIconHost>();
                 })
                 .Build();

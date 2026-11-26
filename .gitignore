@@ -42,3 +42,4 @@ scripts/syntax-check.csx
 .env
 .env.local
 .env.*.local
+core

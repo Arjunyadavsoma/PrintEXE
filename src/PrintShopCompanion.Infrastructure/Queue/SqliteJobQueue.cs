@@ -32,8 +32,8 @@ using PrintShopCompanion.Infrastructure.Storage;
 /// package to be added to the csproj — without it, the <c>Password=</c> parameter is
 /// ignored by plain SQLite and the database is not encrypted.</para>
 /// </summary>
-public sealed class SqliteJobQueue : IJobQueue
-{
+    public sealed class SqliteJobQueue : IJobQueue, Core.Contracts.IQueueDiagnostics
+    {
     private readonly string _connectionString;
     private readonly ILogger<SqliteJobQueue> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -85,17 +85,21 @@ public sealed class SqliteJobQueue : IJobQueue
             last_delivery_error TEXT,
             original_filename   TEXT,
             order_token          TEXT,
-            page_count          INTEGER
+            page_count          INTEGER,
+            -- v0.6 columns (decision D-08: operator priority / rush + due time)
+            priority            INTEGER NOT NULL DEFAULT 0,
+            due_at              TEXT
         );
 
         CREATE INDEX IF NOT EXISTS ix_jobs_status      ON jobs (status);
         CREATE INDEX IF NOT EXISTS ix_jobs_next_retry  ON jobs (next_attempt_at);
         CREATE INDEX IF NOT EXISTS ix_jobs_delivery    ON jobs (delivery_status);
+        CREATE INDEX IF NOT EXISTS ix_jobs_priority    ON jobs (priority);
 
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
         );
-        INSERT OR IGNORE INTO schema_version (version) VALUES (2);
+        INSERT OR IGNORE INTO schema_version (version) VALUES (3);
         """;
 
     private const string EnqueueSql = """
@@ -107,7 +111,8 @@ public sealed class SqliteJobQueue : IJobQueue
             delivery_status, storage_status, checksum, file_size,
             received_at, cloud_delete_after, local_delete_after,
             delivery_attempt_count, last_delivery_error,
-            original_filename, order_token, page_count
+            original_filename, order_token, page_count,
+            priority, due_at
         ) VALUES (
             @job_id, @shop_id, @device_id, @title, @printer_name, @copies, @page_range,
             @paper_size, @color, @color_mode, @duplex, @pdf_url, @pdf_sha256, @local_pdf_path,
@@ -116,7 +121,8 @@ public sealed class SqliteJobQueue : IJobQueue
             @delivery_status, @storage_status, @checksum, @file_size,
             @received_at, @cloud_delete_after, @local_delete_after,
             @delivery_attempt_count, @last_delivery_error,
-            @original_filename, @order_token, @page_count
+            @original_filename, @order_token, @page_count,
+            @priority, @due_at
         )
         ON CONFLICT(job_id) DO NOTHING;
         """;
@@ -326,6 +332,9 @@ public sealed class SqliteJobQueue : IJobQueue
                 ("original_filename", "TEXT"),
                 ("order_token", "TEXT"),
                 ("page_count", "INTEGER"),
+                // v0.6 (decision D-08): operator priority / rush + due time
+                ("priority", "INTEGER NOT NULL DEFAULT 0"),
+                ("due_at", "TEXT"),
             };
 
             foreach (var (col, type) in v05Columns)
@@ -531,6 +540,9 @@ public sealed class SqliteJobQueue : IJobQueue
         AddParam(cmd, "@original_filename", (object?)job.OriginalFilename ?? DBNull.Value);
         AddParam(cmd, "@order_token", (object?)job.OrderToken ?? DBNull.Value);
         AddParam(cmd, "@page_count", (object?)job.PageCount ?? DBNull.Value);
+        // v0.6 (decision D-08)
+        AddParam(cmd, "@priority", job.Priority);
+        AddParam(cmd, "@due_at", (object?)job.DueAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -596,6 +608,9 @@ public sealed class SqliteJobQueue : IJobQueue
             AddParam(cmd, "@original_filename", (object?)job.OriginalFilename ?? DBNull.Value);
             AddParam(cmd, "@order_token", (object?)job.OrderToken ?? DBNull.Value);
             AddParam(cmd, "@page_count", (object?)job.PageCount ?? DBNull.Value);
+            // v0.6 (decision D-08)
+            AddParam(cmd, "@priority", job.Priority);
+            AddParam(cmd, "@due_at", (object?)job.DueAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
 
             var inserted = await cmd.ExecuteNonQueryAsync(ct);
             await tx.CommitAsync(ct);
@@ -646,7 +661,7 @@ public sealed class SqliteJobQueue : IJobQueue
                  WHERE status = @pending
                     OR (status = @failed AND next_attempt_at IS NOT NULL
                         AND next_attempt_at <= @now)
-                 ORDER BY queued_at ASC
+                 ORDER BY priority DESC, queued_at ASC
                  LIMIT 1;
                 """;
             AddParam(sel, "@pending", (int)JobStatus.Pending);
@@ -1037,6 +1052,43 @@ public sealed class SqliteJobQueue : IJobQueue
 
     // ────────────────────────── helpers ──────────────────────────
 
+    /// <summary>Job counts per status (decision D-07). Single grouped query.</summary>
+    public async Task<IReadOnlyDictionary<JobStatus, int>> GetCountsByStatusAsync(CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await using var conn = await OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT status, COUNT(*) FROM jobs GROUP BY status;";
+            var counts = new Dictionary<JobStatus, int>();
+            foreach (JobStatus s in Enum.GetValues(typeof(JobStatus))) counts[s] = 0;
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var key = (JobStatus)Convert.ToInt32(reader["status"]);
+                counts[key] = Convert.ToInt32(reader[1]);
+            }
+            return counts;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Most recent printed_at (decision D-07).</summary>
+    public async Task<DateTimeOffset?> GetLastPrintedAtAsync(CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await using var conn = await OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT MAX(printed_at) FROM jobs WHERE printed_at IS NOT NULL;";
+            var result = await cmd.ExecuteScalarAsync(ct);
+            return result is string s ? DateTimeOffset.Parse(s, CultureInfo.InvariantCulture) : null;
+        }
+        finally { _gate.Release(); }
+    }
+
     private static TimeSpan ComputeBackoff(int attempt)
     {
         // Exponential backoff with jitter: 5s, 15s, 45s, 2m, 5m, capped at 10m.
@@ -1078,7 +1130,9 @@ public sealed class SqliteJobQueue : IJobQueue
                 last_delivery_error   = @last_delivery_error,
                 original_filename     = @original_filename,
                 order_token           = @order_token,
-                page_count            = @page_count
+                page_count            = @page_count,
+                priority              = @priority,
+                due_at                = @due_at
              WHERE job_id = @job_id;
             """;
         AddParam(cmd, "@job_id", job.JobId);
@@ -1111,6 +1165,9 @@ public sealed class SqliteJobQueue : IJobQueue
         AddParam(cmd, "@original_filename", (object?)job.OriginalFilename ?? DBNull.Value);
         AddParam(cmd, "@order_token", (object?)job.OrderToken ?? DBNull.Value);
         AddParam(cmd, "@page_count", (object?)job.PageCount ?? DBNull.Value);
+        // v0.6 (decision D-08)
+        AddParam(cmd, "@priority", job.Priority);
+        AddParam(cmd, "@due_at", (object?)job.DueAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -1166,6 +1223,9 @@ public sealed class SqliteJobQueue : IJobQueue
             LocalDeleteAfter = TryGetDateTime(r, "local_delete_after"),
             DeliveryAttemptCount = TryGetInt(r, "delivery_attempt_count") ?? 0,
             LastDeliveryError = TryGetString(r, "last_delivery_error"),
+            // v0.6 (decision D-08): tolerant reads for pre-v0.6 schemas
+            Priority = TryGetInt(r, "priority") ?? 0,
+            DueAt = TryGetDateTime(r, "due_at"),
         };
     }
 

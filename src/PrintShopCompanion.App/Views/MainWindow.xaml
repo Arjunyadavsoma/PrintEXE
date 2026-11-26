@@ -86,6 +86,7 @@
                     <Button Content="Print Queue" Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue" Style="{StaticResource NavItem}"/>
                     <Button Content="Printers"   Click="Nav_Click" Tag="Printers"  x:Name="NavPrinters"  Style="{StaticResource NavItem}"/>
                     <Button Content="Sync Center" Click="Nav_Click" Tag="SyncCenter" x:Name="NavSyncCenter" Style="{StaticResource NavItem}"/>
+                    <Button Content="Diagnostics" Click="Nav_Click" Tag="Diagnostics" x:Name="NavDiagnostics" Style="{StaticResource NavItem}"/>
                 </StackPanel>
 
                 <!-- Section divider -->

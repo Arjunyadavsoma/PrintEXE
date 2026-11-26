@@ -6,6 +6,7 @@ using System.Printing;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using PrintShopCompanion.Core.Contracts;
+using SkiaSharp;
 
 /// <summary>
 /// Raw GDI printer — the **fallback** renderer for label / receipt / dot-matrix
@@ -29,29 +30,153 @@ public sealed class RawGdiPrinter : IPdfRenderer
         if (!File.Exists(pdfPath)) throw new FileNotFoundException("PDF not found", pdfPath);
         var documentName = $"PrintShop-{Guid.NewGuid():N}";
 
+        // Decision D-05: rasterise the ACTUAL PDF pages with PDFium and print
+        // them through System.Drawing. The previous implementation drew a
+        // placeholder string ("raw GDI fallback") — a fake fallback that
+        // produced wrong paper. Pages are rendered up-front for the requested
+        // range (bounded memory: only selected pages are held).
+        var pageIndexes = SelectPageIndexes(pdfPath, pageRange);
+        if (pageIndexes.Count == 0)
+            throw new InvalidOperationException("Page range selected no pages (document may be empty)");
+
         using var pd = new PrintDocument
         {
             DocumentName = documentName,
             PrinterSettings = { PrinterName = printerFullName, Copies = (short)Math.Max(1, copies) }
         };
-
-        // For raw printers, fall back to drawing a tiny placeholder via GDI; the actual
-        // production path is to render the PDF page-by-page with System.Drawing.Graphics.
-        pd.PrintPage += (_, e) =>
+        if (!string.IsNullOrEmpty(paperSize))
         {
-            using var font = new Font("Arial", 10);
-            e.Graphics.DrawString("PrintShop Companion (raw GDI fallback)", font, Brushes.Black, 20, 20);
-            e.HasMorePages = false;
-        };
-        pd.Print();
+            var match = pd.PrinterSettings.PaperSizes
+                .Cast<PaperSize>()
+                .FirstOrDefault(p => string.Equals(p.PaperName, paperSize, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                pd.DefaultPageSettings.PaperSize = match;
+            // Unknown paper names fall back to the printer default — the spec
+            // the customer asked for is preserved in the job record and shown
+            // in the UI; we never silently claim a different paper succeeded.
+        }
+        if (duplex is not null)
+        {
+            pd.PrinterSettings.Duplex = duplex.ToLowerInvariant() switch
+            {
+                "simplex" or "onesided" => Duplex.Simplex,
+                "vertical" or "duplexshort" or "shortedge" => Duplex.Vertical,
+                "horizontal" or "duplexlong" or "longedge" => Duplex.Horizontal,
+                _ => pd.PrinterSettings.Duplex
+            };
+        }
+
+        var pages = RenderPages(pdfPath, pageIndexes, grayscale: color == false);
+        try
+        {
+            var pageQueue = new Queue<Image>(pages);
+            pd.PrintPage += (_, e) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                if (pageQueue.Count == 0) { e.HasMorePages = false; return; }
+                var image = pageQueue.Dequeue();
+                DrawPageCoveringPrintableArea(e.Graphics, e.MarginBounds, image);
+                e.HasMorePages = pageQueue.Count > 0;
+            };
+            pd.Print();
+        }
+        finally
+        {
+            foreach (var p in pages) p.Dispose();
+        }
 
         var spoolerId = FindSpoolerJobId(printerFullName, documentName);
         if (spoolerId <= 0)
         {
-            _logger.LogWarning("RawGdi: could not recover spooler job ID for {Printer}", printerFullName);
-            return Task.FromResult(Random.Shared.Next(1_000_000, int.MaxValue));
+            // Decision D-05 (parity with SumatraPdfPrinter): NO synthetic id.
+            // 0 = "no id" per the IPdfRenderer contract; the caller parks the
+            // job as outcome-uncertain instead of assuming printed.
+            _logger.LogWarning("RawGdi: could not recover spooler job ID for {Printer} — physical outcome cannot be confirmed", printerFullName);
+            return Task.FromResult(0);
         }
         return Task.FromResult(spoolerId);
+    }
+
+    /// <summary>Parses a Sumatra-style page range ("1-3,5") into 0-based indexes; empty/null = all pages.</summary>
+    private List<int> SelectPageIndexes(string pdfPath, string? pageRange)
+    {
+        var total = PDFtoImage.Conversion.GetPageCount(File.ReadAllBytes(pdfPath));
+        var indexes = new List<int>();
+        if (string.IsNullOrWhiteSpace(pageRange))
+        {
+            for (var i = 0; i < total; i++) indexes.Add(i);
+            return indexes;
+        }
+        foreach (var seg in SumatraPdfPrinter.NormalizePageRange(pageRange)?.Split(',') ?? Array.Empty<string>())
+        {
+            if (seg.Length == 0) continue;
+            var dash = seg.IndexOf('-');
+            if (dash < 0)
+            {
+                if (int.TryParse(seg, out var one) && one >= 1 && one <= total) indexes.Add(one - 1);
+            }
+            else if (int.TryParse(seg[..dash], out var from) && int.TryParse(seg[(dash + 1)..], out var to))
+            {
+                from = Math.Max(1, from);
+                to = Math.Min(total, to);
+                for (var i = from; i <= to; i++) indexes.Add(i - 1);
+            }
+        }
+        return indexes.Distinct().OrderBy(i => i).ToList();
+    }
+
+    /// <summary>Renders the given 0-based pages to GDI images (optionally grayscaled for B&W jobs).</summary>
+    private List<Image> RenderPages(string pdfPath, IReadOnlyList<int> pageIndexes, bool grayscale)
+    {
+        var images = new List<Image>(pageIndexes.Count);
+        foreach (var idx in pageIndexes)
+        {
+            RenderOnePage(pdfPath, idx, grayscale, images);
+        }
+        return images;
+    }
+
+    private void RenderOnePage(string pdfPath, int pageIndex, bool grayscale, List<Image> images)
+    {
+        using var stream = File.OpenRead(pdfPath);
+        using var sk = PDFtoImage.Conversion.ToImage(stream, page: pageIndex);
+        using var data = SKImage.FromBitmap(sk).Encode(SKEncodedImageFormat.Png, 100);
+        using var ms = new MemoryStream(data.ToArray());
+        var img = Image.FromStream(ms);
+        if (grayscale) img = ToGrayscale(img);
+        images.Add(img);
+    }
+
+    private static Image ToGrayscale(Image source)
+    {
+        var result = new Bitmap(source.Width, source.Height);
+        using var g = Graphics.FromImage(result);
+        // ITU-R 601 luminance matrix — matches what "monochrome" drivers usually do.
+        var matrix = new System.Drawing.Imaging.ColorMatrix(new[]
+        {
+            new[] { 0.299f, 0.299f, 0.299f, 0, 0 },
+            new[] { 0.587f, 0.587f, 0.587f, 0, 0 },
+            new[] { 0.114f, 0.114f, 0.114f, 0, 0 },
+            new[] { 0f, 0f, 0f, 1, 0 },
+            new[] { 0f, 0f, 0f, 0, 1 },
+        });
+        using var attrs = new System.Drawing.Imaging.ImageAttributes();
+        attrs.SetColorMatrix(matrix);
+        g.DrawImage(source, new Rectangle(0, 0, source.Width, source.Height),
+            0, 0, source.Width, source.Height, GraphicsUnit.Pixel, attrs);
+        return result;
+    }
+
+    /// <summary>Draws the page bitmap to fill the printable area while preserving aspect ratio, centred.</summary>
+    private static void DrawPageCoveringPrintableArea(Graphics g, Rectangle bounds, Image page)
+    {
+        var scale = Math.Min((float)bounds.Width / page.Width, (float)bounds.Height / page.Height);
+        var w = (int)(page.Width * scale);
+        var h = (int)(page.Height * scale);
+        var x = bounds.X + (bounds.Width - w) / 2;
+        var y = bounds.Y + (bounds.Height - h) / 2;
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.DrawImage(page, x, y, w, h);
     }
 
     private static int FindSpoolerJobId(string printerFullName, string documentName)

@@ -9,6 +9,11 @@ using PrintShopCompanion.Core.Options;
 /// Composite renderer. Picks the primary based on <see cref="PrinterOptions.Renderer"/>
 /// and walks <see cref="PrinterOptions.FallbackRenderers"/> on failure.
 ///
+/// <para>The renderer registry is injected by DI as a name → renderer map, so the
+/// composite itself stays platform-neutral: on the neutral net10.0 build only the
+/// SumatraPDF entry exists; the windows TFM additionally registers the raw-GDI
+/// fallback (see InfrastructureModule).</para>
+///
 /// <para>As of v0.1 the default chain is:</para>
 /// <list type="number">
 ///   <item><b>SumatraPDF</b> — primary. Bundled <c>SumatraPDF.exe</c> invoked with
@@ -17,9 +22,8 @@ using PrintShopCompanion.Core.Options;
 ///     the spooler job ID via stdout as <c>SPOOLER_JOB_ID=&lt;int&gt;</c>. This is
 ///     the same binary that ships in <c>installer\redist\SumatraPDF.exe</c> and is
 ///     bundled into the MSI by <c>PrintShopCompanion.Installer.wxs</c>.</item>
-///   <item><b>Raw GDI</b> — fallback for ESC/POS / label / dot-matrix printers
-///     that don't accept PDFs directly. Uses <see cref="System.Drawing.Printing.PrintDocument"/>
-///     and the winspool.drv P/Invoke for raw byte passthrough.</item>
+///   <item><b>Raw GDI</b> (Windows only) — fallback for ESC/POS / label / dot-matrix
+///     printers that don't accept PDFs directly.</item>
 /// </list>
 ///
 /// <para>The previous PDFium-based in-process renderer was removed because:</para>
@@ -37,19 +41,16 @@ using PrintShopCompanion.Core.Options;
 /// </summary>
 public sealed class CompositePdfRenderer : IPdfRenderer
 {
-    private readonly SumatraPdfPrinter _sumatra;
-    private readonly RawGdiPrinter _gdi;
+    private readonly IReadOnlyDictionary<string, IPdfRenderer> _byName;
     private readonly IOptionsMonitor<PrinterOptions> _options;
     private readonly ILogger<CompositePdfRenderer> _logger;
 
     public CompositePdfRenderer(
-        SumatraPdfPrinter sumatra,
-        RawGdiPrinter gdi,
+        IReadOnlyDictionary<string, IPdfRenderer> renderersByName,
         IOptionsMonitor<PrinterOptions> options,
         ILogger<CompositePdfRenderer> logger)
     {
-        _sumatra = sumatra;
-        _gdi = gdi;
+        _byName = renderersByName;
         _options = options;
         _logger = logger;
     }
@@ -81,16 +82,11 @@ public sealed class CompositePdfRenderer : IPdfRenderer
     private IEnumerable<(string Name, IPdfRenderer Renderer)> BuildChain()
     {
         var o = _options.CurrentValue;
-        var byName = new Dictionary<string, IPdfRenderer>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["sumatra"] = _sumatra,
-            ["gdi"]     = _gdi,
-        };
-        yield return (o.Renderer, byName.TryGetValue(o.Renderer, out var primary) ? primary : _sumatra);
+        yield return (o.Renderer, _byName.TryGetValue(o.Renderer, out var primary) ? primary : _byName["sumatra"]);
         foreach (var fb in o.FallbackRenderers)
         {
             if (string.Equals(fb, o.Renderer, StringComparison.OrdinalIgnoreCase)) continue;
-            if (byName.TryGetValue(fb, out var r)) yield return (fb, r);
+            if (_byName.TryGetValue(fb, out var r)) yield return (fb, r);
         }
     }
 }

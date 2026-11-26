@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits the multi-target from Directory.Build.props. The ASP.NET Core
+         fake backend only runs on the windows TFM on Windows CI; all contract
+         tests run on the neutral TFM (Linux + Windows). -->
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Brings ASP.NET Core into the test host so we can run a REAL HTTP
+         server implementing the production agent contract (the Phase 0
+         audit found "no integration test against any HTTP server"). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PrintShopCompanion.Core\PrintShopCompanion.Core.csproj" />
+    <ProjectReference Include="..\..\src\PrintShopCompanion.Infrastructure\PrintShopCompanion.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\PrintShopCompanion.Shared\PrintShopCompanion.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

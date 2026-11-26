@@ -84,8 +84,8 @@ public sealed class PrintJobRecord
     /// <summary>Color mode matching the real <c>PrintFile.colorMode</c> Prisma field: "bw" or "color".</summary>
     public string? ColorMode { get; init; }
 
-    /// <summary>Page count from <c>PrintFile.pageCount</c>. May be null if the backend hasn't counted yet.</summary>
-    public int? PageCount { get; init; }
+    /// <summary>Page count from <c>PrintFile.pageCount</c>; filled in by the local PDF inspection when the backend didn't supply one. May be null.</summary>
+    public int? PageCount { get; set; }
 
     /// <summary>Original filename from <c>PrintFile.originalFilename</c>. Shown in the UI as the file name.</summary>
     public string? OriginalFilename { get; init; }
@@ -189,6 +189,22 @@ public sealed class PrintJobRecord
     /// Incremented on each retry. Capped at MaxPrintAttempts (default 5).
     /// </summary>
     public int DeliveryAttemptCount { get; set; }
+
+    /// <summary>
+    /// Local scheduling priority (decision D-08). 0 = normal; rush jobs carry a
+    /// higher value (the rush mapping is 10). Dequeue order is
+    /// <c>priority DESC, queued_at ASC</c>. The backend contract does not yet
+    /// carry a rush field, so today this is operator-set in the Print Queue UI;
+    /// the column exists so the backend can drive it later without a migration.
+    /// </summary>
+    public int Priority { get; set; }
+
+    /// <summary>
+    /// Due time (decision D-08). Informational: the UI shows overdue jobs in
+    /// red and the dequeue order prefers higher priority first; lateness never
+    /// changes what is printed. Null when the backend supplies no due time.
+    /// </summary>
+    public DateTimeOffset? DueAt { get; set; }
 
     /// <summary>
     /// Last delivery error (e.g. "SHA-256 mismatch", "download timeout",

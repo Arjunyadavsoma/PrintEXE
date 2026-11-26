@@ -88,11 +88,33 @@ public static class InfrastructureModule
         // but the magic-link flow is still wired so existing paired devices continue to work.
         services.AddSingleton<IPairingService, MagicLinkPairingService>();
 
-        // Printers — SumatraPDF (primary, bundled .exe) + raw GDI fallback (ESC/POS / label printers)
+        // Printers — SumatraPDF (primary, bundled .exe) + raw GDI fallback (ESC/POS / label printers).
+        // The composite takes a name → renderer map so the whole printer engine stays
+        // platform-neutral: on the neutral net10.0 build only Sumatra exists; the windows
+        // TFM additionally registers the raw-GDI fallback and the spooler integration.
         services.AddSingleton<SumatraPdfPrinter>();
+#if WINDOWS
         services.AddSingleton<RawGdiPrinter>();
-        services.AddSingleton<IPdfRenderer, CompositePdfRenderer>();
         services.AddSingleton<IPrinterService, WindowsPrinterService>();
+#endif
+        services.AddSingleton<IPdfRenderer>(sp =>
+        {
+            var byName = new Dictionary<string, IPdfRenderer>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sumatra"] = sp.GetRequiredService<SumatraPdfPrinter>(),
+#if WINDOWS
+                ["gdi"] = sp.GetRequiredService<RawGdiPrinter>(),
+#endif
+            };
+            return new CompositePdfRenderer(
+                byName,
+                sp.GetRequiredService<IOptionsMonitor<PrinterOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CompositePdfRenderer>>());
+        });
+
+        // Managed PDF inspection (decision D-04) — validates documents before
+        // they are claimed and spooled. Platform-neutral: PDFium runs on any OS.
+        services.AddSingleton<Core.Contracts.IPdfInspector, Pdf.PdfDocumentInspector>();
 
         // Job processor (started by the App or Worker; not hosted automatically here).
         // Phase 3: also exposed as IQueueController so the CommandExecutor can

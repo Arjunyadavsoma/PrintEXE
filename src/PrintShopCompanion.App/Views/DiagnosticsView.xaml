@@ -1,0 +1,71 @@
+<UserControl x:Class="PrintShopCompanion.App.Views.DiagnosticsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="24,18,24,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,14">
+            <TextBlock Text="Diagnostics" FontSize="22" FontWeight="SemiBold"/>
+            <Button Content="Run check" Command="{Binding RunCheckCommand}" Margin="18,0,0,0" Padding="14,6"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"/>
+            <Button Content="Export diagnostics" Command="{Binding ExportCommand}" Margin="8,0,0,0" Padding="14,6"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"/>
+            <TextBlock Text="{Binding StatusLine}" Margin="18,0,0,0" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+
+        <!-- Busy -->
+        <TextBlock Grid.Row="1" Text="Checking…" Margin="0,0,0,8"
+                   Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+        <!-- Facts -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Cloud" FontSize="14" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                <StackPanel Margin="12,0,0,8">
+                    <TextBlock Text="Backend URL" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2"/>
+                    <TextBlock Text="{Binding BaseUrl}" TextTrimming="CharacterEllipsis" Margin="12,0,0,0"/>
+                    <TextBlock Text="Reachable" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding CloudReachable}" Margin="12,0,0,0"/>
+                    <TextBlock Text="Token valid" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding TokenValid}" Margin="12,0,0,0"/>
+                    <TextBlock Text="Device registered" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding DeviceRegistered}" Margin="12,0,0,0"/>
+                    <TextBlock Text="Device ID" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding DeviceId}" Margin="12,0,0,0"/>
+                    <TextBlock Text="Shop ID" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding ShopId}" Margin="12,0,0,0"/>
+                </StackPanel>
+
+                <TextBlock Text="Local store" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <StackPanel Margin="12,0,0,8">
+                    <TextBlock Text="Database healthy" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2"/>
+                    <TextBlock Text="{Binding DatabaseHealthy}" Margin="12,0,0,0"/>
+                    <TextBlock Text="Queue" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding QueueSummary}" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                    <TextBlock Text="Queue worker" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding QueueState}" Margin="12,0,0,0"/>
+                    <TextBlock Text="Last successful print" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,2"/>
+                    <TextBlock Text="{Binding LastPrint}" Margin="12,0,0,0"/>
+                </StackPanel>
+
+                <TextBlock Text="Printers" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <TextBlock Text="{Binding PrinterSummary}" Margin="12,0,0,8" TextWrapping="Wrap"/>
+
+                <TextBlock Text="Disk" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <TextBlock Text="{Binding DiskSummary}" Margin="12,0,0,8"/>
+
+                <TextBlock Text="Issues" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                <TextBlock Text="{Binding Errors}" Margin="12,0,0,8" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BrandDangerBrush}"/>
+
+                <TextBlock Text="{Binding ExportPath}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

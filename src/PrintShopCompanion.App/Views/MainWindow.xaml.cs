@@ -109,7 +109,7 @@ public partial class MainWindow : Window
         // Highlight the active nav button (and demote the rest). OrderDetails
         // is reached FROM Orders — keep the Orders rail item highlighted.
         var navHighlight = current == "OrderDetails" ? "Orders" : current;
-        foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "SyncCenter", "Settings" })
+        foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "SyncCenter", "Diagnostics", "Settings" })
         {
             var btn = FindName("Nav" + name) as Button;
             if (btn == null) continue;
@@ -139,6 +139,7 @@ public partial class MainWindow : Window
             "PrintQueue" => _services.GetRequiredService<PrintQueueView>(),
             "Printers" => _services.GetRequiredService<PrintersView>(),
             "SyncCenter" => _services.GetRequiredService<SyncCenterView>(),
+            "Diagnostics" => _services.GetRequiredService<DiagnosticsView>(),
             "Settings" => _services.GetRequiredService<SettingsView>(),
             _ => _services.GetRequiredService<OverviewView>()
         };

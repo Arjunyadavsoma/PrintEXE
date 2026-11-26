@@ -1066,16 +1066,18 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static PrintJobRecord MapToRecord(PrintJobDto dto) => new()
+    private PrintJobRecord MapToRecord(PrintJobDto dto) => new()
     {
         JobId = dto.JobId,
-        ShopId = "",
-        DeviceId = "",
+        // D-12: stamp the paired shop id (audit: ShopId was always "" here).
+        ShopId = _shop?.Id ?? "",
+        DeviceId = CurrentDevice?.DeviceId ?? "",
         Title = dto.Filename,
         PrinterName = null,
         Copies = dto.Copies,
         PageRange = dto.PageRange,
         PaperSize = dto.PaperSize,
+        ColorMode = dto.ColorMode,
         Color = dto.ColorMode == "color",
         Duplex = dto.Duplex,
         PdfUrl = Uri.TryCreate(dto.DownloadUrl, UriKind.Absolute, out var u) ? u : null,

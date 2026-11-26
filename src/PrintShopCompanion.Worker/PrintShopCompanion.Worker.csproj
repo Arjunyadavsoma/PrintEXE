@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>PrintShopCompanion.Worker</RootNamespace>
     <AssemblyName>PrintShopCompanion.Worker</AssemblyName>
     <OutputType>Exe</OutputType>

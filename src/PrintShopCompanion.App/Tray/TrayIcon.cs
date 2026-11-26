@@ -67,12 +67,38 @@ public sealed class TrayIconHost : IDisposable
                 main.Activate(); main.Show();
             })
         });
+        // Decision D-09: the pause item now drives the real queue controller
+        // (IQueueController — the same singleton the remote `pause`/`resume`
+        // commands use). Cooperative semantics: an in-flight job finishes;
+        // new dequeues block until resumed. The header reflects live state.
+        var queueController = _services.GetRequiredService<Core.Contracts.IQueueController>();
+        var pauseItem = new System.Windows.Controls.MenuItem
+        {
+            Header = queueController.IsPaused ? "Resume queue" : "Pause queue",
+        };
+        pauseItem.Click += (_, _) =>
+        {
+            if (queueController.IsPaused)
+            {
+                queueController.ResumeAsync();
+                pauseItem.Header = "Pause queue";
+            }
+            else
+            {
+                queueController.PauseAsync();
+                pauseItem.Header = "Resume queue";
+            }
+        };
+        menu.Items.Add(pauseItem);
         menu.Items.Add(new System.Windows.Controls.MenuItem
         {
-            Header = "Pause queue",
+            Header = "Diagnostics…",
             Command = new RelayCommand(() =>
             {
-                // Phase 6: queue pause is wired here.
+                var nav = _services.GetRequiredService<INavigationService>();
+                nav.NavigateTo("Diagnostics");
+                var main = _services.GetRequiredService<MainWindow>();
+                main.Activate(); main.Show();
             })
         });
         menu.Items.Add(new System.Windows.Controls.MenuItem

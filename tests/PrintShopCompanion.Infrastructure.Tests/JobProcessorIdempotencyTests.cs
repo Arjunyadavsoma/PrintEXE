@@ -169,7 +169,7 @@ public class JobProcessorIdempotencyTests
             CreatedAt = DateTimeOffset.UtcNow, QueuedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
         });
 
-        var proc = new JobProcessor(q, be, pr, rd, opts, Microsoft.Extensions.Options.Options.Create(new BackendOptions { PollFallbackInterval = TimeSpan.FromSeconds(2) }), logger);
+        var proc = new JobProcessor(q, be, pr, rd, new PrintShopCompanion.Infrastructure.Pdf.PdfDocumentInspector(new Microsoft.Extensions.Logging.Abstractions.NullLogger<PrintShopCompanion.Infrastructure.Pdf.PdfDocumentInspector>()), opts, Microsoft.Extensions.Options.Options.Create(new BackendOptions { PollFallbackInterval = TimeSpan.FromSeconds(2) }), Microsoft.Extensions.Options.Options.Create(new PrintShopCompanion.Core.Options.StorageOptions()), logger);
         using var cts = new CancellationTokenSource();
         // Drive one iteration of the loop manually.
         var one = await q.DequeueAsync(cts.Token);

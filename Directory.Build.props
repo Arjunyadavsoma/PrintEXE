@@ -1,8 +1,29 @@
 <Project>
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
+  <!--
+    Multi-target by default:
+      net10.0          — platform-neutral. Used by unit/integration tests so the whole
+                         OS-agnostic suite (queue, pairing, update, sync, contracts) RUNS
+                         on any OS (Linux CI/sandbox), not just cross-compiles.
+      net10.0-windows  — full Windows surface (System.Printing, DPAPI, WPF). Used by the
+                         WPF App (single-TFM) and by tests' windows TFM on Windows CI.
+    Projects that are inherently Windows-only (PrintShopCompanion.App) override this to
+    a single net10.0-windows TargetFramework. Windows-only source files are excluded from
+    the net10.0 compilation in each csproj and gated with #if WINDOWS inside shared files.
+  -->
+  <TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks>
+
+  <!-- WINDOWS symbol gates Windows-only code paths inside multi-targeted files. -->
+  <DefineConstants Condition="'$(TargetFramework)' == 'net10.0-windows'">$(DefineConstants);WINDOWS</DefineConstants>
+  <!-- RID pinning per host OS (disk hygiene): the default build copies EVERY
+       RID's native binaries (PDFium/SkiaSharp: arm64, x86, android, browser...)
+       into every bin/ folder — hundreds of MB per tree. PrintEXE tests run on
+       linux-x64 in this sandbox/CI and production targets win-x64, so pin the
+       copy set to the host RID. Windows CI overrides where needed (publish -r win-x64). -->
+  <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(OS)' == 'Unix'">linux-x64</RuntimeIdentifier>
+  <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(OS)' == 'Windows_NT'">win-x64</RuntimeIdentifier>
+  <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
@@ -29,7 +50,7 @@
       updater kept reporting "update available".
     -->
     <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
-    <Version Condition="'$(BUILD_VERSION)' == ''">0.4.7</Version>
+    <Version Condition="'$(BUILD_VERSION)' == ''">0.7.0</Version>
 
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
@@ -73,4 +94,13 @@
     <PublishSingleFile Condition="'$(PublishSingleFile)' == ''">false</PublishSingleFile>
   </PropertyGroup>
 
+
+  <!--
+    Disk hygiene (sandbox/CI): PDFtoImage/SkiaSharp ship native binaries for
+    many RIDs (arm64, x86, android, browser, musl...). The default build copies
+    ALL of them into every bin/ folder across every project x TFM — hundreds of
+    MB per tree. PrintEXE only ever RUNS on linux-x64 (tests) and win-x64
+    (production), so trim the copies to those two. The NuGet cache keeps all
+    RID packs (restore unchanged; Windows CI unaffected).
+  -->
 </Project>

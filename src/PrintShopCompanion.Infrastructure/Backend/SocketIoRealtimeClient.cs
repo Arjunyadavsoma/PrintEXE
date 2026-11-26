@@ -112,7 +112,17 @@ public sealed class SocketIoRealtimeClient : IDisposable
             try
             {
                 var dto = ev.GetValue<PrintJobDto>();
-                var record = MapDtoToRecord(dto);
+                var record = MapDtoToRecord(dto, _backend.CurrentShop?.Id);
+                // Decision D-12 — shop-ownership defense in depth. The backend
+                // scopes dispatches to our shop; if a payload ever names a
+                // different shop, refuse to enqueue it.
+                if (!JobOwnershipValidator.IsAcceptable(record, _backend.CurrentShop?.Id))
+                {
+                    _logger.LogError(
+                        "Rejected job {JobId}: shop mismatch (job shop '{JobShop}' != device shop '{DeviceShop}')",
+                        record.JobId, record.ShopId, _backend.CurrentShop?.Id);
+                    return;
+                }
                 record = await _queue.EnqueueAsync(record);
                 JobDelivered?.Invoke(record);
                 _logger.LogInformation("Job {JobId} delivered via Socket.IO and persisted", dto.JobId);
@@ -264,11 +274,13 @@ public sealed class SocketIoRealtimeClient : IDisposable
 
     private void OnError(object? sender, string err) => _logger.LogError("Socket.IO error: {Err}", err);
 
-    private static PrintJobRecord MapDtoToRecord(PrintJobDto dto) => new()
+    private PrintJobRecord MapDtoToRecord(PrintJobDto dto, string? knownShopId) => new()
     {
         JobId = dto.JobId,
-        ShopId = "",
-        DeviceId = "",
+        // Decision D-12: stamp the device's shop id so every record carries its
+        // owner (the Phase 0 audit found ShopId was always empty here).
+        ShopId = knownShopId ?? "",
+        DeviceId = _backend.CurrentDevice?.DeviceId ?? "",
         Title = dto.Filename,
         PrinterName = null,
         Copies = dto.Copies,
@@ -380,6 +392,15 @@ public sealed class HttpFallbackPoller : IDisposable
                     var jobs = await _backend.FetchPendingJobsAsync(ct);
                     foreach (var record in jobs)
                     {
+                        // Decision D-12 — same shop-ownership defense as the
+                        // socket path (poll fallback must not bypass it).
+                        if (!JobOwnershipValidator.IsAcceptable(record, _backend.CurrentShop?.Id))
+                        {
+                            _logger.LogError(
+                                "Rejected polled job {JobId}: shop mismatch (job shop '{JobShop}' != device shop '{DeviceShop}')",
+                                record.JobId, record.ShopId, _backend.CurrentShop?.Id);
+                            continue;
+                        }
                         var queued = await _queue.EnqueueAsync(record);
                         JobDelivered?.Invoke(queued);
                     }

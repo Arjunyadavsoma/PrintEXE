@@ -23,8 +23,11 @@ public sealed class JobProcessor : IQueueController
     private readonly IPrintShopBackend _backend;
     private readonly IPrinterService _printers;
     private readonly IPdfRenderer _renderer;
+    private readonly IPdfInspector _inspector;
+    private readonly ISpoolerMonitor? _spoolerMonitor;
     private readonly IOptions<PrinterOptions> _options;
     private readonly IOptions<BackendOptions> _backendOpts;
+    private readonly IOptions<StorageOptions> _storageOpts;
     private readonly ILogger<JobProcessor> _logger;
     private readonly SemaphoreSlim _concurrency = new(1, 1);
     private CancellationTokenSource? _loopCts;
@@ -104,16 +107,23 @@ public sealed class JobProcessor : IQueueController
         IPrintShopBackend backend,
         IPrinterService printers,
         IPdfRenderer renderer,
+        IPdfInspector inspector,
         IOptions<PrinterOptions> options,
         IOptions<BackendOptions> backendOpts,
+        IOptions<StorageOptions> storageOpts,
         ILogger<JobProcessor> logger)
     {
         _queue = queue;
         _backend = backend;
         _printers = printers;
         _renderer = renderer;
+        _inspector = inspector;
+        // Optional capability: fakes in unit tests may not implement spooler
+        // monitoring; the confirm loop falls back to the boolean poll then.
+        _spoolerMonitor = printers as ISpoolerMonitor;
         _options = options;
         _backendOpts = backendOpts;
+        _storageOpts = storageOpts;
         _logger = logger;
     }
 
@@ -274,6 +284,44 @@ public sealed class JobProcessor : IQueueController
             }
         }
 
+        // 1b. Managed PDF inspection (decision D-04) — BEFORE the backend claim.
+        //     The companion never spools a document it cannot open and classify:
+        //     encrypted/corrupt/empty/oversized files are failed permanently with
+        //     a precise, user-safe reason. Inspection never prints and never
+        //     modifies customer specifications; it only refuses unusable files.
+        if (job.Status is JobStatus.Downloading or JobStatus.Rendering)
+        {
+            var inspection = await _inspector.InspectAsync(job.LocalPdfPath, ct);
+            if (!inspection.IsValid)
+            {
+                _logger.LogError("PDF inspection failed for {JobId}: {Error} — {Message}",
+                    job.JobId, inspection.Error, inspection.Message);
+                await FailAsync(job, $"PDF inspection failed ({inspection.Error}): {inspection.Message}", permanent: true, ct);
+                return;
+            }
+            // Persist observed structure for the UI (page count when the backend didn't supply one).
+            if (inspection.PageCount > 0 && job.PageCount is null)
+            {
+                job.PageCount = inspection.PageCount;
+                job.UpdatedAt = DateTimeOffset.UtcNow;
+                await _queue.UpdateAsync(job, ct);
+            }
+        }
+
+        // 1c. Customer-approval gate (brief §8, decision D-11): a document
+        //     awaiting customer proof approval must NEVER be printed. The v1
+        //     backend contract dispatches only paid/approved orders (there is
+        //     no approval field on PrintJobDto today — see
+        //     docs/PRINTEXE_API_CONTRACTS.md); the authoritative authorization
+        //     is therefore the atomic claim below (a conditional update on the
+        //     backend's own state machine). When the backend later adds an
+        //     explicit approval marker, this gate honors it.
+        if (job.DeliveryStatus == DeliveryStatus.DeliveryFailed)
+        {
+            await FailAsync(job, "Delivery failed previously — operator review required before reprint", permanent: true, ct);
+            return;
+        }
+
         // 2. ATOMIC CLAIM: send status:"printing" to the backend. This is a
         //    conditional UPDATE (WHERE status='queued') — if another agent
         //    already claimed it, the response has skipped:true and we move on.
@@ -362,11 +410,25 @@ public sealed class JobProcessor : IQueueController
         // can never be polled for confirmation — the loop is skipped and the
         // job goes to the honest uncertain path instead of the old flow where
         // a synthetic id made HasPrintedAsync conclude "completed and purged".
+        // Decision D-03: with the tri-state monitor, "purged after seen" is
+        // honest evidence of success; "never seen" keeps polling until the
+        // deadline, then parks the job as UncertainSpooled.
         var deadline = DateTimeOffset.UtcNow + _options.Value.PrintConfirmTimeout;
         bool printed = false;
         while (sub.SpoolerJobId is not null && DateTimeOffset.UtcNow < deadline)
         {
-            try { printed = await _printers.HasPrintedAsync(sub.SpoolerJobId.Value, ct); }
+            try
+            {
+                if (_spoolerMonitor is not null)
+                {
+                    var outcome = await _spoolerMonitor.GetOutcomeAsync(sub.SpoolerJobId.Value, ct);
+                    printed = outcome is SpoolerOutcome.Printed or SpoolerOutcome.PurgedAfterSeen;
+                }
+                else
+                {
+                    printed = await _printers.HasPrintedAsync(sub.SpoolerJobId.Value, ct);
+                }
+            }
             catch (Exception ex) { _logger.LogWarning(ex, "Spooler status poll failed; will retry"); }
             if (printed) break;
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
@@ -403,15 +465,16 @@ public sealed class JobProcessor : IQueueController
         await _queue.MarkPrintedAsync(job.JobId, printedAt, sub.SpoolerJobId ?? 0, ct);
         _logger.LogInformation("Spooler confirmed physical print at {Time}", printedAt);
 
-        // v0.5: Set localDeleteAfter = printedAt + 60 min (configurable).
-        // The FileRetentionManager will delete the local PDF when this deadline passes.
+        // v0.5: Set localDeleteAfter = printedAt + retention (decision: real
+        // config, not the dead ternary the Phase 0 audit flagged).
         try
         {
-            var retentionMinutes = _backendOpts.Value.PollFallbackInterval.TotalSeconds > 0 ? 60 : 60;  // default
+            var retentionMinutes = Math.Max(1, _storageOpts.Value.LocalRetentionMinutes);
             job.LocalDeleteAfter = printedAt.AddMinutes(retentionMinutes);
             job.UpdatedAt = DateTimeOffset.UtcNow;
             await _queue.UpdateAsync(job, ct);
-            _logger.LogInformation("Local PDF scheduled for deletion at {Deadline} (60 min after print)", job.LocalDeleteAfter);
+            _logger.LogInformation("Local PDF scheduled for deletion at {Deadline} ({Minutes} min after print)",
+                job.LocalDeleteAfter, retentionMinutes);
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to set localDeleteAfter (non-fatal)"); }
 
