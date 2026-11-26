@@ -1,5 +1,21 @@
 # PrintShop Companion — Changelog
 
+## v0.7.5 — 2026-11-26 — Fix the v0.7.4 Windows test failure
+
+The v0.7.4 tag run's "Run tests" step failed on the Windows runner (the
+same tests pass on the neutral net10.0 leg): the new DI composition tests
+built their service container WITHOUT an IConfiguration registration, but
+InfrastructureModule binds PrintShop:*/Backend:* via BindConfiguration,
+which resolves IConfiguration from the provider — so the option binding
+threw during test construction on Windows (where the test bodies actually
+execute; the Linux leg skips at the OperatingSystem guard).
+
+### Fixed
+- `InfrastructureDiCompositionTests` now registers an empty
+  `ConfigurationBuilder().Build()` IConfiguration (values fall back to
+  options defaults) and redirects PdfCacheDir/LogDir/DeviceTokenPath into
+  the temp directory alongside QueueDbPath.
+
 ## v0.7.4 — 2026-11-26 — Restore the cloud connection, ship the renderer in every distribution
 
 Diagnosed from a real Windows machine's v0.7.3 session log: the app started,

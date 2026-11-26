@@ -50,7 +50,7 @@
       updater kept reporting "update available".
     -->
     <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
-    <Version Condition="'$(BUILD_VERSION)' == ''">0.7.4</Version>
+    <Version Condition="'$(BUILD_VERSION)' == ''">0.7.5</Version>
 
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>

@@ -51,8 +51,17 @@ public class InfrastructureDiCompositionTests : IDisposable
         services.AddOptions<StorageOptions>().Configure(o =>
         {
             o.QueueDbPath = Path.Combine(_tempDir, "queue.db");
+            o.PdfCacheDir = Path.Combine(_tempDir, "Jobs");
+            o.LogDir = Path.Combine(_tempDir, "Logs");
+            o.DeviceTokenPath = Path.Combine(_tempDir, "Security", "device.dat");
         });
         services.AddLogging();
+        // InfrastructureModule binds PrintShop:*/Backend:* via BindConfiguration,
+        // which resolves IConfiguration from the provider. The App registers a
+        // real config; a bare test container must provide an empty one (values
+        // fall back to options defaults) or option resolution throws.
+        services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         services.AddPrintShopCompanionInfrastructure();
         _provider = services.BuildServiceProvider();
     }
