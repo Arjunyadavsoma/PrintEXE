@@ -1,5 +1,29 @@
 # PrintShop Companion — Changelog
 
+## v0.7.16 — 2026-11-26 — ThisApp device-id load is contention-safe
+
+The v0.7.15 tag run failed 10 Integration tests with one shared chain:
+TypeInitializationException for ThisApp ← IOException on
+%APPDATA%\PrintShop\Companion\device-id.txt "being used by another
+process". The CI test matrix runs two testhost processes in parallel on
+one runner (the net10.0 and net10.0-windows legs), and ThisApp's static
+constructor did an unprotected read-then-write of the shared file — one
+leg held it while the other's File.ReadAllText threw and poisoned the
+type initializer for every later test in that leg (the other leg passed
+12/12 seconds later — a classic race, unrelated to the v0.7.15 UI
+changes, which live in the App project the Integration tests never
+load).
+
+### Fixed
+- ThisApp.LoadOrMintDeviceId now reads with FileShare.ReadWrite|
+  Delete, retries transient IOExceptions (10 × 50 ms), falls back to a
+  process-local Guid on UnauthorizedAccess, and can no longer throw
+  from the static initializer. The single-process app keeps the durable
+  shared-id behavior; parallel test processes no longer poison each
+  other.
+
+# PrintShop Companion — Changelog
+
 ## v0.7.15 — 2026-11-26 — Full UI revamp (design-skill driven, every page)
 
 A page-by-page redesign of the WPF app, executed with the installed

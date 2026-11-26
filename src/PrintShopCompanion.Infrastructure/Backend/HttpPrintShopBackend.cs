@@ -1152,10 +1152,53 @@ internal static class ThisApp
         var path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PrintShop", "Companion", "device-id.txt");
-        if (File.Exists(path) && Guid.TryParse(File.ReadAllText(path), out var g)) return g;
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var fresh = Guid.NewGuid();
-        File.WriteAllText(path, fresh.ToString());
-        return fresh;
+
+        // v0.7.16: the CI test matrix runs two testhost processes in
+        // parallel on ONE machine (net10.0 + net10.0-windows legs), and
+        // both legs static-initialize ThisApp. The old read-then-write
+        // raced on the shared file: one process held device-id.txt while
+        // the other's File.ReadAllText threw IOException, poisoning the
+        // type initializer (TypeInitializationException) for every later
+        // test in that leg. Read with FileShare so a concurrent writer
+        // doesn't fault us, retry briefly, and never let this path throw:
+        // a minted-but-unshared id is fine for a test process; the app
+        // itself is single-process and keeps the durable behavior.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                if (TryReadDeviceId(path, out var existing)) return existing;
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var fresh = Guid.NewGuid();
+                File.WriteAllText(path, fresh.ToString());
+                return fresh;
+            }
+            catch (IOException) when (attempt < 10)
+            {
+                Thread.Sleep(50);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Guid.NewGuid();
+            }
+        }
+    }
+
+    private static bool TryReadDeviceId(string path, out Guid id)
+    {
+        id = default;
+        if (!File.Exists(path)) return false;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            return Guid.TryParse(reader.ReadToEnd(), out id);
+        }
+        catch (IOException)
+        {
+            // Locked even with FileShare (writer mid-replace) — treat as
+            // absent so the caller retries / re-mints.
+            return false;
+        }
     }
 }
