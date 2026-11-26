@@ -526,18 +526,26 @@ jobs:
       - name: Publish app (win-x64)
         shell: pwsh
         run: |
-          # v0.7.7 fix: the previous bare `dotnet publish` ran restore
-          # implicitly and failed with MSB4181 ("RestoreTask returned false
-          # but did not log an error") under the runner's default SDK 11
-          # (actions/setup-dotnet's 10.0.x ends up lower on PATH than the
-          # preinstalled SDK). Restore explicitly FIRST so the restore step
-          # surfaces its real diagnostics, then publish --no-restore pinned
-          # to the same SDK via DOTNET_ROOT.
+          # v0.7.9 fix: normalize the tag into a valid System.Version before
+          # handing it to BUILD_VERSION. The raw ref name ("v0.7.8") made
+          # <AssemblyVersion>v0.7.8.0</AssemblyVersion> fail CS7034 — the
+          # build job strips the 'v' and any pre-release suffix in its
+          # "Set BUILD_VERSION from git tag" step; the MSI job never did
+          # (it never got this far: v0.7.3 died downloading SumatraPDF,
+          # v0.7.7 at restore). Same normalization, same rules.
+          $tag = '${{ github.event.inputs.release-tag || github.ref_name }}'
+          $ver = $tag -replace '^v',''
+          if ($ver -match '^(\d+\.\d+\.\d+)') { $ver = $Matches[1] }
+          Write-Host "BUILD_VERSION = $ver (from '$tag')"
+          # v0.7.8 fix: restore explicitly FIRST so a restore problem
+          # surfaces with real diagnostics instead of MSB4181, then publish
+          # --no-restore (implicit restore ran under the runner's default
+          # SDK 11 in v0.7.7).
           dotnet restore src/PrintShopCompanion.App/PrintShopCompanion.App.csproj -r win-x64
           dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=false `
-            -p:BUILD_VERSION=${{ github.event.inputs.release-tag || github.ref_name }} `
+            -p:BUILD_VERSION=$ver `
             --no-restore `
             -o publish
 

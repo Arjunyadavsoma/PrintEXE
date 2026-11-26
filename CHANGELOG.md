@@ -1,5 +1,23 @@
 # PrintShop Companion — Changelog
 
+## v0.7.9 — 2026-11-26 — MSI job: normalize the tag before BUILD_VERSION
+
+The v0.7.8 run got further than any tag build before it (restore fix held;
+tests, ZIP, and Release all green) and then hit a latent bug in the MSI
+job's publish step: it passed the RAW tag name as `BUILD_VERSION`, so
+`<AssemblyVersion>` became `v0.7.8.0` and compilation failed with
+`CS7034: The specified version string 'v0.7.8.0' does not conform to
+major[.minor[.build[.revision]]]`. The build job has always normalized
+the tag ("Set BUILD_VERSION from git tag": strip `v`, trim any pre-release
+suffix); the MSI job never did — it simply never reached this step before
+(v0.7.3 died at the SumatraPDF download, v0.7.7 at restore).
+
+### Fixed
+- The MSI job's publish step now applies the same normalization the build
+  job uses before handing the value to `-p:BUILD_VERSION=`. The "Build
+  MSI" step already stripped the `v` for the WiX `Version` variable, so
+  only the publish step needed the change.
+
 ## v0.7.8 — 2026-11-26 — MSI job: restore explicitly before publish
 
 v0.7.7 got the whole pipeline green except one step: the MSI job's
