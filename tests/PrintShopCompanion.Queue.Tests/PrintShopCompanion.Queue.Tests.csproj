@@ -16,6 +16,12 @@
     <!-- Vulnerable-transitive overrides — same as the production projects. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <!-- v0.7.2: lib.e_sqlite3 pin removed (see Infrastructure.csproj). -->
+    <!-- v0.7.6: the DI composition tests resolve the REAL SqliteJobQueue
+         (with a real QueueKeyStore), whose constructor fails closed when the
+         SQLCipher native provider is missing from the testhost. Same fix as
+         PrintShopCompanion.Infrastructure.Tests: reference the SQLCipher
+         bundle directly so the native e_sqlcipher.dll is present. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
   </ItemGroup>
 
   <ItemGroup>

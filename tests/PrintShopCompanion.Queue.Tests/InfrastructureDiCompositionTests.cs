@@ -51,6 +51,7 @@ public class InfrastructureDiCompositionTests : IDisposable
     private readonly string _tempDir;
 #if WINDOWS
     private readonly ServiceProvider _provider;
+    private readonly bool _encryptionAvailable;
 #endif
 
 #if WINDOWS
@@ -60,6 +61,12 @@ public class InfrastructureDiCompositionTests : IDisposable
         // same isolation approach as MigrationTests/QueuePriorityTests.
         _tempDir = Path.Combine(Path.GetTempPath(), "PrintShopDiTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
+
+        // Same availability guard as SqliteConnectionPragmasSafetyTests: if
+        // the SQLCipher native provider cannot load in this testhost, the
+        // production SqliteJobQueue constructor fails closed (correct
+        // behavior) — skip instead of testing the wrong thing.
+        _encryptionAvailable = PrintShopCompanion.Infrastructure.Storage.SqlCipherInitializer.IsEncryptionAvailable;
 
         var services = new ServiceCollection();
         services.AddOptions<StorageOptions>().Configure(o =>
@@ -93,6 +100,7 @@ public class InfrastructureDiCompositionTests : IDisposable
     public void SqliteJobQueue_resolves_by_concrete_type()
     {
 #if WINDOWS
+        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
         // The exact resolution that threw in v0.7.3.
         var queue = _provider.GetRequiredService<SqliteJobQueue>();
         queue.Should().NotBeNull();
@@ -103,6 +111,7 @@ public class InfrastructureDiCompositionTests : IDisposable
     public void DurableCommandStore_is_resolvable()
     {
 #if WINDOWS
+        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
         // DurableCommandStore(SqliteJobQueue queue, ILogger logger) — this is
         // the constructor that failed to activate in v0.7.3.
         var store = _provider.GetRequiredService<DurableCommandStore>();
@@ -114,6 +123,7 @@ public class InfrastructureDiCompositionTests : IDisposable
     public void CommandPoller_is_resolvable()
     {
 #if WINDOWS
+        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
         // The poller sits behind StartCloudConnectionAsync's first line
         // (GetRequiredService<CommandPoller>) — it activates the command
         // execution chain (executor + durable store + queue).
@@ -125,6 +135,7 @@ public class InfrastructureDiCompositionTests : IDisposable
     public void IJobQueue_and_concrete_registration_share_one_singleton()
     {
 #if WINDOWS
+        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
         // Both registrations must resolve to the SAME instance, mirroring the
         // JobProcessor/IQueueController pattern. Two separate singletons would
         // fork queue state (one DB gate, two connection strings is survivable,
@@ -140,6 +151,7 @@ public class InfrastructureDiCompositionTests : IDisposable
     public void SqlitePendingOpsQueue_resolves_by_concrete_type()
     {
 #if WINDOWS
+        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
         // SqlitePendingOpsQueue is also registered interface-only today, but
         // nothing currently requests the concrete type — pin the composition
         // we actually ship: IPendingOpsQueue must resolve.

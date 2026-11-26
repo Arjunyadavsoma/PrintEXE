@@ -1,5 +1,28 @@
 # PrintShop Companion — Changelog
 
+## v0.7.7 — 2026-11-26 — Bring the SQLCipher native into the Queue.Tests testhost
+
+v0.7.6's TFM gating worked (the neutral net10.0 leg went 38/38), moving the
+failure to the net10.0-windows leg: `DurableCommandStore_is_resolvable`
+failed with the production fail-closed message "the SQLitePCLRaw.
+bundle_e_sqlcipher native provider was not available for this platform".
+The DI composition tests resolve the REAL `SqliteJobQueue` (with a real
+`QueueKeyStore`), so the testhost needs the SQLCipher native binary —
+every pre-existing Queue.Tests suite passes `keyStore: null`, which is why
+the bundle was never needed there before.
+
+### Fixed
+- `PrintShopCompanion.Queue.Tests.csproj` now references
+  `SQLitePCLRaw.bundle_e_sqlcipher` 2.1.11 — the same fix
+  PrintShopCompanion.Infrastructure.Tests applied in v0.7.2 ("use the
+  SQLCipher bundle (matching the app) so the encryption tests exercise the
+  REAL provider").
+- Belt-and-braces: the DI tests capture
+  `SqlCipherInitializer.IsEncryptionAvailable` in the constructor and skip
+  when the native provider cannot load (the same guard as
+  `SqliteConnectionPragmasSafetyTests`) — the production constructor failing
+  closed is correct behavior, not a bug to report.
+
 ## v0.7.6 — 2026-11-26 — Gate the DI composition tests by TFM, not by OS
 
 The v0.7.5 run narrowed the failure to one test on the Windows runner's
