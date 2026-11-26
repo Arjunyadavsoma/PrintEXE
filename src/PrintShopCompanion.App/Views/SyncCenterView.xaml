@@ -5,85 +5,78 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
-    <Grid Background="#F7F7F8">
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Page header -->
-        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1">
-            <DockPanel Margin="24,18,24,18">
+        <Border Grid.Row="0" Style="{StaticResource PageHeader}">
+            <DockPanel Margin="{StaticResource PageMargin}">
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Sync Center" FontSize="22" FontWeight="Bold" Foreground="#111827"/>
+                    <TextBlock Text="Sync Center" Style="{StaticResource PageTitleText}"/>
                     <TextBlock Text="Background synchronization status and pending operations"
-                               FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,0"/>
+                               Style="{StaticResource PageSubtitleText}"/>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="ManualSyncButton" Content="↻  Sync Now" Click="SyncNow_Click"
-                            Padding="16,9" FontSize="13"
-                            Background="#2858CD" Foreground="White" BorderThickness="0"
-                            FontWeight="SemiBold" Cursor="Hand" Margin="0,0,8,0"/>
+                    <Button x:Name="ManualSyncButton" Content="Sync now" Click="SyncNow_Click"
+                            Style="{StaticResource PrimaryButton}"/>
                 </StackPanel>
             </DockPanel>
         </Border>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="24,20">
+            <StackPanel Margin="24,20,24,24">
 
                 <!-- CONNECTION STATUS section -->
-                <TextBlock Text="CONNECTION STATUS" FontSize="11" FontWeight="SemiBold"
-                           Foreground="#9CA3AF" Margin="0,0,0,10"/>
-                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Margin="0,0,0,20">
+                <TextBlock Text="Connection status" Style="{StaticResource SectionHeadingText}"/>
+                <Border Style="{StaticResource Card}" Padding="0">
                     <StackPanel>
                         <DockPanel Margin="20,16">
-                            <Border Width="10" Height="10" CornerRadius="5" DockPanel.Dock="Left"
+                            <Border Style="{StaticResource StatusDot}" DockPanel.Dock="Left"
                                     VerticalAlignment="Center" Margin="0,0,14,0"
                                     Background="{Binding ConnectionDotBrush}"/>
                             <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding ConnectionStatusText}" FontSize="14" FontWeight="SemiBold"
-                                           Foreground="#111827"/>
+                                <TextBlock Text="{Binding ConnectionStatusText}" Style="{StaticResource CardTitleText}"/>
                                 <TextBlock Text="{Binding ConnectionSubText}" FontSize="11.5"
-                                           Foreground="#6B7280" Margin="0,2,0,0"/>
+                                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
-                            <Border Background="{Binding ConnectionPillBrush}" CornerRadius="10" Padding="10,3"
+                            <Border Style="{StaticResource StatusPill}" Background="{Binding ConnectionPillBrush}"
                                     DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding ConnectionPillText}" FontSize="11" FontWeight="Medium"
+                                <TextBlock Text="{Binding ConnectionPillText}" Style="{StaticResource StatusPillText}"
                                            Foreground="{Binding ConnectionPillForeground}"/>
                             </Border>
                         </DockPanel>
-                        <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                        <Border Height="1" Background="{DynamicResource BorderSoftBrush}" Margin="20,0"/>
                         <DockPanel Margin="20,16">
                             <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="Last successful sync" FontSize="11.5" Foreground="#6B7280"/>
+                                <TextBlock Text="Last successful sync" Style="{StaticResource MutedText}"/>
                                 <TextBlock x:Name="LastSyncLabel" Text="{Binding LastSyncText}" FontSize="14"
-                                           FontWeight="Medium" Foreground="#111827" Margin="0,4,0,0"/>
+                                           FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,4,0,0"/>
                             </StackPanel>
                         </DockPanel>
                     </StackPanel>
                 </Border>
 
                 <!-- PENDING OPERATIONS section -->
-                <TextBlock Text="PENDING OPERATIONS" FontSize="11" FontWeight="SemiBold"
-                           Foreground="#9CA3AF" Margin="0,0,0,10"/>
-                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Margin="0,0,0,20">
+                <TextBlock Text="Pending operations" Style="{StaticResource SectionHeadingText}"/>
+                <Border Style="{StaticResource Card}" Padding="0">
                     <StackPanel>
                         <DockPanel Margin="20,16">
                             <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
                                 <TextBlock Text="Queued operations" FontSize="13.5" FontWeight="Medium"
-                                           Foreground="#111827"/>
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
                                 <TextBlock Text="These will be pushed to the backend when connectivity returns"
-                                           FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                           FontSize="11.5" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock x:Name="PendingCountLabel" Text="{Binding PendingCountText}"
-                                       FontSize="22" FontWeight="Bold" Foreground="#2858CD"
+                                       FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource BrandDarkBrush}"
                                        DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                        <Border Height="1" Background="{DynamicResource BorderSoftBrush}" Margin="20,0"/>
 
                         <!-- Pending ops list -->
                         <ListView x:Name="PendingList" Background="Transparent" BorderThickness="0"
@@ -91,8 +84,9 @@
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="Padding" Value="20,12"/>
-                                    <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}"/>
                                     <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.ItemTemplate>
@@ -105,19 +99,20 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{Binding OperationType}"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#111827"
+                                                   FontSize="13" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}"
                                                    VerticalAlignment="Center"/>
                                         <TextBlock Grid.Column="1" Text="{Binding TargetId}"
-                                                   FontSize="12" Foreground="#374151"
-                                                   FontFamily="Consolas" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="{DynamicResource TextBodyBrush}"
+                                                   FontFamily="{StaticResource MonoFontFamily}" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <Border Grid.Column="2" Background="#F3F4F6" CornerRadius="10"
-                                                Padding="10,3" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Medium"
-                                                       Foreground="#374151"/>
+                                        <Border Grid.Column="2" Style="{StaticResource StatusPill}"
+                                                Background="{DynamicResource BorderSoftBrush}"
+                                                HorizontalAlignment="Left" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Status}" Style="{StaticResource StatusPillText}"
+                                                       Foreground="{DynamicResource TextBodyBrush}"/>
                                         </Border>
                                         <TextBlock Grid.Column="3" Text="{Binding LastError}"
-                                                   FontSize="11.5" Foreground="#9CA3AF" VerticalAlignment="Center"
+                                                   FontSize="11.5" Foreground="{DynamicResource TextSubtleBrush}" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis" Margin="12,0,0,0"/>
                                     </Grid>
                                 </DataTemplate>
@@ -126,38 +121,37 @@
 
                         <StackPanel HorizontalAlignment="Center" Margin="0,24"
                                     Visibility="{Binding HasNoPending, Converter={StaticResource StringToVis}}">
-                            <TextBlock Text="No pending operations" FontSize="13" Foreground="#6B7280"
-                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Nothing queued — the companion is fully synced" 
+                                       Style="{StaticResource MutedText}" HorizontalAlignment="Center"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
 
                 <!-- FAILED OPERATIONS section -->
-                <TextBlock Text="FAILED OPERATIONS" FontSize="11" FontWeight="SemiBold"
-                           Foreground="#9CA3AF" Margin="0,0,0,10"/>
-                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Margin="0,0,0,20">
+                <TextBlock Text="Failed operations" Style="{StaticResource SectionHeadingText}"/>
+                <Border Style="{StaticResource Card}" Padding="0">
                     <StackPanel>
                         <DockPanel Margin="20,16">
                             <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
                                 <TextBlock Text="Permanently failed operations" FontSize="13.5" FontWeight="Medium"
-                                           Foreground="#111827"/>
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
                                 <TextBlock Text="These exceeded the max retry count and will not be retried automatically"
-                                           FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                           FontSize="11.5" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock x:Name="FailedCountLabel" Text="{Binding FailedCountText}"
-                                       FontSize="22" FontWeight="Bold" Foreground="#BE222A"
+                                       FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"
                                        DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                        <Border Height="1" Background="{DynamicResource BorderSoftBrush}" Margin="20,0"/>
 
                         <ListView x:Name="FailedList" Background="Transparent" BorderThickness="0"
                                   ItemsSource="{Binding FailedOps}">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="Padding" Value="20,12"/>
-                                    <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}"/>
                                     <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.ItemTemplate>
@@ -169,14 +163,14 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{Binding OperationType}"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#111827"
+                                                   FontSize="13" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}"
                                                    VerticalAlignment="Center"/>
                                         <TextBlock Grid.Column="1" Text="{Binding TargetId}"
-                                                   FontSize="12" Foreground="#374151"
-                                                   FontFamily="Consolas" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="{DynamicResource TextBodyBrush}"
+                                                   FontFamily="{StaticResource MonoFontFamily}" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="2" Text="{Binding LastError}"
-                                                   FontSize="11.5" Foreground="#BE222A" VerticalAlignment="Center"
+                                                   FontSize="11.5" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center"
                                                    TextWrapping="Wrap" Margin="12,0,0,0"/>
                                     </Grid>
                                 </DataTemplate>
@@ -185,23 +179,21 @@
 
                         <StackPanel HorizontalAlignment="Center" Margin="0,24"
                                     Visibility="{Binding HasNoFailed, Converter={StaticResource StringToVis}}">
-                            <TextBlock Text="No failed operations" FontSize="13" Foreground="#6B7280"
-                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="No failed operations — every sync attempt has succeeded or is retrying"
+                                       Style="{StaticResource MutedText}" HorizontalAlignment="Center"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
 
                 <!-- DEVICE IDENTITY section -->
-                <TextBlock Text="DEVICE IDENTITY" FontSize="11" FontWeight="SemiBold"
-                           Foreground="#9CA3AF" Margin="0,0,0,10"/>
-                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                        BorderThickness="1">
+                <TextBlock Text="Device identity" Style="{StaticResource SectionHeadingText}"/>
+                <Border Style="{StaticResource Card}" Padding="0">
                     <StackPanel>
                         <DockPanel Margin="20,16">
                             <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="Device ID" FontSize="11.5" Foreground="#6B7280"/>
+                                <TextBlock Text="Device ID" Style="{StaticResource MutedText}"/>
                                 <TextBlock x:Name="DeviceIdLabel" Text="{Binding DeviceId}" FontSize="14"
-                                           FontFamily="Consolas" Foreground="#111827" Margin="0,4,0,0"/>
+                                           FontFamily="{StaticResource MonoFontFamily}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,4,0,0"/>
                             </StackPanel>
                         </DockPanel>
                     </StackPanel>

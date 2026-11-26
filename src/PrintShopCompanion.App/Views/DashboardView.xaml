@@ -5,29 +5,30 @@
  xmlns:vm="clr-namespace:PrintShopCompanion.App.ViewModels"
  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
- mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:DashboardViewModel}">
+ mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:DashboardViewModel}"
+ FontFamily="{StaticResource AppFontFamily}">
 
  <ScrollViewer VerticalScrollBarVisibility="Auto">
- <StackPanel>
+ <StackPanel Margin="24,20,24,24">
  <Grid Margin="0,0,0,24">
  <Grid.ColumnDefinitions>
  <ColumnDefinition Width="*" />
  <ColumnDefinition Width="Auto" />
  </Grid.ColumnDefinitions>
  <StackPanel Grid.Column="0">
- <TextBlock Text="Dashboard" FontSize="28" FontWeight="SemiBold" />
- <TextBlock Text="At-a-glance view of your connection, printer and recent jobs." Opacity="0.7" />
+ <TextBlock Text="Dashboard" Style="{StaticResource PageTitleText}" />
+ <TextBlock Text="At-a-glance view of your connection, printer and recent jobs." Style="{StaticResource PageSubtitleText}" />
  </StackPanel>
  <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
- <TextBlock Text="{Binding ConnectionStatus}" Opacity="0.7" />
- <TextBlock Text="{Binding DeviceId, StringFormat='Device ID: {0}'}" Opacity="0.45" FontSize="11" />
+ <TextBlock Text="{Binding ConnectionStatus}" Style="{StaticResource MutedText}" />
+ <TextBlock Text="{Binding DeviceId, StringFormat='Device ID: {0}'}" Foreground="{DynamicResource TextSubtleBrush}" FontSize="11" />
  </StackPanel>
  </Grid>
 
  <!-- Connection + printer -->
  <Border Style="{StaticResource Card}">
  <StackPanel>
- <TextBlock Text="Connection" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8" />
+ <TextBlock Text="Connection" Style="{StaticResource CardTitleText}" Margin="0,0,0,10" />
  <Grid>
  <Grid.ColumnDefinitions>
  <ColumnDefinition Width="160" /><ColumnDefinition Width="*" />
@@ -35,12 +36,12 @@
  <Grid.RowDefinitions>
  <RowDefinition /><RowDefinition /><RowDefinition />
  </Grid.RowDefinitions>
- <TextBlock Grid.Row="0" Grid.Column="0" Text="Shop" Opacity="0.7" />
- <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ShopName}" FontWeight="SemiBold" />
- <TextBlock Grid.Row="1" Grid.Column="0" Text="Status" Opacity="0.7" Margin="0,8,0,0" />
- <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ConnectionStatus}" Margin="0,8,0,0" />
- <TextBlock Grid.Row="2" Grid.Column="0" Text="Selected printer" Opacity="0.7" Margin="0,8,0,0" />
- <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedPrinter}" Margin="0,8,0,0" />
+ <TextBlock Grid.Row="0" Grid.Column="0" Text="Shop" Style="{StaticResource MutedText}" />
+ <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ShopName}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+ <TextBlock Grid.Row="1" Grid.Column="0" Text="Status" Style="{StaticResource MutedText}" Margin="0,8,0,0" />
+ <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ConnectionStatus}" Style="{StaticResource BodyText}" Margin="0,8,0,0" />
+ <TextBlock Grid.Row="2" Grid.Column="0" Text="Selected printer" Style="{StaticResource MutedText}" Margin="0,8,0,0" />
+ <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedPrinter}" Style="{StaticResource BodyText}" Margin="0,8,0,0" />
  </Grid>
  </StackPanel>
  </Border>
@@ -53,25 +54,25 @@
  <Border Grid.Column="0" Style="{StaticResource Card}">
  <StackPanel>
  <TextBlock Text="{Binding PendingCount}" FontSize="32" FontWeight="SemiBold" Foreground="{DynamicResource StatusPendingBrush}" />
- <TextBlock Text="Pending" Opacity="0.7" />
+ <TextBlock Text="Pending" Style="{StaticResource MutedText}" />
  </StackPanel>
  </Border>
  <Border Grid.Column="1" Style="{StaticResource Card}">
  <StackPanel>
  <TextBlock Text="{Binding PrintingCount}" FontSize="32" FontWeight="SemiBold" Foreground="{DynamicResource StatusPrintingBrush}" />
- <TextBlock Text="Printing" Opacity="0.7" />
+ <TextBlock Text="Printing" Style="{StaticResource MutedText}" />
  </StackPanel>
  </Border>
  <Border Grid.Column="2" Style="{StaticResource Card}">
  <StackPanel>
  <TextBlock Text="{Binding CompletedToday}" FontSize="32" FontWeight="SemiBold" Foreground="{DynamicResource StatusCompletedBrush}" />
- <TextBlock Text="Completed today" Opacity="0.7" />
+ <TextBlock Text="Completed today" Style="{StaticResource MutedText}" />
  </StackPanel>
  </Border>
  <Border Grid.Column="3" Style="{StaticResource Card}">
  <StackPanel>
  <TextBlock Text="{Binding FailedCount}" FontSize="32" FontWeight="SemiBold" Foreground="{DynamicResource StatusFailedBrush}" />
- <TextBlock Text="Failed" Opacity="0.7" />
+ <TextBlock Text="Failed" Style="{StaticResource MutedText}" />
  </StackPanel>
  </Border>
  </Grid>
@@ -79,7 +80,7 @@
  <!-- Recent jobs -->
  <Border Style="{StaticResource Card}">
  <StackPanel>
- <TextBlock Text="Recent jobs" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,12" />
+ <TextBlock Text="Recent jobs" Style="{StaticResource CardTitleText}" Margin="0,0,0,12" />
  <ItemsControl ItemsSource="{Binding RecentJobs}">
  <ItemsControl.ItemTemplate>
  <DataTemplate>
@@ -87,10 +88,10 @@
  <Grid.ColumnDefinitions>
  <ColumnDefinition Width="*" /><ColumnDefinition Width="200" /><ColumnDefinition Width="120" />
  </Grid.ColumnDefinitions>
- <TextBlock Grid.Column="0" Text="{Binding Title}" />
- <TextBlock Grid.Column="1" Text="{Binding PrinterName}" Opacity="0.7" />
- <Border Grid.Column="2" Style="{StaticResource StatusPill}" Background="{DynamicResource ControlAltBrush}">
- <TextBlock Text="{Binding Status}" HorizontalAlignment="Center" />
+ <TextBlock Grid.Column="0" Text="{Binding Title}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
+ <TextBlock Grid.Column="1" Text="{Binding PrinterName}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
+ <Border Grid.Column="2" Style="{StaticResource StatusPill}" Background="{DynamicResource BorderSoftBrush}">
+ <TextBlock Text="{Binding Status}" Style="{StaticResource StatusPillText}" HorizontalAlignment="Center" Foreground="{DynamicResource TextBodyBrush}" />
  </Border>
  </Grid>
  </DataTemplate>

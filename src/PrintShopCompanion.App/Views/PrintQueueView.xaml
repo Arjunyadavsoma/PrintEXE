@@ -5,140 +5,143 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
     <UserControl.Resources>
         <!-- Job status pill — web semantic colors (soft bg + strong text).
              Uncertain/unknown states get the warning amber: they REQUIRE
-             operator reconciliation, so they must stand out. -->
-        <Style x:Key="StatusPill" TargetType="Border">
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Padding" Value="10,3"/>
-            <Setter Property="HorizontalAlignment" Value="Left"/>
-            <Setter Property="Background" Value="#F3F4F6"/>
+             operator reconciliation, so they must stand out.
+             v0.7.15: hex → DynamicResource brushes (dark theme works). -->
+        <Style x:Key="JobPill" TargetType="Border" BasedOn="{StaticResource StatusPill}">
+            <Setter Property="Background" Value="{DynamicResource BorderSoftBrush}"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Pending">
-                    <Setter Property="Background" Value="#F3F4F6"/>
+                    <Setter Property="Background" Value="{DynamicResource BorderSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Downloading">
-                    <Setter Property="Background" Value="#DBF3FF"/>
+                    <Setter Property="Background" Value="{DynamicResource InfoSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Rendering">
-                    <Setter Property="Background" Value="#DBF3FF"/>
+                    <Setter Property="Background" Value="{DynamicResource InfoSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Spooled">
-                    <Setter Property="Background" Value="#E1EFFF"/>
+                    <Setter Property="Background" Value="{DynamicResource BrandSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Printed">
-                    <Setter Property="Background" Value="#E0F5E5"/>
+                    <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="ReportedPrinted">
-                    <Setter Property="Background" Value="#E0F5E5"/>
+                    <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter Property="Background" Value="#FFE7E4"/>
+                    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="UncertainSpooled">
-                    <Setter Property="Background" Value="#FFE8CC"/>
+                    <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="OutcomeUnknown">
-                    <Setter Property="Background" Value="#FFE8CC"/>
+                    <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Cancelled">
-                    <Setter Property="Background" Value="#F3F4F6"/>
+                    <Setter Property="Background" Value="{DynamicResource BorderSoftBrush}"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="StatusPillText" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="FontWeight" Value="Medium"/>
-            <Setter Property="Foreground" Value="#374151"/>
+        <Style x:Key="JobPillText" TargetType="TextBlock" BasedOn="{StaticResource StatusPillText}">
+            <Setter Property="Foreground" Value="{DynamicResource TextBodyBrush}"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Downloading">
-                    <Setter Property="Foreground" Value="#006E9E"/>
+                    <Setter Property="Foreground" Value="{DynamicResource InfoBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Rendering">
-                    <Setter Property="Foreground" Value="#006E9E"/>
+                    <Setter Property="Foreground" Value="{DynamicResource InfoBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Spooled">
-                    <Setter Property="Foreground" Value="#2858CD"/>
+                    <Setter Property="Foreground" Value="{DynamicResource BrandDarkBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Printed">
-                    <Setter Property="Foreground" Value="#007F3D"/>
+                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="ReportedPrinted">
-                    <Setter Property="Foreground" Value="#007F3D"/>
+                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter Property="Foreground" Value="#BE222A"/>
+                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="UncertainSpooled">
-                    <Setter Property="Foreground" Value="#7A4B0E"/>
+                    <Setter Property="Foreground" Value="{DynamicResource WarningForegroundBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="OutcomeUnknown">
-                    <Setter Property="Foreground" Value="#7A4B0E"/>
+                    <Setter Property="Foreground" Value="{DynamicResource WarningForegroundBrush}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Cancelled">
-                    <Setter Property="Foreground" Value="#6B7280"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
                 </DataTrigger>
             </Style.Triggers>
+        </Style>
+
+        <!-- Operator action button — compact secondary with a semantic
+             foreground. Disabled (no selection): full disabled state. -->
+        <Style x:Key="OperatorButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="MinHeight" Value="32"/>
         </Style>
     </UserControl.Resources>
 
-    <Grid Background="#F7F7F8">
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Page header -->
-        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1">
-            <DockPanel Margin="24,18,24,18">
+        <Border Grid.Row="0" Style="{StaticResource PageHeader}">
+            <DockPanel Margin="{StaticResource PageMargin}">
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Print Queue" FontSize="22" FontWeight="Bold" Foreground="#111827"/>
+                    <TextBlock Text="Print Queue" Style="{StaticResource PageTitleText}"/>
                     <TextBlock Text="Local print jobs — refreshes live as jobs dispatch and print"
-                               FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,0"/>
+                               Style="{StaticResource PageSubtitleText}"/>
                 </StackPanel>
-                <Button Content="↻  Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
-                        HorizontalAlignment="Right" Padding="16,9" FontSize="13"
-                        Background="#FFFFFF" Foreground="#374151" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                <Button Content="Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
+                        HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}"/>
             </DockPanel>
         </Border>
 
         <!-- Queue content -->
-        <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                BorderThickness="1" Margin="24,20">
+        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0" Margin="24,20,24,24">
             <StackPanel>
                 <!-- Header row + summary chips -->
-                <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                <Border Background="{DynamicResource SubsurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
                         Padding="20,14">
                     <DockPanel>
-                        <TextBlock Text="Queue" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#111827" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                        <TextBlock Text="Queue" Style="{StaticResource CardTitleText}"
+                                   DockPanel.Dock="Left" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Jobs.Count, StringFormat={}{0} jobs}"
-                                   FontSize="12" Foreground="#6B7280"
+                                   Style="{StaticResource MutedText}"
                                    DockPanel.Dock="Left" VerticalAlignment="Center" Margin="12,0,0,0"/>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"
                                     VerticalAlignment="Center">
-                            <Border Background="#F3F4F6" CornerRadius="12" Padding="12,4" Margin="0,0,8,0">
-                                <TextBlock FontSize="11" Foreground="#374151">
+                            <Border Style="{StaticResource StatusPill}" Background="{DynamicResource BorderSoftBrush}" Margin="0,0,8,0">
+                                <TextBlock Style="{StaticResource StatusPillText}" Foreground="{DynamicResource TextBodyBrush}">
                                     <Run Text="{Binding PendingCount, Mode=OneWay}"/><Run Text=" pending"/>
                                 </TextBlock>
                             </Border>
-                            <Border Background="#E1EFFF" CornerRadius="12" Padding="12,4" Margin="0,0,8,0">
-                                <TextBlock FontSize="11" Foreground="#2858CD">
+                            <Border Style="{StaticResource StatusPill}" Background="{DynamicResource BrandSoftBrush}" Margin="0,0,8,0">
+                                <TextBlock Style="{StaticResource StatusPillText}" Foreground="{DynamicResource BrandDarkBrush}">
                                     <Run Text="{Binding ActiveCount, Mode=OneWay}"/><Run Text=" active"/>
                                 </TextBlock>
                             </Border>
-                            <Border Background="#E0F5E5" CornerRadius="12" Padding="12,4" Margin="0,0,8,0">
-                                <TextBlock FontSize="11" Foreground="#007F3D">
+                            <Border Style="{StaticResource StatusPill}" Background="{DynamicResource SuccessSoftBrush}" Margin="0,0,8,0">
+                                <TextBlock Style="{StaticResource StatusPillText}" Foreground="{DynamicResource SuccessBrush}">
                                     <Run Text="{Binding PrintedCount, Mode=OneWay}"/><Run Text=" printed"/>
                                 </TextBlock>
                             </Border>
-                            <Border Background="#FFE7E4" CornerRadius="12" Padding="12,4">
-                                <TextBlock FontSize="11" Foreground="#BE222A">
+                            <Border Style="{StaticResource StatusPill}" Background="{DynamicResource DangerSoftBrush}">
+                                <TextBlock Style="{StaticResource StatusPillText}" Foreground="{DynamicResource DangerBrush}">
                                     <Run Text="{Binding FailedCount, Mode=OneWay}"/><Run Text=" failed"/>
                                 </TextBlock>
                             </Border>
@@ -147,7 +150,8 @@
                 </Border>
 
                 <!-- Table header row -->
-                <Border Background="#FFFFFF" BorderBrush="#F3F4F6" BorderThickness="0,0,0,1"
+                <Border Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderSoftBrush}" BorderThickness="0,0,0,1"
                         Padding="20,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -158,12 +162,12 @@
                             <ColumnDefinition Width="130"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="JOB" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="1" Text="TOKEN" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="2" Text="PAGES" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="3" Text="COPIES" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="4" Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="5" Text="LAST ERROR" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="0" Text="Job" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="1" Text="Token" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="2" Text="Pages" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="3" Text="Copies" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="4" Text="Status" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="5" Text="Last error" Style="{StaticResource ColumnHeaderText}"/>
                     </Grid>
                 </Border>
 
@@ -173,9 +177,10 @@
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Padding" Value="20,10"/>
-                            <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                            <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}"/>
                             <Setter Property="BorderThickness" Value="0,0,0,1"/>
                             <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                         </Style>
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
@@ -191,70 +196,66 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium"
-                                               Foreground="#111827" TextTrimming="CharacterEllipsis"/>
+                                               Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{Binding CreatedAt, Converter={StaticResource LocalTime}}"
-                                               FontSize="11" Foreground="#9CA3AF"/>
+                                               FontSize="11" Foreground="{DynamicResource TextSubtleBrush}"/>
                                 </StackPanel>
                                 <TextBlock Grid.Column="1" Text="{Binding OrderToken, FallbackValue='—'}"
-                                           FontSize="13" Foreground="#374151" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" FontSize="13" Foreground="#374151"
+                                           FontSize="13" Foreground="{DynamicResource TextBodyBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" FontSize="13" Foreground="{DynamicResource TextBodyBrush}"
                                            VerticalAlignment="Center">
                                     <Run Text="{Binding PageCount, Mode=OneWay}"/>
-                                    <Run Text="{Binding PageRange, Mode=OneWay, FallbackValue=''}" FontSize="11" Foreground="#6B7280"/>
+                                    <Run Text="{Binding PageRange, Mode=OneWay, FallbackValue=''}" FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
                                 </TextBlock>
                                 <TextBlock Grid.Column="3" Text="{Binding Copies}" FontSize="13"
-                                           Foreground="#374151" VerticalAlignment="Center"/>
-                                <Border Grid.Column="4" Style="{StaticResource StatusPill}" VerticalAlignment="Center">
-                                    <TextBlock Style="{StaticResource StatusPillText}"
+                                           Foreground="{DynamicResource TextBodyBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="4" Style="{StaticResource JobPill}" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource JobPillText}"
                                                Text="{Binding Status}"/>
                                 </Border>
                                 <TextBlock Grid.Column="5" Text="{Binding LastError, FallbackValue='—'}"
-                                           FontSize="12" Foreground="#BE222A" TextTrimming="CharacterEllipsis"
+                                           FontSize="12" Foreground="{DynamicResource DangerBrush}" TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center"/>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <!-- Selection action bar — the operator commands now have UI -->
-                <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,1"
+                <!-- Selection action bar — the operator commands -->
+                <Border Background="{DynamicResource SubsurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1"
                         Padding="20,12">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="#6B7280">
+                                   Foreground="{DynamicResource TextMutedBrush}">
                             <Run Text="Selected: " />
                             <Run Text="{Binding Selected.Title, Mode=OneWay, FallbackValue='—'}"/>
                         </TextBlock>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button Content="Retry" Click="Retry_Click" Padding="14,7" FontSize="12" Cursor="Hand"
-                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#2858CD"
-                                    BorderBrush="#AEBEDF" BorderThickness="1" FontWeight="Medium"/>
-                            <Button Content="Mark resolved" Click="MarkResolved_Click" Padding="14,7" FontSize="12" Cursor="Hand"
-                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#007F3D"
-                                    BorderBrush="#A3D8B5" BorderThickness="1" FontWeight="Medium"/>
-                            <Button Content="Reprint" Click="Reprint_Click" Padding="14,7" FontSize="12" Cursor="Hand"
-                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#2858CD"
-                                    BorderBrush="#AEBEDF" BorderThickness="1" FontWeight="Medium"/>
-                            <Button Content="Cancel job" Click="CancelJob_Click" Padding="14,7" FontSize="12" Cursor="Hand"
-                                    Margin="0,0,8,0" Background="#FFFFFF" Foreground="#BE222A"
-                                    BorderBrush="#E8A9A5" BorderThickness="1" FontWeight="Medium"/>
-                            <Button Content="Clear failed" Click="ClearFailed_Click" Padding="14,7" FontSize="12" Cursor="Hand"
-                                    Background="#FFFFFF" Foreground="#BE222A"
-                                    BorderBrush="#E8A9A5" BorderThickness="1" FontWeight="Medium"/>
+                            <Button Content="Retry" Click="Retry_Click" Style="{StaticResource OperatorButton}"/>
+                            <Button Content="Mark resolved" Click="MarkResolved_Click" Style="{StaticResource OperatorButton}"/>
+                            <Button Content="Reprint" Click="Reprint_Click" Style="{StaticResource OperatorButton}"/>
+                            <Button Content="Cancel job" Click="CancelJob_Click" Style="{StaticResource DangerButton}"
+                                    Padding="14,7" FontSize="12" Margin="0,0,8,0" MinHeight="32"/>
+                            <Button Content="Clear failed" Click="ClearFailed_Click" Style="{StaticResource DangerButton}"
+                                    Padding="14,7" FontSize="12" MinHeight="32"/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
 
                 <!-- Empty state -->
                 <StackPanel HorizontalAlignment="Center" Margin="0,40"
-                            Visibility="{Binding Jobs.Count, Converter={StaticResource InverseBoolToVis}}">
-                    <Border Width="56" Height="56" CornerRadius="28" Background="#F3F4F6" Margin="0,0,0,12">
-                        <TextBlock Text="🖨" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            Visibility="{Binding Jobs.Count, Converter={StaticResource ZeroToVis}}">
+                    <Border Style="{StaticResource EmptyStateGlyph}" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE749;" FontFamily="{StaticResource IconFontFamily}" FontSize="18"
+                                   Foreground="{DynamicResource BrandDarkBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBlock Text="Queue is empty" FontSize="14" FontWeight="Medium"
-                               Foreground="#111827" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Queue is empty" FontSize="13.5" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="New print jobs appear here the moment the dashboard dispatches them"
-                               FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                               FontSize="12" Foreground="{DynamicResource TextMutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,4,0,0"/>
                 </StackPanel>
             </StackPanel>
         </Border>

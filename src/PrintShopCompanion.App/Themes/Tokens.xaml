@@ -87,8 +87,12 @@
     <SolidColorBrush x:Key="InfoBorderBrush" Color="{StaticResource InfoBorderColor}" />
 
     <!-- ==================== TYPOGRAPHY ==================== -->
-    <FontFamily x:Key="AppFontFamily">Segoe UI</FontFamily>
-    <FontFamily x:Key="MonoFontFamily">Consolas</FontFamily>
+    <!-- v0.7.15: Segoe UI Variable — the Windows 11 system voice. The
+         fallback chain keeps Windows 10 (plain Segoe UI) and headless
+         test hosts rendering identically. One family for the whole app
+         (Operate-mode rule: product UI does not need a display pairing). -->
+    <FontFamily x:Key="AppFontFamily">Segoe UI Variable Display, Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
+    <FontFamily x:Key="MonoFontFamily">Cascadia Mono, Consolas, monospace</FontFamily>
 
     <sys:Double x:Key="FontSizeDisplay">22</sys:Double>
     <sys:Double x:Key="FontSizeH1">16</sys:Double>
@@ -97,6 +101,27 @@
     <sys:Double x:Key="FontSizeSmall">12</sys:Double>
     <sys:Double x:Key="FontSizeMicro">11</sys:Double>
     <sys:Double x:Key="FontSizeTiny">10</sys:Double>
+
+    <!-- v0.7.15 state colors — the interaction-state vocabulary every
+         component needs (Operate doctrine: hover, focus, disabled are
+         first-class, not afterthoughts). Hover = brand at 8% over surface;
+         focus ring = brand; disabled = 40% body text on soft border. -->
+    <Color x:Key="HoverOverlayColor">#14000000</Color>
+    <Color x:Key="PressedOverlayColor">#28000000</Color>
+    <Color x:Key="FocusRingColor">#2858CD</Color>
+    <Color x:Key="DisabledTextColor">#9CA3AF</Color>
+    <SolidColorBrush x:Key="HoverOverlayBrush" Color="{StaticResource HoverOverlayColor}" />
+    <SolidColorBrush x:Key="PressedOverlayBrush" Color="{StaticResource PressedOverlayColor}" />
+    <SolidColorBrush x:Key="FocusRingBrush" Color="{StaticResource FocusRingColor}" />
+    <SolidColorBrush x:Key="DisabledTextBrush" Color="{StaticResource DisabledTextColor}" />
+    <!-- Skeleton shimmer base (loading states) -->
+    <Color x:Key="SkeletonBaseColor">#EEF0F3</Color>
+    <Color x:Key="SkeletonShineColor">#F8F9FB</Color>
+    <SolidColorBrush x:Key="SkeletonBaseBrush" Color="{StaticResource SkeletonBaseColor}" />
+    <SolidColorBrush x:Key="SkeletonShineBrush" Color="{StaticResource SkeletonShineColor}" />
+    <!-- Table header surface — second neutral layer for panels/bars -->
+    <Color x:Key="SubsurfaceColor">#FAFAFB</Color>
+    <SolidColorBrush x:Key="SubsurfaceBrush" Color="{StaticResource SubsurfaceColor}" />
 
     <!-- ==================== SPACING ==================== -->
     <Thickness x:Key="SpaceXS">4,4,4,4</Thickness>
@@ -121,5 +146,10 @@
     <CornerRadius x:Key="ControlRadius">6</CornerRadius>
     <CornerRadius x:Key="PillRadius">12</CornerRadius>
     <CornerRadius x:Key="AvatarRadius">20</CornerRadius>
+
+    <!-- ==================== TIMING (v0.7.15) ==================== -->
+    <!-- Operate doctrine: 150–250ms, motion conveys state only. -->
+    <Duration x:Key="FastFadeDuration">0:0:0.15</Duration>
+    <Duration x:Key="StateFadeDuration">0:0:0.2</Duration>
 
 </ResourceDictionary>

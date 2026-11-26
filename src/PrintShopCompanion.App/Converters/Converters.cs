@@ -68,6 +68,29 @@ public sealed class InverseBoolConverter : IValueConverter
 }
 
 /// <summary>
+/// v0.7.15: Visible when the bound count/collection is EMPTY (0, null, or
+/// an empty collection) — drives the teaching empty states that replaced
+/// bare "No X yet" text rows. Collapsed as soon as content exists.
+/// </summary>
+public sealed class ZeroToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return value switch
+        {
+            null => Visibility.Visible,
+            int i => i == 0 ? Visibility.Visible : Visibility.Collapsed,
+            long l => l == 0 ? Visibility.Visible : Visibility.Collapsed,
+            System.Collections.ICollection c => c.Count == 0 ? Visibility.Visible : Visibility.Collapsed,
+            _ => Visibility.Collapsed,
+        };
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// Returns Visible when the bound string is non-null/non-empty/whitespace,
 /// Collapsed otherwise. Used to show error message panels that should only
 /// appear when there is actually an error message to display.

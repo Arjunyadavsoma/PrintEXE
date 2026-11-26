@@ -3,14 +3,29 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ====================================================================
-         PRINTSHOP COMPANION COMPONENT LIBRARY
+         PRINTSHOP COMPANION COMPONENT LIBRARY  (v0.7.15 revamp)
          ====================================================================
          Reusable control styles built on the Tokens.xaml design tokens.
 
-         Every page in the app should compose these instead of writing
-         inline styles. This keeps visual consistency and makes global
-         changes (e.g. changing the brand color) a single edit.
-    ==================================================================== -->
+         Every page composes these instead of writing inline styles.
+
+         Revamp doctrine (Impeccable "Operate" mode + Pro Max QA gates):
+           - Every interactive component carries the full state matrix:
+             default, hover, focus, pressed, disabled.
+           - No one-sided accent bars on cards (craft-floor ban) — a full
+             border and a tinted label carry the hierarchy instead.
+           - No ALL-CAPS eyebrow labels — SectionHeadingText is medium-
+             weight muted text in normal case; the heading itself speaks.
+           - Icons are Segoe Fluent Icons glyphs (the system icon font,
+             present on every supported Windows; Win10 falls back to
+             MDL2 via the GlyphFontFamily token) — never emoji.
+           - Motion: 150-250ms, state-only. No load choreography.
+         ==================================================================== -->
+
+    <!-- ==================== ICON GLYPHS ==================== -->
+    <!-- Single source for every icon character. Font: Segoe Fluent Icons
+         (Win11) with MDL2 (Win10) fallback — both ship with the OS. -->
+    <FontFamily x:Key="IconFontFamily">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
     <!-- ==================== CARDS ==================== -->
     <Style x:Key="Card" TargetType="Border">
@@ -22,9 +37,11 @@
         <Setter Property="Margin" Value="0,0,0,16" />
     </Style>
 
-    <!-- Stat card — accent strip on the left + KPI label + big number + sublabel -->
+    <!-- Stat card — full border, tinted label carries the category color.
+         (v0.7.15: the old left accent strip is gone — one-sided bars are
+         on the craft-floor refuse list.) -->
     <Style x:Key="StatCard" TargetType="Border" BasedOn="{StaticResource Card}">
-        <Setter Property="Padding" Value="0" />
+        <Setter Property="Padding" Value="16,14" />
         <Setter Property="Margin" Value="0,0,12,12" />
         <Setter Property="Width" Value="200" />
     </Style>
@@ -41,9 +58,44 @@
         <Setter Property="FontWeight" Value="Medium" />
     </Style>
 
-    <!-- ==================== BUTTONS ==================== -->
-    <!-- Primary button — amber brand. Use for the main action on a screen. -->
-    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <!-- ==================== BUTTON CORE ==================== -->
+    <!-- Shared template: content presenter inside a rounded border with
+         the focus ring drawn OUTSIDE the fill (native Windows pattern).
+         Concrete variants set colors/padding. -->
+    <ControlTemplate x:Key="ButtonTemplate" TargetType="Button">
+        <Grid>
+            <Border x:Name="FocusRing" CornerRadius="{StaticResource ControlRadius}"
+                    BorderBrush="{DynamicResource FocusRingBrush}" BorderThickness="2"
+                    Margin="-2" Opacity="0" IsHitTestVisible="False" />
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{StaticResource ControlRadius}"
+                    Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  RecognizesAccessKey="True" />
+            </Border>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="FocusRing" Property="Opacity" Value="1" />
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandAccentBrush}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandDarkBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BorderSoftBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+                <Setter Property="Opacity" Value="1" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <!-- Primary button — indigo brand. The main action on a screen. -->
+    <Style x:Key="PrimaryButton" TargetType="Button">
         <Setter Property="Background" Value="{DynamicResource BrandBrush}" />
         <Setter Property="Foreground" Value="White" />
         <Setter Property="Padding" Value="{StaticResource PrimaryButtonPadding}" />
@@ -52,18 +104,11 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="MinHeight" Value="40" />
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource BrandDarkBrush}" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.5" />
-            </Trigger>
-        </Style.Triggers>
+        <Setter Property="Template" Value="{StaticResource ButtonTemplate}" />
     </Style>
 
-    <!-- Secondary button — white with gray border. Use for less prominent actions. -->
-    <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <!-- Secondary button — white with gray border. Less prominent actions. -->
+    <Style x:Key="SecondaryButton" TargetType="Button">
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource TextBodyBrush}" />
         <Setter Property="Padding" Value="{StaticResource ButtonPadding}" />
@@ -73,28 +118,57 @@
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="MinHeight" Value="36" />
+        <Setter Property="Template" Value="{StaticResource ButtonTemplate}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource BrandBorderBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
-    <!-- Danger button — red. Use for destructive actions (sign out, delete). -->
-    <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <!-- Danger button — soft red ground, red text. Destructive actions. -->
+    <Style x:Key="DangerButton" TargetType="Button">
         <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
         <Setter Property="Padding" Value="{StaticResource ButtonPadding}" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="BorderBrush" Value="#FECACA" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerBorderBrush}" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="Template" Value="{StaticResource ButtonTemplate}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#FBD9D5" />
+                <Setter Property="Foreground" Value="#8F1A20" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
-    <!-- Ghost button — transparent, hover tint. Use for dismiss / cancel. -->
-    <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <!-- Ghost button — quiet inline action (dismiss, cancel, sign out). -->
+    <Style x:Key="GhostButton" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
         <Setter Property="Padding" Value="14,8" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeSmall}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template" Value="{StaticResource ButtonTemplate}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource BrandDarkBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ==================== NAVIGATION ==================== -->
@@ -110,16 +184,30 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                            CornerRadius="{StaticResource ControlRadius}"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter VerticalAlignment="Center"
-                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                          RecognizesAccessKey="True"/>
-                    </Border>
+                    <Grid>
+                        <Border x:Name="FocusRing" CornerRadius="{StaticResource ControlRadius}"
+                                BorderBrush="{DynamicResource FocusRingBrush}" BorderThickness="2"
+                                Margin="-2" Opacity="0" IsHitTestVisible="False" />
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="{StaticResource ControlRadius}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                    </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="FocusRing" Property="Opacity" Value="1" />
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BorderSoftBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BorderBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -134,18 +222,33 @@
     </Style>
 
     <!-- ==================== INPUTS ==================== -->
+    <!-- v0.7.15: focus ring + hover affordance + disabled state. -->
     <Style x:Key="InputField" TargetType="TextBox">
         <Setter Property="Padding" Value="14,12" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeH2}" />
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource BrandBorderBrush}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="{DynamicResource SubsurfaceBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ==================== TEXT BLOCKS ==================== -->
     <Style x:Key="PageTitleText" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{StaticResource FontSizeDisplay}" />
-        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
 
@@ -155,11 +258,14 @@
         <Setter Property="Margin" Value="0,3,0,0" />
     </Style>
 
+    <!-- v0.7.15: was ALL-CAPS tiny tracking — the craft floor bans the
+         eyebrow/kicker; a medium-weight muted normal-case line groups
+         sections without shouting. -->
     <Style x:Key="SectionHeadingText" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="{StaticResource FontSizeTiny}" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeSmall}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSubtleBrush}" />
-        <Setter Property="Margin" Value="0,0,0,10" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        <Setter Property="Margin" Value="0,16,0,8" />
     </Style>
 
     <Style x:Key="CardTitleText" TargetType="TextBlock">
@@ -168,15 +274,22 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
 
+    <!-- Table/list column header — muted medium, normal case (was CAPS). -->
+    <Style x:Key="ColumnHeaderText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource FontSizeMicro}" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+
     <Style x:Key="KpiLabel" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{StaticResource FontSizeMicro}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSubtleBrush}" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
     </Style>
 
     <Style x:Key="KpiValue" TargetType="TextBlock">
         <Setter Property="FontSize" Value="22" />
-        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         <Setter Property="Margin" Value="0,6,0,0" />
     </Style>
@@ -203,8 +316,14 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
 
+    <!-- Icon glyph text — for drawn icons from the system icon font. -->
+    <Style x:Key="IconText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource IconFontFamily}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+
     <!-- ==================== PAGE HEADER ==================== -->
-    <!-- A reusable page-header Style applied to the Border at the top of every view -->
     <Style x:Key="PageHeader" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -221,9 +340,9 @@
 
     <!-- ==================== STATUS DOT ==================== -->
     <Style x:Key="StatusDot" TargetType="Border">
-        <Setter Property="Width" Value="10" />
-        <Setter Property="Height" Value="10" />
-        <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="Width" Value="8" />
+        <Setter Property="Height" Value="8" />
+        <Setter Property="CornerRadius" Value="4" />
     </Style>
 
     <!-- ==================== AVATAR ==================== -->
@@ -232,6 +351,25 @@
         <Setter Property="Height" Value="40" />
         <Setter Property="CornerRadius" Value="20" />
         <Setter Property="Background" Value="{DynamicResource BrandSoftBrush}" />
+    </Style>
+
+    <!-- ==================== SKELETON (v0.7.15) ==================== -->
+    <!-- Loading placeholder bar — the Operate-mode replacement for
+         centered "Loading..." text: the page keeps its shape. -->
+    <Style x:Key="SkeletonBar" TargetType="Border">
+        <Setter Property="Height" Value="12" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="{DynamicResource SkeletonBaseBrush}" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+    <!-- Empty-state illustration circle: quiet, tinted, one glyph. -->
+    <Style x:Key="EmptyStateGlyph" TargetType="Border">
+        <Setter Property="Width" Value="44" />
+        <Setter Property="Height" Value="44" />
+        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="Background" Value="{DynamicResource BrandSofterBrush}" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
 
 </ResourceDictionary>

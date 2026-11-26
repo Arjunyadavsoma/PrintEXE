@@ -14,7 +14,14 @@
                 <ResourceDictionary Source="Themes/Converters.xaml" />
                 <!-- Legacy color/theme resources kept for backward compatibility -->
                 <ResourceDictionary Source="Themes/Colors.xaml" />
-                <ResourceDictionary Source="Themes/Fluent.xaml" />
+                <!-- v0.7.15: Fluent.xaml REMOVED from the merge. It duplicated
+                     every Components.xaml key (Card, StatCard, StatusPill,
+                     PrimaryButton, SecondaryButton, InputField, NavRailItem...)
+                     and, because duplicate keys resolve to the LAST dictionary,
+                     its stale styles silently overrode the component library —
+                     same bug class as the old Light+Dark double merge. No view
+                     references its unique keys (SectionHeading, BodyText-old);
+                     verified before removal. -->
                 <!-- Active theme — ThemeService swaps Light.xaml ↔ Dark.xaml in
                      place (matched by Source). Only ONE theme dictionary is
                      merged at a time: previously BOTH were merged, and because

@@ -6,64 +6,70 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
-    <Grid Background="#F7F7F8">
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Page header -->
-        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1">
-            <DockPanel Margin="24,18,24,18">
+        <Border Grid.Row="0" Style="{StaticResource PageHeader}">
+            <DockPanel Margin="{StaticResource PageMargin}">
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Orders" FontSize="22" FontWeight="Bold" Foreground="#111827"/>
+                    <TextBlock Text="Orders" Style="{StaticResource PageTitleText}"/>
                     <TextBlock Text="Manage customer print orders — updates live with the dashboard"
-                               FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,0"/>
+                               Style="{StaticResource PageSubtitleText}"/>
                 </StackPanel>
-                <Button Content="↻  Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
-                        HorizontalAlignment="Right" Padding="16,9" FontSize="13"
-                        Background="#FFFFFF" Foreground="#374151" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                <Button Content="Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
+                        HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}"/>
             </DockPanel>
         </Border>
 
-        <!-- Loading state -->
-        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+        <!-- Loading state: skeleton of the real layout -->
+        <StackPanel Grid.Row="1" Margin="24,20"
                     Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="Loading orders..." FontSize="14" Foreground="#6B7280"/>
+            <Border Style="{StaticResource Card}" Padding="20,14" Margin="0">
+                <StackPanel>
+                    <Border Style="{StaticResource SkeletonBar}" Width="160"/>
+                    <Border Style="{StaticResource SkeletonBar}" Width="520" Margin="0,14,0,0"/>
+                    <Border Style="{StaticResource SkeletonBar}" Width="480"/>
+                    <Border Style="{StaticResource SkeletonBar}" Width="560"/>
+                    <Border Style="{StaticResource SkeletonBar}" Width="500"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
-        <!-- Error state -->
+        <!-- Error state: names the problem and the recovery -->
         <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="24"
                     Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
-            <Border Width="48" Height="48" CornerRadius="24" Background="#FFE7E4" Margin="0,0,0,12">
-                <TextBlock Text="⚠" FontSize="22" Foreground="#BE222A"
+            <Border Style="{StaticResource EmptyStateGlyph}" Background="{DynamicResource DangerSoftBrush}" Margin="0,0,0,12">
+                <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFontFamily}" FontSize="20"
+                           Foreground="{DynamicResource DangerBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <TextBlock Text="Could not load orders" FontSize="16" FontWeight="SemiBold"
-                       Foreground="#111827" HorizontalAlignment="Center" Margin="0,0,0,4"/>
-            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#6B7280"
+                       Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="{DynamicResource TextMutedBrush}"
                        TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" MaxWidth="360"/>
-            <Button Content="Retry" Click="Refresh_Click" Padding="20,10"
-                    Background="#2858CD" Foreground="White"
-                    BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
+            <Button Content="Retry" Click="Refresh_Click"
+                    Style="{StaticResource PrimaryButton}" HorizontalAlignment="Center"/>
         </StackPanel>
 
         <!-- Orders content -->
-        <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                BorderThickness="1" Margin="24,20"
+        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0" Margin="24,20,24,24"
                 Visibility="{Binding IsLoading, Converter={StaticResource InverseBoolToVis}}">
             <StackPanel>
                 <!-- Filter row — FUNCTIONAL chips (they actually filter the list) -->
-                <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                <Border Background="{DynamicResource SubsurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
                         Padding="20,14">
                     <DockPanel>
-                        <TextBlock Text="Order Queue" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#111827" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                        <TextBlock Text="Order queue" Style="{StaticResource CardTitleText}"
+                                   DockPanel.Dock="Left" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Orders.Count, StringFormat={}{0} orders}"
-                                   FontSize="12" Foreground="#6B7280"
+                                   Style="{StaticResource MutedText}"
                                    DockPanel.Dock="Left" VerticalAlignment="Center" Margin="12,0,0,0"/>
                         <ItemsControl DockPanel.Dock="Right" ItemsSource="{x:Static vm:OrdersViewModel.FilterOptions}"
                                       HorizontalAlignment="Right">
@@ -75,7 +81,7 @@
                                     <Button Click="Filter_Click" Tag="{Binding}" Margin="4,0,0,0" Cursor="Hand">
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
-                                                <Border x:Name="Bd" CornerRadius="12" Padding="12,4"
+                                                <Border x:Name="Bd" CornerRadius="12" Padding="12,5"
                                                         BorderBrush="Transparent" BorderThickness="1">
                                                     <Border.Background>
                                                         <MultiBinding Converter="{StaticResource ChipBg}">
@@ -98,6 +104,10 @@
                                                     <Trigger Property="IsMouseOver" Value="True">
                                                         <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
                                                     </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                                        <Setter TargetName="Bd" Property="BorderBrush"
+                                                                Value="{DynamicResource FocusRingBrush}"/>
+                                                    </Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate>
                                         </Button.Template>
@@ -109,7 +119,8 @@
                 </Border>
 
                 <!-- Table header row -->
-                <Border Background="#FFFFFF" BorderBrush="#F3F4F6" BorderThickness="0,0,0,1"
+                <Border Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderSoftBrush}" BorderThickness="0,0,0,1"
                         Padding="20,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -119,11 +130,11 @@
                             <ColumnDefinition Width="120"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="TOKEN" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="1" Text="CUSTOMER" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="2" Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="3" Text="AMOUNT" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                        <TextBlock Grid.Column="4" Text="DATE" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                        <TextBlock Grid.Column="0" Text="Token" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="1" Text="Customer" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="2" Text="Status" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="3" Text="Amount" Style="{StaticResource ColumnHeaderText}"/>
+                        <TextBlock Grid.Column="4" Text="Date" Style="{StaticResource ColumnHeaderText}"/>
                     </Grid>
                 </Border>
 
@@ -132,13 +143,14 @@
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Padding" Value="20,12"/>
-                            <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                            <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}"/>
                             <Setter Property="BorderThickness" Value="0,0,0,1"/>
                             <Setter Property="Cursor" Value="Hand"/>
                             <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#F7FAFF"/>
+                                    <Setter Property="Background" Value="{DynamicResource BrandSofterBrush}"/>
                                 </Trigger>
                             </Style.Triggers>
                         </Style>
@@ -154,39 +166,44 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="{Binding TokenNumber, FallbackValue='—'}"
-                                           FontSize="13" FontWeight="SemiBold" Foreground="#111827"
+                                           FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Text="{Binding CustomerPhone, FallbackValue='—'}"
-                                           FontSize="13" Foreground="#374151" VerticalAlignment="Center"/>
-                                <Border Grid.Column="2" CornerRadius="10" Padding="10,3" HorizontalAlignment="Left"
+                                           FontSize="13" Foreground="{DynamicResource TextBodyBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="2" Style="{StaticResource StatusPill}" HorizontalAlignment="Left"
                                         VerticalAlignment="Center"
                                         Background="{Binding Status, Converter={StaticResource StatusBg}}"
                                         BorderBrush="{Binding Status, Converter={StaticResource StatusBorder}}"
                                         BorderThickness="1">
                                     <TextBlock Text="{Binding Status, Converter={StaticResource StatusLabel}}"
-                                               FontSize="11" FontWeight="Medium"
+                                               Style="{StaticResource StatusPillText}"
                                                Foreground="{Binding Status, Converter={StaticResource StatusFg}}"/>
                                 </Border>
                                 <TextBlock Grid.Column="3" Text="{Binding TotalAmountPaise, Converter={StaticResource Rupees}}"
-                                           FontSize="13" FontWeight="Medium" Foreground="#111827"
+                                           FontSize="13" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="4" Text="{Binding CreatedAt, Converter={StaticResource LocalTime}}"
-                                           FontSize="12" Foreground="#6B7280" VerticalAlignment="Center"/>
+                                           FontSize="12" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <!-- Empty state -->
+                <!-- Empty state: explains where orders come from. Filter-aware
+                     copy: when a filter is active the list may be empty while
+                     the queue is not. -->
                 <StackPanel HorizontalAlignment="Center" Margin="0,40"
-                            Visibility="{Binding Orders.Count, Converter={StaticResource InverseBoolToVis}}">
-                    <Border Width="56" Height="56" CornerRadius="28" Background="#F3F4F6" Margin="0,0,0,12">
-                        <TextBlock Text="📋" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            Visibility="{Binding Orders.Count, Converter={StaticResource ZeroToVis}}">
+                    <Border Style="{StaticResource EmptyStateGlyph}" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE8B7;" FontFamily="{StaticResource IconFontFamily}" FontSize="18"
+                                   Foreground="{DynamicResource BrandDarkBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBlock Text="No orders found" FontSize="14" FontWeight="Medium"
-                               Foreground="#111827" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Orders from your shop will appear here as they come in"
-                               FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                    <TextBlock Text="No orders to show" FontSize="13.5" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Orders appear here the moment a customer checks out — try the All filter if you have a status selected."
+                               FontSize="12" Foreground="{DynamicResource TextMutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,4,0,0" MaxWidth="380" TextWrapping="Wrap"/>
                 </StackPanel>
             </StackPanel>
         </Border>

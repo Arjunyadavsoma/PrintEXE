@@ -5,50 +5,13 @@
     Title="PrintShop Companion"
     Width="1180" Height="740" MinWidth="720" MinHeight="480"
     WindowStartupLocation="CenterScreen"
-    Background="#F7F7F8"
+    Background="{DynamicResource BackgroundBrush}"
     ResizeMode="CanResize"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
-    <Window.Resources>
-        <!-- Sidebar nav item style — clean rail with hover/active states -->
-        <Style x:Key="NavItem" TargetType="Button">
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="Padding" Value="14,11" />
-            <Setter Property="Margin" Value="8,1" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="#374151" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="FontSize" Value="13.5" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                                CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter VerticalAlignment="Center"
-                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F3F4F6"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#E5E7EB"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Active nav item — amber tint + amber left accent strip -->
-        <Style x:Key="NavItemActive" TargetType="Button" BasedOn="{StaticResource NavItem}">
-            <Setter Property="Background" Value="#E9F2FF"/>
-            <Setter Property="Foreground" Value="#1638A0"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-        </Style>
-    </Window.Resources>
+    <!-- v0.7.15: nav styles now come from Components.xaml (NavRailItem /
+         NavRailItemActive) with the full state matrix; the local duplicates
+         are gone. -->
 
     <Grid x:Name="RootGrid">
         <Grid.ColumnDefinitions>
@@ -57,62 +20,66 @@
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar (hidden on login) -->
-        <Border x:Name="Sidebar" Grid.Column="0" Background="#FFFFFF"
-                BorderBrush="#E5E7EB" BorderThickness="0,0,1,0">
+        <Border x:Name="Sidebar" Grid.Column="0" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <!-- Brand header -->
                 <StackPanel DockPanel.Dock="Top" Margin="20,20,20,20">
                     <StackPanel Orientation="Horizontal">
-                        <Border Width="36" Height="36" CornerRadius="9" Background="#2858CD">
-                            <TextBlock Text="P" FontSize="18" FontWeight="Bold" Foreground="White"
+                        <Border Width="36" Height="36" CornerRadius="9" Background="{DynamicResource BrandBrush}">
+                            <TextBlock Text="P" FontSize="18" FontWeight="SemiBold" Foreground="White"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="PrintShop" FontSize="14.5" FontWeight="Bold" Foreground="#111827"/>
-                            <TextBlock x:Name="VersionLabel" Text="v0.4.3" FontSize="11" Foreground="#9CA3AF"/>
+                            <TextBlock Text="PrintShop" FontSize="14.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock x:Name="VersionLabel" Text="v0.4.3" FontSize="11"
+                                       Foreground="{DynamicResource TextSubtleBrush}"/>
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Section divider -->
-                <Border DockPanel.Dock="Top" Height="1" Background="#F3F4F6" Margin="16,0"/>
+                <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource BorderSoftBrush}" Margin="16,0"/>
 
                 <!-- Nav items — main section -->
                 <StackPanel DockPanel.Dock="Top" Margin="12,12">
-                    <TextBlock Text="MENU" FontSize="10" FontWeight="SemiBold"
-                               Foreground="#9CA3AF" Margin="12,0,0,8"/>
-                    <Button Content="Overview"  Click="Nav_Click" Tag="Overview"  x:Name="NavOverview"  Style="{StaticResource NavItem}"/>
-                    <Button Content="Orders"     Click="Nav_Click" Tag="Orders"    x:Name="NavOrders"   Style="{StaticResource NavItem}"/>
-                    <Button Content="Print Queue" Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue" Style="{StaticResource NavItem}"/>
-                    <Button Content="Printers"   Click="Nav_Click" Tag="Printers"  x:Name="NavPrinters"  Style="{StaticResource NavItem}"/>
-                    <Button Content="Sync Center" Click="Nav_Click" Tag="SyncCenter" x:Name="NavSyncCenter" Style="{StaticResource NavItem}"/>
-                    <Button Content="Diagnostics" Click="Nav_Click" Tag="Diagnostics" x:Name="NavDiagnostics" Style="{StaticResource NavItem}"/>
+                    <TextBlock Text="Menu" FontSize="10.5" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextSubtleBrush}" Margin="12,0,0,8"/>
+                    <Button Content="Overview"  Click="Nav_Click" Tag="Overview"  x:Name="NavOverview"  Style="{StaticResource NavRailItem}"/>
+                    <Button Content="Orders"     Click="Nav_Click" Tag="Orders"    x:Name="NavOrders"   Style="{StaticResource NavRailItem}"/>
+                    <Button Content="Print Queue" Click="Nav_Click" Tag="PrintQueue" x:Name="NavPrintQueue" Style="{StaticResource NavRailItem}"/>
+                    <Button Content="Printers"   Click="Nav_Click" Tag="Printers"  x:Name="NavPrinters"  Style="{StaticResource NavRailItem}"/>
+                    <Button Content="Sync Center" Click="Nav_Click" Tag="SyncCenter" x:Name="NavSyncCenter" Style="{StaticResource NavRailItem}"/>
+                    <Button Content="Diagnostics" Click="Nav_Click" Tag="Diagnostics" x:Name="NavDiagnostics" Style="{StaticResource NavRailItem}"/>
                 </StackPanel>
 
                 <!-- Section divider -->
-                <Border DockPanel.Dock="Top" Height="1" Background="#F3F4F6" Margin="16,8"/>
+                <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource BorderSoftBrush}" Margin="16,8"/>
 
                 <!-- Nav items — system section -->
                 <StackPanel DockPanel.Dock="Top" Margin="12,4">
-                    <TextBlock Text="SYSTEM" FontSize="10" FontWeight="SemiBold"
-                               Foreground="#9CA3AF" Margin="12,0,0,8"/>
-                    <Button Content="Settings" Click="Nav_Click" Tag="Settings" x:Name="NavSettings" Style="{StaticResource NavItem}"/>
+                    <TextBlock Text="System" FontSize="10.5" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextSubtleBrush}" Margin="12,0,0,8"/>
+                    <Button Content="Settings" Click="Nav_Click" Tag="Settings" x:Name="NavSettings" Style="{StaticResource NavRailItem}"/>
                 </StackPanel>
 
                 <!-- Bottom: account + sign out -->
-                <Border DockPanel.Dock="Bottom" Background="#FAFAFA" Padding="16,12">
+                <Border DockPanel.Dock="Bottom" Background="{DynamicResource SubsurfaceBrush}" Padding="16,12">
                     <DockPanel>
-                        <Border Width="32" Height="32" CornerRadius="16" Background="#E5E7EB" DockPanel.Dock="Left">
+                        <Border Width="32" Height="32" CornerRadius="16" Background="{DynamicResource BorderBrush}" DockPanel.Dock="Left">
                             <TextBlock x:Name="UserInitial" Text="S" FontSize="13" FontWeight="SemiBold"
-                                       Foreground="#374151" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                       Foreground="{DynamicResource TextBodyBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock x:Name="UserLabel" Text="Shopkeeper" FontSize="12" FontWeight="Medium" Foreground="#1F2937"/>
-                            <TextBlock x:Name="UserSubtitle" Text="Not signed in" FontSize="11" Foreground="#6B7280"/>
+                            <TextBlock x:Name="UserLabel" Text="Shopkeeper" FontSize="12" FontWeight="Medium"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock x:Name="UserSubtitle" Text="Not signed in" FontSize="11"
+                                       Foreground="{DynamicResource TextMutedBrush}"/>
                         </StackPanel>
-                        <Button Content="Sign Out" Click="Logout_Click" DockPanel.Dock="Right"
-                                Background="Transparent" BorderThickness="0" FontSize="11"
-                                Foreground="#6B7280" Cursor="Hand" VerticalAlignment="Center"/>
+                        <Button Content="Sign out" Click="Logout_Click" DockPanel.Dock="Right"
+                                Style="{StaticResource GhostButton}"
+                                VerticalAlignment="Center"/>
                     </DockPanel>
                 </Border>
             </DockPanel>
@@ -125,29 +92,28 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <Border x:Name="UpdateBanner" Grid.Row="0" Background="#FFFBEB"
-                    BorderBrush="#AEBEDF" BorderThickness="0,0,0,1"
+            <Border x:Name="UpdateBanner" Grid.Row="0" Background="{DynamicResource WarningSoftBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
                     Padding="20,12" Visibility="Collapsed">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock x:Name="UpdateStateIcon" Text="●" FontSize="13" Foreground="#2858CD"
+                        <TextBlock x:Name="UpdateStateIcon" Text="&#xE895;" FontFamily="{StaticResource IconFontFamily}" FontSize="13"
+                                   Foreground="{DynamicResource BrandDarkBrush}"
                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <TextBlock x:Name="UpdateText" FontSize="13" FontWeight="Medium"
-                                   Foreground="#1638A0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                   Foreground="{DynamicResource BrandDarkBrush}" VerticalAlignment="Center" DockPanel.Dock="Left"/>
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                        <TextBlock x:Name="UpdateProgressText" FontSize="12" Foreground="#1638A0"
+                        <TextBlock x:Name="UpdateProgressText" FontSize="12" Foreground="{DynamicResource BrandDarkBrush}"
                                    VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed"/>
                         <ProgressBar x:Name="UpdateProgress" Width="120" Height="6"
                                      VerticalAlignment="Center" Margin="0,0,12,0"
                                      Visibility="Collapsed" Maximum="100"/>
-                        <Button x:Name="UpdateButton" Content="Update Now" Click="Update_Click"
-                                Background="#2858CD" Foreground="White" Padding="20,8"
-                                BorderThickness="0" FontWeight="SemiBold" FontSize="13" Cursor="Hand"/>
+                        <Button x:Name="UpdateButton" Content="Update now" Click="Update_Click"
+                                Style="{StaticResource PrimaryButton}" Padding="20,8" FontSize="13"/>
                         <Button x:Name="UpdateDismissButton" Content="Dismiss" Click="UpdateDismiss_Click"
-                                Background="Transparent" Foreground="#1638A0" Padding="14,8"
-                                BorderThickness="0" FontSize="12" Cursor="Hand" Margin="4,0,0,0"
-                                ToolTip="Hide this banner until next check"/>
+                                Style="{StaticResource GhostButton}"
+                                ToolTip="Hide this banner until the next update check"/>
                     </StackPanel>
                 </DockPanel>
             </Border>

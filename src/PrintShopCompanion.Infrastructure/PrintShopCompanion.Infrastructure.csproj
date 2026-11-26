@@ -49,6 +49,16 @@
          callers guard with OperatingSystem.IsWindows(). -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.2" />
 
+    <!-- v0.7.15: explicit on the windows TFM so RawGdiPrinter (System.Drawing
+         Bitmap/Graphics) cross-compiles on Linux too. Without it, the windows
+         TFM resolves System.Drawing.Common from the WindowsDesktop framework
+         facade whose ref set lacks the System.Private.Windows.GdiPlus friend
+         assembly (CS0012: 'IGraphics' is defined in an assembly that is not
+         referenced). The NuGet package's net10.0 asset carries the friend.
+         Same assembly identity on Windows CI — no behavior change there. -->
+    <PackageReference Include="System.Drawing.Common" Version="10.0.0"
+                      Condition="'$(TargetFramework)' == 'net10.0-windows'" />
+
     <!-- SocketIOClient: bumped to 3.2.0 (the latest stable on NuGet as of 2024).
          3.2.0 multi-targets net6.0/net7.0/net8.0 — when consumed by net10.0 it
          picks the net8.0 TFM and uses the built-in System.Net.WebSockets.ClientWebSocket,

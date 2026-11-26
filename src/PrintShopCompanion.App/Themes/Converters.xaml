@@ -5,6 +5,8 @@
 
     <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
     <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+    <!-- v0.7.15: empty-state driver — Visible when count/collection is empty -->
+    <conv:ZeroToVisibilityConverter x:Key="ZeroToVis" />
     <conv:InverseBoolConverter x:Key="InverseBool" />
     <conv:StringToVisibilityConverter x:Key="StringToVis" />
     <conv:InverseStringToVisibilityConverter x:Key="InverseStringToVis" />

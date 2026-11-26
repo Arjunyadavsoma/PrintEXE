@@ -5,198 +5,166 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
-    <Grid Background="#F7F7F8">
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Page header -->
-        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1">
-            <DockPanel Margin="24,18,24,18">
+        <Border Grid.Row="0" Style="{StaticResource PageHeader}">
+            <DockPanel Margin="{StaticResource PageMargin}">
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Overview" FontSize="22" FontWeight="Bold" Foreground="#111827"/>
+                    <TextBlock Text="Overview" Style="{StaticResource PageTitleText}"/>
                     <TextBlock Text="Live dashboard mirror — same numbers as the shopkeeper webpage"
-                               FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,0"/>
+                               Style="{StaticResource PageSubtitleText}"/>
                 </StackPanel>
-                <Button Content="↻  Refresh" Click="Refresh_Click" DockPanel.Dock="Right"
-                        HorizontalAlignment="Right" Padding="16,9" FontSize="13"
-                        Background="#FFFFFF" Foreground="#374151" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                <Button Click="Refresh_Click" DockPanel.Dock="Right"
+                        HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}"
+                        Content="Refresh" Cursor="Hand"/>
             </DockPanel>
         </Border>
 
-        <!-- Loading state -->
-        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+        <!-- Loading state: skeleton keeps the page shape (Operate rule —
+             no centered "Loading..." text). -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Top" Margin="24,20"
                     Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="Loading dashboard..." FontSize="14" Foreground="#6B7280"/>
+            <Border Style="{StaticResource Card}" Padding="20,16" Margin="0,0,0,20">
+                <StackPanel>
+                    <Border Style="{StaticResource SkeletonBar}" Width="220"/>
+                    <Border Style="{StaticResource SkeletonBar}" Width="140"/>
+                </StackPanel>
+            </Border>
+            <WrapPanel>
+                <Border Style="{StaticResource StatCard}" MinHeight="104"/>
+                <Border Style="{StaticResource StatCard}" MinHeight="104"/>
+                <Border Style="{StaticResource StatCard}" MinHeight="104"/>
+                <Border Style="{StaticResource StatCard}" MinHeight="104" Margin="0"/>
+            </WrapPanel>
         </StackPanel>
 
-        <!-- Error state -->
+        <!-- Error state: names the problem and the recovery -->
         <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="24"
                     Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
-            <Border Width="48" Height="48" CornerRadius="24" Background="#FFE7E4" Margin="0,0,0,12">
-                <TextBlock Text="⚠" FontSize="22" Foreground="#BE222A"
+            <Border Style="{StaticResource EmptyStateGlyph}" Background="{DynamicResource DangerSoftBrush}" Margin="0,0,0,12">
+                <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFontFamily}" FontSize="20"
+                           Foreground="{DynamicResource DangerBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <TextBlock Text="Could not load dashboard" FontSize="16" FontWeight="SemiBold"
-                       Foreground="#111827" HorizontalAlignment="Center" Margin="0,0,0,4"/>
-            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#6B7280"
+                       Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="{DynamicResource TextMutedBrush}"
                        TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" MaxWidth="360"/>
-            <Button Content="Retry" Click="Refresh_Click" Padding="20,10"
-                    Background="#2858CD" Foreground="White"
-                    BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
+            <Button Content="Retry" Click="Refresh_Click"
+                    Style="{StaticResource PrimaryButton}"
+                    HorizontalAlignment="Center"/>
         </StackPanel>
 
         <!-- Content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding IsLoading, Converter={StaticResource InverseBoolToVis}}">
-            <StackPanel Margin="24,20">
+            <StackPanel Margin="24,20,24,24">
 
-                <!-- Shop name banner + REAL live pill -->
-                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                        BorderThickness="1" Padding="20,16" Margin="0,0,0,20">
+                <!-- Shop identity + live pill -->
+                <Border Style="{StaticResource Card}" Padding="20,16" Margin="0,0,0,24">
                     <DockPanel>
-                        <Border Width="40" Height="40" CornerRadius="20" Background="#E1EFFF"
-                                DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ShopNameInitial}" FontSize="16" FontWeight="Bold"
-                                       Foreground="#2858CD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border Style="{StaticResource Avatar}" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ShopNameInitial}" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource BrandDarkBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ShopName}" FontSize="16" FontWeight="SemiBold" Foreground="#111827"/>
-                            <TextBlock Text="Connected shop" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock Text="{Binding ShopName}" Style="{StaticResource CardTitleText}"/>
+                            <TextBlock Text="Connected shop" Style="{StaticResource MutedText}"/>
                         </StackPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"
                                     VerticalAlignment="Center">
-                            <TextBlock Text="●" FontSize="11.5" FontWeight="Medium"
+                            <TextBlock Text="&#xE703;" FontFamily="{StaticResource IconFontFamily}" FontSize="11"
+                                       FontWeight="Medium"
                                        Foreground="{Binding IsLive, Converter={StaticResource BoolToLiveBrush}}"
                                        VerticalAlignment="Center" Margin="0,0,5,0"/>
                             <TextBlock Text="{Binding LiveStatusText}" FontSize="11.5" FontWeight="Medium"
                                        Foreground="{Binding IsLive, Converter={StaticResource BoolToLiveBrush}}"
                                        VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding LastSyncText, StringFormat=synced {0}}" FontSize="11"
-                                       Foreground="#9CA3AF" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                       Foreground="{DynamicResource TextSubtleBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
 
                 <!-- KPI section heading -->
-                <TextBlock Text="TODAY" FontSize="11" FontWeight="SemiBold"
-                           Foreground="#9CA3AF" Margin="0,0,0,10"/>
+                <TextBlock Text="Today" Style="{StaticResource SectionHeadingText}"/>
 
-                <!-- Stat cards row 1 — mirrors the webpage's four headline cards -->
-                <WrapPanel Margin="0,0,0,20">
-                    <!-- Today's orders -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#2858CD" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="TODAY'S ORDERS" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding TodaysOrders}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#111827" Margin="0,6,0,0"/>
-                                <TextBlock Text="placed today" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                <!-- Stat cards — full border, tinted label carries the category
+                     color (the left accent strip is retired). -->
+                <WrapPanel Margin="0,0,0,24">
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="Today's orders" Style="{StaticResource KpiLabel}" Foreground="{DynamicResource BrandDarkBrush}"/>
+                            <TextBlock Text="{Binding TodaysOrders}" Style="{StaticResource KpiValue}"/>
+                            <TextBlock Text="placed today" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Today's revenue -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#007F3D" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="TODAY'S REVENUE" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding TodaysRevenueFormatted}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#111827" Margin="0,6,0,0"/>
-                                <TextBlock Text="paid today" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="Today's revenue" Style="{StaticResource KpiLabel}" Foreground="{DynamicResource SuccessBrush}"/>
+                            <TextBlock Text="{Binding TodaysRevenueFormatted}" Style="{StaticResource KpiValue}"/>
+                            <TextBlock Text="paid today" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Pending payments -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#E48E26" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="PENDING PAYMENTS" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding PendingPayments}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#111827" Margin="0,6,0,0"/>
-                                <TextBlock Text="awaiting payment" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="Pending payments" Style="{StaticResource KpiLabel}" Foreground="{DynamicResource WarningBrush}"/>
+                            <TextBlock Text="{Binding PendingPayments}" Style="{StaticResource KpiValue}"/>
+                            <TextBlock Text="awaiting payment" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Total orders (all-time) -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#6B7280" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="TOTAL ORDERS" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding TotalOrders}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#111827" Margin="0,6,0,0"/>
-                                <TextBlock Text="all-time" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="Total orders" Style="{StaticResource KpiLabel}"/>
+                            <TextBlock Text="{Binding TotalOrders}" Style="{StaticResource KpiValue}"/>
+                            <TextBlock Text="all-time" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Printing -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#2858CD" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="PRINTING" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding Printing}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#2858CD" Margin="0,6,0,0"/>
-                                <TextBlock Text="in progress" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="Printing" Style="{StaticResource KpiLabel}" Foreground="{DynamicResource BrandDarkBrush}"/>
+                            <TextBlock Text="{Binding Printing}" Style="{StaticResource KpiValue}" Foreground="{DynamicResource BrandDarkBrush}"/>
+                            <TextBlock Text="in progress" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Ready -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#007F3D" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="READY" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding Ready}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#007F3D" Margin="0,6,0,0"/>
-                                <TextBlock Text="ready for pickup" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="Ready" Style="{StaticResource KpiLabel}" Foreground="{DynamicResource SuccessBrush}"/>
+                            <TextBlock Text="{Binding Ready}" Style="{StaticResource KpiValue}" Foreground="{DynamicResource SuccessBrush}"/>
+                            <TextBlock Text="ready for pickup" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- All-time revenue -->
-                    <Border Width="200" Margin="0,0,12,12" Background="#FFFFFF" CornerRadius="10"
-                            BorderBrush="#E5E7EB" BorderThickness="1">
-                        <DockPanel>
-                            <Border Width="3" Background="#006E9E" DockPanel.Dock="Left"/>
-                            <StackPanel Margin="16,14">
-                                <TextBlock Text="ALL-TIME REVENUE" FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF"/>
-                                <TextBlock Text="{Binding RevenueFormatted}" FontSize="22" FontWeight="Bold"
-                                           Foreground="#111827" Margin="0,6,0,0"/>
-                                <TextBlock Text="since first order" FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DockPanel>
+                    <Border Style="{StaticResource StatCard}">
+                        <StackPanel>
+                            <TextBlock Text="All-time revenue" Style="{StaticResource KpiLabel}" Foreground="{DynamicResource InfoBrush}"/>
+                            <TextBlock Text="{Binding RevenueFormatted}" Style="{StaticResource KpiValue}"/>
+                            <TextBlock Text="since first order" Style="{StaticResource KpiSub}"/>
+                        </StackPanel>
                     </Border>
                 </WrapPanel>
 
-                <!-- Recent orders section heading -->
-                <TextBlock Text="RECENT ORDERS" FontSize="11" FontWeight="SemiBold"
-                           Foreground="#9CA3AF" Margin="0,8,0,10"/>
+                <!-- Recent orders -->
+                <TextBlock Text="Recent orders" Style="{StaticResource SectionHeadingText}"/>
 
                 <!-- Recent Orders table card -->
-                <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                        BorderThickness="1">
+                <Border Style="{StaticResource Card}" Padding="0">
                     <StackPanel>
                         <!-- Table header -->
-                        <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1"
+                        <Border Background="{DynamicResource SubsurfaceBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
                                 Padding="20,12">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -206,11 +174,11 @@
                                     <ColumnDefinition Width="120"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="TOKEN" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                                <TextBlock Grid.Column="1" Text="CUSTOMER" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                                <TextBlock Grid.Column="2" Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                                <TextBlock Grid.Column="3" Text="AMOUNT" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
-                                <TextBlock Grid.Column="4" Text="DATE" FontSize="11" FontWeight="SemiBold" Foreground="#6B7280"/>
+                                <TextBlock Grid.Column="0" Text="Token" Style="{StaticResource ColumnHeaderText}"/>
+                                <TextBlock Grid.Column="1" Text="Customer" Style="{StaticResource ColumnHeaderText}"/>
+                                <TextBlock Grid.Column="2" Text="Status" Style="{StaticResource ColumnHeaderText}"/>
+                                <TextBlock Grid.Column="3" Text="Amount" Style="{StaticResource ColumnHeaderText}"/>
+                                <TextBlock Grid.Column="4" Text="Date" Style="{StaticResource ColumnHeaderText}"/>
                             </Grid>
                         </Border>
 
@@ -220,9 +188,10 @@
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="Padding" Value="20,10"/>
-                                    <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}"/>
                                     <Setter Property="BorderThickness" Value="0,0,0,1"/>
                                     <Setter Property="Cursor" Value="Hand"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.ItemTemplate>
@@ -236,32 +205,41 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{Binding TokenNumber, FallbackValue='—'}"
-                                                   FontSize="13" FontWeight="SemiBold" Foreground="#111827"
+                                                   FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"
                                                    VerticalAlignment="Center"/>
                                         <TextBlock Grid.Column="1" Text="{Binding CustomerPhone, FallbackValue='—'}"
-                                                   FontSize="13" Foreground="#374151" VerticalAlignment="Center"/>
-                                        <Border Grid.Column="2" CornerRadius="10" Padding="10,3" HorizontalAlignment="Left"
+                                                   FontSize="13" Foreground="{DynamicResource TextBodyBrush}" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="2" Style="{StaticResource StatusPill}" HorizontalAlignment="Left"
                                                 VerticalAlignment="Center"
-                                                Background="{Binding Status, Converter={StaticResource StatusBg}}"
-                                                BorderBrush="{Binding Status, Converter={StaticResource StatusBorder}}"
-                                                BorderThickness="1">
+                                                Background="{Binding Status, Converter={StaticResource StatusBg}}">
                                             <TextBlock Text="{Binding Status, Converter={StaticResource StatusLabel}}"
-                                                       FontSize="11" FontWeight="Medium"
+                                                       Style="{StaticResource StatusPillText}"
                                                        Foreground="{Binding Status, Converter={StaticResource StatusFg}}"/>
                                         </Border>
                                         <TextBlock Grid.Column="3" Text="{Binding TotalAmountPaise, Converter={StaticResource Rupees}}"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#111827"
+                                                   FontSize="13" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}"
                                                    VerticalAlignment="Center"/>
                                         <TextBlock Grid.Column="4" Text="{Binding CreatedAt, Converter={StaticResource LocalTime}}"
-                                                   FontSize="12" Foreground="#6B7280" VerticalAlignment="Center"/>
+                                                   FontSize="12" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
 
-                        <TextBlock Text="No orders yet" FontSize="13" Foreground="#6B7280"
-                                   HorizontalAlignment="Center" Margin="0,24,0,24"
-                                   Visibility="{Binding RecentOrders.Count, Converter={StaticResource InverseBoolToVis}}"/>
+                        <!-- Empty state that teaches: what lands here and when -->
+                        <StackPanel HorizontalAlignment="Center" Margin="0,28,0,28"
+                                    Visibility="{Binding RecentOrders.Count, Converter={StaticResource ZeroToVis}}">
+                            <Border Style="{StaticResource EmptyStateGlyph}" Margin="0,0,0,10">
+                                <TextBlock Text="&#xE8B7;" FontFamily="{StaticResource IconFontFamily}" FontSize="18"
+                                           Foreground="{DynamicResource BrandDarkBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="No orders yet" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                            <TextBlock Text="New orders appear here the moment a customer checks out." 
+                                       FontSize="12" Foreground="{DynamicResource TextMutedBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>

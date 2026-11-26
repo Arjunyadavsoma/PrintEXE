@@ -5,10 +5,23 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <!-- v0.7.15: form label — visible weight, normal case (was ALL-CAPS
+             micro). Field labels name the field plainly. -->
+        <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyText}">
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+        <!-- Info/error callouts share one shape -->
+        <Style x:Key="Callout" TargetType="Border">
+            <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}"/>
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="Margin" Value="0,0,0,18"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -18,13 +31,13 @@
         </Grid.ColumnDefinitions>
 
         <!-- LEFT: brand panel -->
-        <Border Grid.Column="0" Background="#2858CD">
+        <Border Grid.Column="0" Background="{DynamicResource BrandBrush}">
             <Grid>
                 <Border HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                     <Border.Background>
                         <RadialGradientBrush>
-                            <GradientStop Offset="0" Color="#1A48BC"/>
-                            <GradientStop Offset="1" Color="#2858CD"/>
+                            <GradientStop Offset="0" Color="{StaticResource BrandAccentColor}"/>
+                            <GradientStop Offset="1" Color="{StaticResource BrandColor}"/>
                         </RadialGradientBrush>
                     </Border.Background>
                 </Border>
@@ -32,12 +45,12 @@
                 <StackPanel VerticalAlignment="Center" Margin="48,40">
                     <Border Width="56" Height="56" CornerRadius="14" Background="#FFFFFF" Opacity="0.95"
                             HorizontalAlignment="Left" Margin="0,0,0,28">
-                        <TextBlock Text="P" FontSize="28" FontWeight="Bold" Foreground="#2858CD"
+                        <TextBlock Text="P" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource BrandBrush}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
 
-                    <TextBlock Text="PrintShop" FontSize="32" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
-                    <TextBlock Text="Companion" FontSize="32" FontWeight="Bold" Foreground="White" Opacity="0.85" Margin="0,0,0,24"/>
+                    <TextBlock Text="PrintShop" FontSize="32" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8"/>
+                    <TextBlock Text="Companion" FontSize="32" FontWeight="SemiBold" Foreground="White" Opacity="0.85" Margin="0,0,0,24"/>
 
                     <TextBlock Text="The desktop companion that connects your shop printer to the cloud."
                                FontSize="14" Foreground="White" Opacity="0.92"
@@ -46,7 +59,8 @@
                     <StackPanel Margin="0,0,0,16">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <Border Width="22" Height="22" CornerRadius="11" Background="#FFFFFF" Opacity="0.25">
-                                <TextBlock Text="✓" Foreground="White" FontSize="12" FontWeight="Bold"
+                                <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFontFamily}"
+                                           Foreground="White" FontSize="12"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Text="Auto-print incoming orders" FontSize="13" Foreground="White" Opacity="0.92"
@@ -54,7 +68,8 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <Border Width="22" Height="22" CornerRadius="11" Background="#FFFFFF" Opacity="0.25">
-                                <TextBlock Text="✓" Foreground="White" FontSize="12" FontWeight="Bold"
+                                <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFontFamily}"
+                                           Foreground="White" FontSize="12"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Text="Offline queue with auto-retry" FontSize="13" Foreground="White" Opacity="0.92"
@@ -62,7 +77,8 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <Border Width="22" Height="22" CornerRadius="11" Background="#FFFFFF" Opacity="0.25">
-                                <TextBlock Text="✓" Foreground="White" FontSize="12" FontWeight="Bold"
+                                <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFontFamily}"
+                                           Foreground="White" FontSize="12"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Text="Auto-update on every release" FontSize="13" Foreground="White" Opacity="0.92"
@@ -77,25 +93,23 @@
         </Border>
 
         <!-- RIGHT: login form -->
-        <Border Grid.Column="1" Background="#FFFFFF">
+        <Border Grid.Column="1" Background="{DynamicResource SurfaceBrush}">
             <Grid>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                 MaxWidth="420" Margin="40">
 
-                    <!-- Auto-sign-in status (login-first UX): shown while the
-                         startup credential restore runs, or when it failed with
-                         the reason. Blue while in progress, red on failure. -->
-                    <Border Padding="12,10" Margin="0,0,0,18" CornerRadius="8" BorderThickness="1"
+                    <!-- Auto-sign-in status (login-first UX) -->
+                    <Border Padding="12,10"
                             Visibility="{Binding ShowAutoSignIn, Converter={StaticResource BoolToVis}}">
                         <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Background" Value="#FEF2F2"/>
-                                <Setter Property="BorderBrush" Value="#FCA5A5"/>
+                            <Style TargetType="Border" BasedOn="{StaticResource Callout}">
+                                <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
+                                <Setter Property="BorderBrush" Value="{DynamicResource DangerBorderBrush}"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding AutoSignInIsError}" Value="False">
-                                        <Setter Property="Background" Value="#EFF6FF"/>
-                                        <Setter Property="BorderBrush" Value="#BFDBFE"/>
+                                        <Setter Property="Background" Value="{DynamicResource InfoSoftBrush}"/>
+                                        <Setter Property="BorderBrush" Value="{DynamicResource InfoBorderBrush}"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -103,10 +117,10 @@
                         <TextBlock Text="{Binding AutoSignInMessage}" FontSize="13" TextWrapping="Wrap">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="#991B1B"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding AutoSignInIsError}" Value="False">
-                                            <Setter Property="Foreground" Value="#1E40AF"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource InfoBrush}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -114,77 +128,65 @@
                         </TextBlock>
                     </Border>
 
-                    <!-- ============================== -->
                     <!-- PRIMARY: shopkeeper email + password (live-verified flow) -->
-                    <!-- ============================== -->
-                    <TextBlock Text="Sign in" FontSize="26" FontWeight="Bold"
-                               Foreground="#111827" Margin="0,0,0,6"/>
+                    <TextBlock Text="Sign in" FontSize="26" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6"/>
                     <TextBlock Text="Use your print shop account — the same email and password as the web dashboard."
-                               FontSize="13" Foreground="#6B7280" Margin="0,0,0,24"/>
+                               Style="{StaticResource BodyText}" Margin="0,0,0,24"/>
 
-                    <TextBlock Text="EMAIL" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#374151" Margin="0,0,0,6"/>
+                    <TextBlock Text="Email" Style="{StaticResource FieldLabel}"/>
                     <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="14,12" FontSize="14" Margin="0,0,0,18"
-                             BorderBrush="#D1D5DB" BorderThickness="1"
-                             VerticalContentAlignment="Center"/>
+                             Style="{StaticResource InputField}"
+                             FontSize="14" Margin="0,0,0,18"/>
 
-                    <TextBlock Text="PASSWORD" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#374151" Margin="0,0,0,6"/>
+                    <TextBlock Text="Password" Style="{StaticResource FieldLabel}"/>
                     <Grid Margin="0,0,0,18">
-                        <PasswordBox x:Name="PasswordBox" Padding="14,12" FontSize="14"
-                                     BorderBrush="#D1D5DB" BorderThickness="1"
-                                     PasswordChanged="PasswordBox_PasswordChanged"
-                                     VerticalContentAlignment="Center"/>
-                        <TextBox x:Name="PasswordRevealBox" Padding="14,12" FontSize="14"
-                                 BorderBrush="#D1D5DB" BorderThickness="1"
+                        <PasswordBox x:Name="PasswordBox" Style="{StaticResource InputField}" FontSize="14"
+                                     PasswordChanged="PasswordBox_PasswordChanged"/>
+                        <TextBox x:Name="PasswordRevealBox" Style="{StaticResource InputField}" FontSize="14"
                                  Visibility="Collapsed"
                                  IsReadOnly="True"
-                                 VerticalContentAlignment="Center"
                                  TextChanged="PasswordRevealBox_TextChanged"/>
                         <Button x:Name="TogglePasswordBtn" Content="Show"
-                                Click="TogglePassword_Click"
+                                Click="TogglePassword_Click" Style="{StaticResource GhostButton}"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center"
-                                Background="Transparent" BorderThickness="0"
-                                Foreground="#6B7280" FontSize="11" Cursor="Hand"
-                                Padding="14,0" Margin="0,0,4,0"/>
+                                Margin="0,0,4,0"/>
                     </Grid>
 
                     <!-- Error message (sign-in + paste-token flows share it) -->
-                    <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
-                            BorderBrush="#FECACA" BorderThickness="1"
+                    <Border Background="{DynamicResource DangerSoftBrush}" Style="{StaticResource Callout}"
+                            BorderBrush="{DynamicResource DangerBorderBrush}"
                             Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVis}}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
+                            <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFontFamily}" FontSize="13"
+                                       Foreground="{DynamicResource DangerBrush}" Margin="0,0,8,0"
                                        VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="#BE222A"
+                            <TextBlock Text="{Binding ErrorMessage}" FontSize="13" Foreground="{DynamicResource DangerBrush}"
                                        TextWrapping="Wrap" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
-                    <Button Content="Sign In" Click="SignIn_Click"
-                            Background="#2858CD" Foreground="White" Padding="0,14"
-                            FontSize="14" FontWeight="SemiBold" BorderThickness="0"
-                            Cursor="Hand" Margin="0,0,0,16"/>
+                    <Button Content="Sign in" Click="SignIn_Click"
+                            Style="{StaticResource PrimaryButton}"
+                            Padding="0,14" FontSize="14"
+                            Margin="0,0,0,16"/>
 
-                    <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="#9CA3AF" TextWrapping="Wrap">
+                    <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSubtleBrush}" TextWrapping="Wrap">
                         Don't have a shop account?
-                        <Run Text="Register on the web dashboard" FontWeight="SemiBold" Foreground="#2858CD"/>
+                        <Run Text="Register on the web dashboard" FontWeight="SemiBold" Foreground="{DynamicResource BrandBrush}"/>
                     </TextBlock>
 
                     <!-- Divider -->
                     <Grid Margin="0,28,0,20">
-                        <Border Height="1" Background="#E5E7EB" VerticalAlignment="Center"/>
-                        <Border Background="#FFFFFF" Padding="10,0" HorizontalAlignment="Center">
-                            <TextBlock Text="OR CONNECT THIS COMPUTER" FontSize="10"
-                                       Foreground="#9CA3AF" FontWeight="SemiBold"/>
+                        <Border Height="1" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
+                        <Border Background="{DynamicResource SurfaceBrush}" Padding="10,0" HorizontalAlignment="Center">
+                            <TextBlock Text="or connect this computer" FontSize="10.5"
+                                       Foreground="{DynamicResource TextSubtleBrush}" FontWeight="Medium"/>
                         </Border>
                     </Grid>
 
-                    <!-- ============================== -->
-                    <!-- Secondary options: small icon buttons (both flows live-verified) -->
-                    <!-- ============================== -->
+                    <!-- Secondary options: both flows live-verified -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -192,21 +194,21 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button x:Name="PairingToggle" Click="TogglePairingPanel_Click"
-                                Background="#FFFFFF" BorderBrush="#D1D5DB" BorderThickness="1"
-                                Foreground="#374151" Padding="0,10" FontSize="12"
-                                FontWeight="SemiBold" Cursor="Hand">
+                                Style="{StaticResource SecondaryButton}"
+                                Padding="0,10" FontSize="12">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="🎫" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="&#xE8EC;" FontFamily="{StaticResource IconFontFamily}" FontSize="14"
+                                           Foreground="{DynamicResource BrandDarkBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Text="Pairing code" FontSize="12" Margin="8,0,0,0"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="TokenToggle" Grid.Column="2" Click="ToggleTokenPanel_Click"
-                                Background="#FFFFFF" BorderBrush="#D1D5DB" BorderThickness="1"
-                                Foreground="#374151" Padding="0,10" FontSize="12"
-                                FontWeight="SemiBold" Cursor="Hand">
+                                Style="{StaticResource SecondaryButton}"
+                                Padding="0,10" FontSize="12">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="🔑" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="&#xE192;" FontFamily="{StaticResource IconFontFamily}" FontSize="14"
+                                           Foreground="{DynamicResource BrandDarkBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Text="Device token" FontSize="12" Margin="8,0,0,0"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
@@ -216,74 +218,72 @@
                     <!-- Collapsible: pairing-ticket panel (v1 contract §2) -->
                     <StackPanel x:Name="PairingPanel" Visibility="Collapsed" Margin="0,18,0,0">
                         <TextBlock Text="Pair this computer with a 5-minute pairing code from the web dashboard (Devices → Add Computer)."
-                                   FontSize="12" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
+                                   Style="{StaticResource MutedText}" Margin="0,0,0,14" TextWrapping="Wrap"/>
 
                         <!-- Steps explainer -->
-                        <Border Background="#EFF6FF" CornerRadius="8" Padding="14,12" Margin="0,0,0,18"
-                                BorderBrush="#BFDBFE" BorderThickness="1">
+                        <Border Background="{DynamicResource InfoSoftBrush}" Style="{StaticResource Callout}"
+                                BorderBrush="{DynamicResource InfoBorderBrush}">
                             <StackPanel>
-                                <TextBlock Text="HOW TO PAIR (5-MINUTE CODE)" FontSize="10" FontWeight="SemiBold"
-                                           Foreground="#1E40AF" Margin="0,0,0,6"/>
-                                <TextBlock FontSize="11.5" Foreground="#1E3A8A" TextWrapping="Wrap" LineHeight="18">
-                                    <Run Text="1." FontWeight="Bold"/>
+                                <TextBlock Text="How to pair with a 5-minute code" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource InfoBrush}" Margin="0,0,0,6"/>
+                                <TextBlock FontSize="11.5" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" LineHeight="18">
+                                    <Run Text="1." FontWeight="SemiBold"/>
                                     <Run Text=" Sign in to your shop on the web dashboard"/><LineBreak/>
-                                    <Run Text="2." FontWeight="Bold"/>
+                                    <Run Text="2." FontWeight="SemiBold"/>
                                     <Run Text=" Go to Shop → Devices → Add Computer"/><LineBreak/>
-                                    <Run Text="3." FontWeight="Bold"/>
+                                    <Run Text="3." FontWeight="SemiBold"/>
                                     <Run Text=" Copy the 64-character pairing code (or scan the QR)"/><LineBreak/>
-                                    <Run Text="4." FontWeight="Bold"/>
+                                    <Run Text="4." FontWeight="SemiBold"/>
                                     <Run Text=" Paste it below, name this PC, click Pair"/><LineBreak/>
-                                    <Run Text="   " FontWeight="Bold"/>
-                                    <Run Text=" The code expires in 5 minutes and works once" Foreground="#6B7280" FontStyle="Italic"/>
+                                    <Run Text="   " FontWeight="SemiBold"/>
+                                    <Run Text=" The code expires in 5 minutes and works once" Foreground="{DynamicResource TextMutedBrush}" FontStyle="Italic"/>
                                 </TextBlock>
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="PAIRING CODE" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="#374151" Margin="0,0,0,6"/>
+                        <TextBlock Text="Pairing code" Style="{StaticResource FieldLabel}"/>
                         <TextBox Text="{Binding PairingTicket, UpdateSourceTrigger=PropertyChanged}"
                                  x:Name="PairingTicketBox"
-                                 Padding="14,12" FontSize="13" FontFamily="Consolas"
+                                 Style="{StaticResource InputField}"
+                                 FontSize="13" FontFamily="{StaticResource MonoFontFamily}"
                                  Margin="0,0,0,18"
-                                 BorderBrush="#D1D5DB" BorderThickness="1"
-                                 VerticalContentAlignment="Center"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  MinHeight="60"
                                  MaxLength="64"
                                  ToolTip="Paste the 64-hex-character pairing code from the web dashboard"/>
 
-                        <TextBlock Text="COMPUTER NAME" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="#374151" Margin="0,0,0,6"/>
+                        <TextBlock Text="Computer name" Style="{StaticResource FieldLabel}"/>
                         <TextBox Text="{Binding DeviceName, UpdateSourceTrigger=PropertyChanged}"
                                  x:Name="DeviceNameBox"
-                                 Padding="14,12" FontSize="13"
+                                 Style="{StaticResource InputField}"
+                                 FontSize="13"
                                  Margin="0,0,0,18"
-                                 BorderBrush="#D1D5DB" BorderThickness="1"
-                                 VerticalContentAlignment="Center"
                                  MaxLength="120"
                                  ToolTip="A display name for this computer (shown on the website's device list)"/>
 
                         <!-- Ticket-pairing error message -->
-                        <Border Background="#FEF2F2" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
-                                BorderBrush="#FECACA" BorderThickness="1"
+                        <Border Background="{DynamicResource DangerSoftBrush}" Style="{StaticResource Callout}"
+                                BorderBrush="{DynamicResource DangerBorderBrush}"
                                 Visibility="{Binding TicketErrorMessage, Converter={StaticResource StringToVis}}">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="⚠" FontSize="14" Foreground="#BE222A" Margin="0,0,8,0"
+                                <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFontFamily}" FontSize="13"
+                                           Foreground="{DynamicResource DangerBrush}" Margin="0,0,8,0"
                                            VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding TicketErrorMessage}" FontSize="13" Foreground="#BE222A"
+                                <TextBlock Text="{Binding TicketErrorMessage}" FontSize="13" Foreground="{DynamicResource DangerBrush}"
                                            TextWrapping="Wrap" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Border>
 
                         <!-- Paired success banner (shown transiently before navigation) -->
-                        <Border Background="#ECFDF5" CornerRadius="8" Padding="14,10" Margin="0,0,0,18"
-                                BorderBrush="#A7F3D0" BorderThickness="1"
+                        <Border Background="{DynamicResource SuccessSoftBrush}" Style="{StaticResource Callout}"
+                                BorderBrush="{DynamicResource SuccessBorderBrush}"
                                 Visibility="{Binding PairedShopName, Converter={StaticResource StringToVis}}">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="✓" FontSize="14" Foreground="#007F3D" Margin="0,0,8,0"
+                                <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFontFamily}" FontSize="13"
+                                           Foreground="{DynamicResource SuccessBrush}" Margin="0,0,8,0"
                                            VerticalAlignment="Center"/>
-                                <TextBlock FontSize="13" Foreground="#007F3D" VerticalAlignment="Center" TextWrapping="Wrap">
+                                <TextBlock FontSize="13" Foreground="{DynamicResource SuccessBrush}" VerticalAlignment="Center" TextWrapping="Wrap">
                                     <Run Text="Paired with "/><Run Text="{Binding PairedShopName}" FontWeight="SemiBold"/>
                                 </TextBlock>
                             </StackPanel>
@@ -291,13 +291,13 @@
 
                         <Button x:Name="PairWithTicketButton" Content="Pair this computer"
                                 Click="PairWithTicket_Click"
-                                Background="#374151" Foreground="White" Padding="0,12"
-                                FontSize="13" FontWeight="SemiBold" BorderThickness="0"
-                                Cursor="Hand" Margin="0,0,0,12"
+                                Style="{StaticResource PrimaryButton}"
+                                Padding="0,12" FontSize="13"
+                                Margin="0,0,0,12"
                                 IsEnabled="{Binding IsPairingWithTicket, Converter={StaticResource InverseBool}}"/>
 
                         <TextBlock Text="Pairing — validating with the server..."
-                                   FontSize="12" Foreground="#6B7280" HorizontalAlignment="Center"
+                                   Style="{StaticResource MutedText}" HorizontalAlignment="Center"
                                    Margin="0,0,0,4"
                                    Visibility="{Binding IsPairingWithTicket, Converter={StaticResource BoolToVis}}"/>
                     </StackPanel>
@@ -305,16 +305,14 @@
                     <!-- Collapsible: paste-token panel -->
                     <StackPanel x:Name="TokenPanel" Visibility="Collapsed" Margin="0,18,0,0">
                         <TextBlock Text="Paste the device token from the web dashboard's Printer Setup page."
-                                   FontSize="12" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
+                                   Style="{StaticResource MutedText}" Margin="0,0,0,14" TextWrapping="Wrap"/>
 
-                        <TextBlock Text="DEVICE TOKEN" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="#374151" Margin="0,0,0,6"/>
+                        <TextBlock Text="Device token" Style="{StaticResource FieldLabel}"/>
                         <TextBox Text="{Binding DeviceToken, UpdateSourceTrigger=PropertyChanged}"
                                  x:Name="DeviceTokenBox"
-                                 Padding="14,12" FontSize="13"
+                                 Style="{StaticResource InputField}"
+                                 FontSize="13"
                                  Margin="0,0,0,18"
-                                 BorderBrush="#D1D5DB" BorderThickness="1"
-                                 VerticalContentAlignment="Center"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  MinHeight="80"
@@ -322,19 +320,18 @@
 
                         <Button x:Name="ConnectButton" Content="Connect this PC"
                                 Click="PairWithToken_Click"
-                                Background="#374151" Foreground="White" Padding="0,12"
-                                FontSize="13" FontWeight="SemiBold" BorderThickness="0"
-                                Cursor="Hand" Margin="0,0,0,4"
+                                Style="{StaticResource PrimaryButton}"
+                                Padding="0,12" FontSize="13"
+                                Margin="0,0,0,4"
                                 IsEnabled="{Binding IsPairing, Converter={StaticResource InverseBool}}"/>
                     </StackPanel>
                 </StackPanel>
                 </ScrollViewer>
 
                 <TextBlock x:Name="BuildStamp" Text="PrintShop Companion"
-                           FontSize="11" Foreground="#9CA3AF"
+                           FontSize="11" Foreground="{DynamicResource TextSubtleBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,18"/>
             </Grid>
         </Border>
     </Grid>
 </UserControl>
-

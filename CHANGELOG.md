@@ -1,5 +1,55 @@
 # PrintShop Companion — Changelog
 
+## v0.7.15 — 2026-11-26 — Full UI revamp (design-skill driven, every page)
+
+A page-by-page redesign of the WPF app, executed with the installed
+design skills after a formal comparison of the two candidate
+methodologies (UI UX Pro Max vs Impeccable). Impeccable's "Operate mode"
+doctrine won (12/12 against the design-engineering rules vs 5/12) —
+the full scorecard lives in the release assets
+(UI-REVAMP-SKILL-COMPARISON.md). Pro Max's accessibility tables set the
+QA bar (contrast, focus visibility, state coverage).
+
+### Design system (Tokens.xaml / Components.xaml)
+- Font: Segoe UI → Segoe UI Variable (fallback chain keeps Win10 and
+  headless hosts identical). Mono: Cascadia Mono.
+- New interaction-state tokens: hover/pressed overlay, focus ring,
+  disabled text, skeleton base/shine, subsurface (second neutral layer).
+- Every interactive style now carries the full state matrix:
+  default/hover/pressed/focus-visible/disabled. Buttons share one
+  template with the focus ring OUTSIDE the fill (native pattern).
+- Removed the craft-floor violations: ALL-CAPS eyebrow labels (now
+  normal-case medium-muted section headings), left accent strips on
+  stat cards (full border + tinted label instead), emoji-as-icons
+  (✓⚠●🖨📋🎫🔑↻ all replaced by Segoe Fluent Icons glyphs).
+- Fluent.xaml removed from the App merge — it duplicated every
+  Components.xaml key and silently OVERRODE the component library
+  (duplicate keys resolve to the last dictionary; same class of bug as
+  the old Light+Dark double merge). No view referenced its unique keys.
+
+### Views (all 12)
+- Hardcoded hex reduced from ~500 to 5 (intentional whites on the
+  login brand panel). Everything is DynamicResource brushes — dark
+  theme now applies everywhere ThemeService swaps.
+- Loading states are skeletons (page keeps its shape), not centered
+  "Loading..." text.
+- Empty states teach ("New orders appear here the moment a customer
+  checks out") instead of naming the void; filter-aware copy on Orders.
+- Error states name the problem and the recovery (icon + message +
+  Retry).
+- All x:Name, Click handlers, Bindings, Converters, and DataTriggers
+  preserved 1:1 — zero business-logic changes.
+
+### Build
+- Infrastructure.csproj: explicit System.Drawing.Common 10.0.0 on the
+  windows TFM so RawGdiPrinter cross-compiles on Linux (the framework
+  facade's ref set lacks the GdiPlus friend assembly — CS0012).
+  Same assembly on Windows CI; no behavior change.
+- Verified locally: full WPF XAML compile (net10.0-windows +
+  EnableWindowsTargeting) Build succeeded; Queue.Tests 38/38.
+
+# PrintShop Companion — Changelog
+
 ## v0.7.14 — 2026-11-26 — Worker restore: no -f (restore has no --framework)
 
 The v0.7.13 tag run failed at the Worker RESTORE with MSB1008 ("Only one

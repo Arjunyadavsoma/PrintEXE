@@ -5,134 +5,141 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    FontFamily="Segoe UI">
+    FontFamily="{StaticResource AppFontFamily}">
 
-    <ScrollViewer Background="#F7F7F8" VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,20">
+    <UserControl.Resources>
+        <!-- Settings row: label + description on the left, control right.
+             One vocabulary for every row (Operate: consistent affordances). -->
+        <Style x:Key="SettingsRow" TargetType="DockPanel">
+            <Setter Property="Margin" Value="20,16"/>
+        </Style>
+        <Style x:Key="RowDivider" TargetType="Border">
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Background" Value="{DynamicResource BorderSoftBrush}"/>
+            <Setter Property="Margin" Value="20,0"/>
+        </Style>
+        <Style x:Key="RowTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13.5"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style x:Key="RowDescription" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer Background="{DynamicResource BackgroundBrush}" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,20,24,24">
 
             <!-- Page header -->
-            <TextBlock Text="Settings" FontSize="22" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,4"/>
+            <TextBlock Text="Settings" Style="{StaticResource PageTitleText}" Margin="0,0,0,4"/>
             <TextBlock Text="Configure your companion app and account"
-                       FontSize="12.5" Foreground="#6B7280" Margin="0,0,0,24"/>
+                       Style="{StaticResource PageSubtitleText}" Margin="0,0,0,24"/>
 
-            <!-- ===== APPLICATION section ===== -->
-            <TextBlock Text="APPLICATION" FontSize="11" FontWeight="SemiBold"
-                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
-            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                    BorderThickness="1" Margin="0,0,0,20">
+            <!-- ===== Application section ===== -->
+            <TextBlock Text="Application" Style="{StaticResource SectionHeadingText}"/>
+            <Border Style="{StaticResource Card}" Padding="0">
                 <StackPanel>
                     <!-- Row 1: Launch at startup -->
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="Launch at Windows startup" FontSize="13.5" FontWeight="Medium"
-                                       Foreground="#111827"/>
+                            <TextBlock Text="Launch at Windows startup" Style="{StaticResource RowTitle}"/>
                             <TextBlock Text="Open the companion when you sign in to Windows"
-                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                       Style="{StaticResource RowDescription}"/>
                         </StackPanel>
                         <CheckBox DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                    <Border Style="{StaticResource RowDivider}"/>
 
                     <!-- Row 2: Minimize to tray -->
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="Minimize to tray on close" FontSize="13.5" FontWeight="Medium"
-                                       Foreground="#111827"/>
+                            <TextBlock Text="Minimize to tray on close" Style="{StaticResource RowTitle}"/>
                             <TextBlock Text="Keep the companion running in the system tray"
-                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                       Style="{StaticResource RowDescription}"/>
                         </StackPanel>
                         <CheckBox DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                    <Border Style="{StaticResource RowDivider}"/>
 
                     <!-- Row 3: Follow system theme -->
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="Follow system theme" FontSize="13.5" FontWeight="Medium"
-                                       Foreground="#111827"/>
+                            <TextBlock Text="Follow system theme" Style="{StaticResource RowTitle}"/>
                             <TextBlock Text="Match Windows light/dark mode automatically"
-                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                       Style="{StaticResource RowDescription}"/>
                         </StackPanel>
                         <CheckBox DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </DockPanel>
                 </StackPanel>
             </Border>
 
-            <!-- ===== SHOP INFORMATION section ===== -->
-            <TextBlock Text="SHOP INFORMATION" FontSize="11" FontWeight="SemiBold"
-                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
-            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                    BorderThickness="1" Margin="0,0,0,20">
+            <!-- ===== Shop information section ===== -->
+            <TextBlock Text="Shop information" Style="{StaticResource SectionHeadingText}"/>
+            <Border Style="{StaticResource Card}" Padding="0">
                 <StackPanel>
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="Connected shop" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock Text="Connected shop" Style="{StaticResource MutedText}"/>
                             <TextBlock x:Name="ShopNameLabel" Text="Not connected" FontSize="14"
-                                       FontWeight="Medium" Foreground="#111827" Margin="0,4,0,0"/>
+                                       FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
-                        <Border Background="#E0F5E5" CornerRadius="10" Padding="10,3"
+                        <Border Style="{StaticResource StatusPill}" Background="{DynamicResource SuccessSoftBrush}"
                                 DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <TextBlock Text="Connected" FontSize="11" FontWeight="Medium" Foreground="#007F3D"/>
+                            <TextBlock Text="Connected" Style="{StaticResource StatusPillText}"
+                                       Foreground="{DynamicResource SuccessBrush}"/>
                         </Border>
                     </DockPanel>
-                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                    <Border Style="{StaticResource RowDivider}"/>
 
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="Device ID" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock Text="Device ID" Style="{StaticResource MutedText}"/>
                             <TextBlock x:Name="DeviceIdLabel" Text="—" FontSize="14"
-                                       FontFamily="Consolas" Foreground="#111827" Margin="0,4,0,0"/>
+                                       FontFamily="{StaticResource MonoFontFamily}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
                     </DockPanel>
-                    <Border Height="1" Background="#F3F4F6" Margin="20,0"/>
+                    <Border Style="{StaticResource RowDivider}"/>
 
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="App version" FontSize="11.5" Foreground="#6B7280"/>
+                            <TextBlock Text="App version" Style="{StaticResource MutedText}"/>
                             <TextBlock x:Name="VersionLabel" Text="v0.4.3" FontSize="14"
-                                       FontFamily="Consolas" Foreground="#111827" Margin="0,4,0,0"/>
+                                       FontFamily="{StaticResource MonoFontFamily}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
                     </DockPanel>
                 </StackPanel>
             </Border>
 
-            <!-- ===== DIAGNOSTICS section ===== -->
-            <TextBlock Text="DIAGNOSTICS" FontSize="11" FontWeight="SemiBold"
-                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
-            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                    BorderThickness="1" Margin="0,0,0,20">
+            <!-- ===== Diagnostics section ===== -->
+            <TextBlock Text="Diagnostics" Style="{StaticResource SectionHeadingText}"/>
+            <Border Style="{StaticResource Card}" Padding="0">
                 <StackPanel>
-                    <DockPanel Margin="20,16">
+                    <DockPanel Style="{StaticResource SettingsRow}">
                         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                            <TextBlock Text="Open log folder" FontSize="13.5" FontWeight="Medium"
-                                       Foreground="#111827"/>
+                            <TextBlock Text="Open log folder" Style="{StaticResource RowTitle}"/>
                             <TextBlock Text="Open the folder where daily logs are stored"
-                                       FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                       Style="{StaticResource RowDescription}"/>
                         </StackPanel>
                         <Button Content="Open" Click="OpenLogs_Click" DockPanel.Dock="Right"
-                                HorizontalAlignment="Right" Padding="20,9" FontSize="13"
-                                Background="#FFFFFF" Foreground="#374151" BorderBrush="#E5E7EB"
-                                BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                                HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}"/>
                     </DockPanel>
                 </StackPanel>
             </Border>
 
-            <!-- ===== ACCOUNT section ===== -->
-            <TextBlock Text="ACCOUNT" FontSize="11" FontWeight="SemiBold"
-                       Foreground="#9CA3AF" Margin="0,0,0,10"/>
-            <Border Background="#FFFFFF" CornerRadius="10" BorderBrush="#E5E7EB"
-                    BorderThickness="1">
-                <DockPanel Margin="20,16">
+            <!-- ===== Account section ===== -->
+            <TextBlock Text="Account" Style="{StaticResource SectionHeadingText}"/>
+            <Border Style="{StaticResource Card}" Padding="0">
+                <DockPanel Style="{StaticResource SettingsRow}">
                     <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="Sign out of this device" FontSize="13.5" FontWeight="Medium"
-                                   Foreground="#111827"/>
+                        <TextBlock Text="Sign out of this device" Style="{StaticResource RowTitle}"/>
                         <TextBlock Text="You'll need to sign in again to receive print jobs"
-                                   FontSize="11.5" Foreground="#6B7280" Margin="0,2,0,0"/>
+                                   Style="{StaticResource RowDescription}"/>
                     </StackPanel>
-                    <Button Content="Sign Out" Click="SignOut_Click" DockPanel.Dock="Right"
-                            HorizontalAlignment="Right" Padding="20,9" FontSize="13"
-                            Background="#FEF2F2" Foreground="#BE222A" BorderBrush="#FECACA"
-                            BorderThickness="1" Cursor="Hand" FontWeight="Medium"/>
+                    <Button Content="Sign out" Click="SignOut_Click" DockPanel.Dock="Right"
+                            HorizontalAlignment="Right" Style="{StaticResource DangerButton}"/>
                 </DockPanel>
             </Border>
         </StackPanel>
