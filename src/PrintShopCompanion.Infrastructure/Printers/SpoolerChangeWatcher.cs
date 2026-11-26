@@ -151,9 +151,7 @@ public class SpoolerChangeWatcher : IDisposable
     {
         try
         {
-            var server = new System.Printing.LocalPrintServer();
-            var queues = server.GetPrintQueues(new[] { System.Printing.EnumeratedPrintQueueTypes.Local, System.Printing.EnumeratedPrintQueueTypes.Connections });
-            return queues.Select(q => q.FullName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray();
+            return EnumeratePrinterNamesCore();
         }
         catch (Exception ex)
         {
@@ -161,6 +159,17 @@ public class SpoolerChangeWatcher : IDisposable
             return _lastPrinterSet;
         }
     }
+
+#if WINDOWS
+    private static string[] EnumeratePrinterNamesCore()
+    {
+        var server = new System.Printing.LocalPrintServer();
+        var queues = server.GetPrintQueues(new[] { System.Printing.EnumeratedPrintQueueTypes.Local, System.Printing.EnumeratedPrintQueueTypes.Connections });
+        return queues.Select(q => q.FullName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+#else
+    private static string[] EnumeratePrinterNamesCore() => Array.Empty<string>();
+#endif
 
     private IntPtr OpenWatcher()
     {
@@ -172,6 +181,10 @@ public class SpoolerChangeWatcher : IDisposable
         var flags = PRINTER_CHANGE_PRINTER | PRINTER_CHANGE_JOB;
         return FindFirstPrinterChangeNotification(PrinterEnum.Local | PrinterEnum.Connections, flags, 0, IntPtr.Zero);
     }
+
+
+    /// <summary>Raises PrintersChanged (internal — lets tests simulate the loop body).</summary>
+    internal void RaisePrintersChanged(IReadOnlyList<string> names) => PrintersChanged?.Invoke(names);
 
     public void Dispose() => Stop();
 

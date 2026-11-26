@@ -49,18 +49,18 @@ public class OpenSourceIntegrationTests
 
     private sealed class FakeWatcher : SpoolerChangeWatcher
     {
+        // Simulates what RunLoop does on each spooler signal: compare the
+        // enumerated set, fire only on change. (Simulated — no OS events.)
         public void SimulateChange(string[] printers)
         {
-            // Drive the same set-comparison the real loop uses (debounce
-            // bypassed by direct invocation — tested separately by timing).
             var current = printers.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray();
-            if (!current.SequenceEqual(lastSet))
+            if (!current.SequenceEqual(_lastSet))
             {
-                lastSet = current;
-                PrintersChanged?.Invoke(current);
+                _lastSet = current;
+                RaisePrintersChanged(current);
             }
         }
-        private string[] lastSet = Array.Empty<string>();
+        private string[] _lastSet = Array.Empty<string>();
     }
 
     // ── G1: diagnostics recommendations (technique adapted from PrintHub, MIT) ──
