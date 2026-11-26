@@ -1,5 +1,24 @@
 # PrintShop Companion — Changelog
 
+## v0.7.12 — 2026-11-26 — Publish the Worker; drop the dead mock-backend from the installer
+
+With the preprocessor variable fixed (v0.7.11), WiX failed WIX0103 on two
+files the MSI's publish directory never contained:
+
+- `PrintShopCompanion.Worker.exe` — the installer ships it (WorkerFeature)
+  but the MSI job only ever published the App project.
+- `PrintShopCompanion.Backend.Mock.exe` — the project no longer exists;
+  it was superseded by the ASP.NET `PrintShopCompanion.Backend` web
+  project (a server, not a desktop binary). The WiX source still
+  referenced the stale binary.
+
+### Fixed
+- The MSI job now publishes the Worker (framework-dependent, into the
+  same `publish` dir) alongside the self-contained App.
+- `MockBackendFeature` + `MockBackendComponents` removed from
+  `PrintShopCompanion.Installer.wxs`; all remaining ComponentGroup refs
+  verified to resolve.
+
 ## v0.7.11 — 2026-11-26 — Pass the WiX preprocessor variable it actually reads
 
 With WiX v5 pinned (v0.7.10), the MSI build advanced to the preprocessor

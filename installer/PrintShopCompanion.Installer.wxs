@@ -40,9 +40,12 @@
       <Feature Id="WorkerFeature" Title="Background worker service (optional)" Level="1">
         <ComponentGroupRef Id="WorkerComponents" />
       </Feature>
-      <Feature Id="MockBackendFeature" Title="Mock backend for testing (optional)" Level="2">
-        <ComponentGroupRef Id="MockBackendComponents" />
-      </Feature>
+      <!-- v0.7.12: MockBackendFeature removed. PrintShopCompanion.Backend.Mock
+           no longer exists — the mock backend was superseded by the ASP.NET
+           PrintShopCompanion.Backend web project (a server, not a desktop
+           binary). The ComponentGroup shipped a File reference to a binary
+           the publish output never contained, so WiX failed WIX0103 on every
+           MSI build that got this far. -->
     </Feature>
 
     <!-- Basic install — no custom UI dialog. WiX v5 moved WixUI_FeatureTree to a
@@ -148,12 +151,7 @@
       </Component>
     </ComponentGroup>
 
-    <ComponentGroup Id="MockBackendComponents" Directory="INSTALLDIR">
-      <Component Id="MockBackendExe" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D50">
-        <File Id="PrintShopCompanion.Backend.Mock.exe"
-              Source="$(var.PublishDir)\PrintShopCompanion.Backend.Mock.exe"
-              KeyPath="yes" />
-      </Component>
-    </ComponentGroup>
+    <!-- v0.7.12: MockBackendComponents removed with MockBackendFeature — the
+         binary no longer exists (see the Feature comment above). -->
   </Fragment>
 </Wix>
