@@ -274,7 +274,7 @@ jobs:
           1. Unzip this archive to a folder, e.g. ``C:\PrintEXE\``.
           2. Run ``PrintShopCompanion.exe`` from inside that folder.
           3. On first launch, sign in to your shop at
-             https://printshop-saas-three.vercel.app/shop/login, go to
+             https://printelyx.cc.cd/shop/login, go to
              Printer Setup -> Register new agent, copy the device token,
              and paste it into PrintEXE's pairing form.
           4. Go to the Printers tab and select your printer.

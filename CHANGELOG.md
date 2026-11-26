@@ -1,5 +1,44 @@
 # PrintShop Companion — Changelog
 
+## v0.7.3 — 2026-11-26 — Point the companion at the printelyx.cc.cd production origin
+
+The deployed Printelyx backend is canonically served at `https://printelyx.cc.cd`
+(custom domain, Clerk on `clerk.printelyx.cc.cd`). The companion still hardcoded
+the ephemeral Vercel origin `printshop-saas-three.vercel.app` in its shipped
+configuration. Vercel-generated domains are not a stable contract (they change
+when the project is renamed/transferred), so every installed companion must talk
+to the custom domain.
+
+### Changed — backend origin
+- `src/PrintShopCompanion.App/appsettings.json` — `Backend:BaseUrl`,
+  `Backend:SocketIoUrl`, `Backend:AllowedWebOrigins`, and the contract-shape
+  `PrintShop:BaseUrl` / `PrintShop:SocketIoUrl` all now point at
+  `https://printelyx.cc.cd` (Socket.IO keeps the required
+  `/?XTransformPort=3003` Caddy gateway query).
+- `src/PrintShopCompanion.Worker/appsettings.json` — same five keys fixed
+  (the Worker's copy was missed in the earlier origin audit).
+- `src/PrintShopCompanion.Core/Options/Options.cs` — the hardcoded default
+  `SocketIoUrl` and the doc-comment example now use `https://printelyx.cc.cd/?XTransformPort=3003`.
+- `.github/workflows/build-windows.yml` — the user-facing README inside release
+  artifacts now instructs shopkeepers to sign in at `https://printelyx.cc.cd/shop/login`.
+- `installer/redist/LICENSE.txt` — the end-user license terms link now points at
+  `https://printelyx.cc.cd/terms` (page verified live, HTTP 200).
+- `tests/.../PairingTicketValidationTests.cs` — the dummy `BaseUrl` fixture uses
+  the canonical origin (never actually contacted; 401 stub).
+
+### Verified (2026-11-26, from the build sandbox)
+- `POST https://printelyx.cc.cd/api/v1/companion/pair` responds with the real
+  Zod validation error for a missing `ticket`/`deviceName` → the companion
+  contract is served from this origin.
+- `GET /shop/login` and `GET /terms` → 200 on the same origin.
+- Solution `dotnet build` on Linux: 0 errors.
+
+### Not verified (requires a real Windows machine)
+- End-to-end pairing, live print dispatch, Socket.IO `job.dispatch` over the
+  Caddy gateway on the custom domain, MSI install/uninstall. The Windows CI
+  workflow covers build + tests on `windows-latest`; hardware printing is not
+  automated.
+
 ## v0.7.2 — 2026-11-26 — SQLCipher runtime fix + printshop-saas contract sync
 
 Two tracks: the encrypted-queue failure reported from a real Windows machine

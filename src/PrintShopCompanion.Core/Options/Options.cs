@@ -13,11 +13,11 @@ public sealed class BackendOptions
 
     /// <summary>
     /// Full Socket.IO URL including the Caddy gateway query parameter.
-    /// Default <c>https://printshop-saas-three.vercel.app/?XTransformPort=3003</c>.
+    /// Default <c>https://printelyx.cc.cd/?XTransformPort=3003</c>.
     /// The <c>XTransformPort=3003</c> query is REQUIRED — without it Caddy routes
     /// to the Next.js app (port 3000) which doesn't serve Socket.IO.
     /// </summary>
-    public string? SocketIoUrl { get; set; } = "https://printshop-saas-three.vercel.app/?XTransformPort=3003";
+    public string? SocketIoUrl { get; set; } = "https://printelyx.cc.cd/?XTransformPort=3003";
 
     /// <summary>
     /// Socket.IO path. Kept for backward compatibility — prefer <see cref="SocketIoUrl"/>.
@@ -66,10 +66,10 @@ public sealed class BackendOptions
 /// contract documents the companion's config under <c>PrintShop:*</c>:
 /// <code>
 /// "PrintShop": {
-///   "BaseUrl": "https://printshop-saas-three.vercel.app",
+///   "BaseUrl": "https://printelyx.cc.cd",
 ///   "PollingInterval": "00:00:03",
 ///   "HeartbeatInterval": "00:00:15",
-///   "SocketIoUrl": "https://printshop-saas-three.vercel.app/?XTransformPort=3003"
+///   "SocketIoUrl": "https://printelyx.cc.cd/?XTransformPort=3003"
 /// }
 /// </code>
 /// The companion's historical section is <c>Backend:*</c> (see <see cref="BackendOptions"/>).

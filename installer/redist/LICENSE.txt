@@ -9,7 +9,7 @@ from, out of or in connection with the software or the use or other dealings in 
 software.
 
 For the full PrintShop terms of service, visit:
-https://printshop-saas-three.vercel.app/terms
+https://printelyx.cc.cd/terms
 
 ---
 

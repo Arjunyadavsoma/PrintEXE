@@ -24,12 +24,12 @@ public class PairingTicketValidationTests
         // Default handler: a stub that returns 401 UNAUTHORIZED so tests that
         // get past local validation don't hit the real network (which is
         // non-deterministic on CI — sandboxed runners may or may not reach
-        // printshop-saas-three.vercel.app). Tests that fail-fast on local
+        // printelyx.cc.cd). Tests that fail-fast on local
         // validation never reach the handler.
         var http = new HttpClient(handler ?? new StubHandler401());
         var opts = Options.Create(new BackendOptions
         {
-            BaseUrl = "https://printshop-saas-three.vercel.app",
+            BaseUrl = "https://printelyx.cc.cd",
             ApiBasePath = "/api/v1",
         });
         // IOptionsMonitor shim that returns our opts.Value.

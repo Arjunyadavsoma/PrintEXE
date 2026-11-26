@@ -85,7 +85,7 @@ The companion honours:
 
 - Not a fake `EXE`. No binary installer exists in this delivery because this Linux sandbox cannot compile WPF. See `HONEST-STATUS.md` for the actual path to a real `.exe`.
 - Not tested on real printer hardware. The Phase 9 hardware tests have not been performed.
-- Not paired against the production backend. The real backend at `https://printshop-saas-three.vercel.app` does not yet expose the routes the companion needs; see `docs/BACKEND-MAPPING.md` §4 for the list of routes that must be added.
+- Not paired against the production backend. The production backend at `https://printelyx.cc.cd` (previously `printshop-saas-three.vercel.app`) now serves the companion contract (`/api/v1/companion/pair` et al. verified live 2026-11-26), but end-to-end pairing on a real Windows machine is still pending; see `docs/BACKEND-MAPPING.md` §4 and `HONEST-STATUS.md`.
 
 The first milestone is: install the MSI on a Windows 11 PC, pair with the mock backend, pick a real printer, and produce a real test print. **That has not been done yet.**
 
