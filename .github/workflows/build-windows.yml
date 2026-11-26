@@ -557,11 +557,15 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
+          # v0.7.11 fix: the WiX source reads $(var.BuildVersion) but this
+          # step passed -d Version=... (WIX0150: undefined preprocessor
+          # variable). BuildInstaller.bat already passes BuildVersion —
+          # match it.
           $version = '${{ github.event.inputs.release-tag || github.ref_name }}' -replace '^v',''
           wix build -arch x64 `
             -d PublishDir=publish `
             -d RepoRoot=$env:GITHUB_WORKSPACE `
-            -d Version=$version `
+            -d BuildVersion=$version `
             -out "PrintShopCompanion-$version-x64.msi" `
             installer/PrintShopCompanion.Installer.wxs
 

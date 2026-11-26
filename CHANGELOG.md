@@ -1,5 +1,18 @@
 # PrintShop Companion — Changelog
 
+## v0.7.11 — 2026-11-26 — Pass the WiX preprocessor variable it actually reads
+
+With WiX v5 pinned (v0.7.10), the MSI build advanced to the preprocessor
+and failed with `WIX0150: Undefined preprocessor variable
+'$(var.BuildVersion)'` — the workflow step passed `-d Version=...`, but
+the WiX source (`PrintShopCompanion.Installer.wxs`) reads
+`$(var.BuildVersion)`. A naming mismatch that no tag run ever reached
+before the pipeline was repaired.
+
+### Fixed
+- The "Build MSI" step now passes `-d BuildVersion=` (matching the .wxs
+  source). `PublishDir` and `RepoRoot` were already correct.
+
 ## v0.7.10 — 2026-11-26 — Pin the WiX tool to v5 in CI
 
 The v0.7.9 run advanced past the publish (normalization fix held) and
