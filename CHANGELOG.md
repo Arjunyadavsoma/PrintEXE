@@ -1,5 +1,19 @@
 # PrintShop Companion — Changelog
 
+## v0.7.10 — 2026-11-26 — Pin the WiX tool to v5 in CI
+
+The v0.7.9 run advanced past the publish (normalization fix held) and
+failed at the WiX build itself: `error WIX7015: You must accept the Open
+Source Maintenance Fee (OSMF) EULA to use WiX Toolset v7`. The workflow's
+"Install WiX v5 tooling" step never actually pinned a version, so
+`dotnet tool install --global wix` pulled the latest (7.0.1), which gates
+CI execution behind the OSMF EULA. Everything in this repo targets WiX v5
+(`installer/README.md`, `BuildInstaller.bat`, the `.wxs` sources).
+
+### Fixed
+- The tool install is now pinned: `dotnet tool install --global wix
+  --version 5.*` (verified to resolve 5.0.2).
+
 ## v0.7.9 — 2026-11-26 — MSI job: normalize the tag before BUILD_VERSION
 
 The v0.7.8 run got further than any tag build before it (restore fix held;
