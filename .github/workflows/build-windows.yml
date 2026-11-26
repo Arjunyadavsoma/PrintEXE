@@ -524,7 +524,22 @@ jobs:
           Write-Host "Bundled $($exe.Name) as installer/redist/SumatraPDF.exe"
 
       - name: Publish app (win-x64)
-        run: dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:BUILD_VERSION=${{ github.event.inputs.release-tag || github.ref_name }} -o publish
+        shell: pwsh
+        run: |
+          # v0.7.7 fix: the previous bare `dotnet publish` ran restore
+          # implicitly and failed with MSB4181 ("RestoreTask returned false
+          # but did not log an error") under the runner's default SDK 11
+          # (actions/setup-dotnet's 10.0.x ends up lower on PATH than the
+          # preinstalled SDK). Restore explicitly FIRST so the restore step
+          # surfaces its real diagnostics, then publish --no-restore pinned
+          # to the same SDK via DOTNET_ROOT.
+          dotnet restore src/PrintShopCompanion.App/PrintShopCompanion.App.csproj -r win-x64
+          dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:BUILD_VERSION=${{ github.event.inputs.release-tag || github.ref_name }} `
+            --no-restore `
+            -o publish
 
       - name: Build MSI
         shell: pwsh

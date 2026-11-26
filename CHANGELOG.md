@@ -1,5 +1,22 @@
 # PrintShop Companion — Changelog
 
+## v0.7.8 — 2026-11-26 — MSI job: restore explicitly before publish
+
+v0.7.7 got the whole pipeline green except one step: the MSI job's
+`Publish app (win-x64)` failed with `MSB4181: The "RestoreTask" task
+returned false but did not log an error` — all four projects "failed to
+restore" in ~50 ms with no diagnostics. The step's bare `dotnet publish`
+ran the implicit restore under the runner's preinstalled SDK 11.0.100
+(the log path shows `sdk\11.0.100\NuGet.targets`), not the 10.0.x that
+`actions/setup-dotnet` installed for the job. The build job never hit
+this because it runs an explicit `dotnet restore` step first.
+
+### Fixed
+- The MSI job now restores the App project explicitly
+  (`dotnet restore -r win-x64`) and publishes with `--no-restore`, so a
+  restore problem surfaces with real diagnostics instead of MSB4181, and
+  the publish no longer depends on which SDK wins PATH ordering.
+
 ## v0.7.7 — 2026-11-26 — Bring the SQLCipher native into the Queue.Tests testhost
 
 v0.7.6's TFM gating worked (the neutral net10.0 leg went 38/38), moving the
