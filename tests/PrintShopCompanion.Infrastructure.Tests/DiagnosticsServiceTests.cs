@@ -37,7 +37,9 @@ public sealed class DiagnosticsServiceTests
 
     private static SqliteJobQueue NewQueue(string root)
     {
-        var layout = new LocalStorageLayout(Options.Create(new StorageOptions()), root);
+        var layout = new LocalStorageLayout(
+            Options.Create(new StorageOptions()),
+            rootOverride: root); // v0.7.1: named arg — was misused as legacyRootOverride
         return new SqliteJobQueue(
             Options.Create(new StorageOptions { QueueDbPath = Path.Combine(root, "queue.db") }),
             layout,
@@ -51,12 +53,16 @@ public sealed class DiagnosticsServiceTests
             new HttpClient { BaseAddress = new Uri(baseUrl) },
             new StubOptionsMonitor<BackendOptions>(new BackendOptions { BaseUrl = baseUrl }),
             NullLogger<HttpPrintShopBackend>.Instance,
-            new LocalStorageLayout(Options.Create(new StorageOptions()), root));
+            new LocalStorageLayout(
+                Options.Create(new StorageOptions()),
+                rootOverride: root)); // v0.7.1: named arg — was misused as legacyRootOverride
         return new DiagnosticsService(
             new StubOptionsMonitor<BackendOptions>(new BackendOptions { BaseUrl = baseUrl }),
             backend,
             queue,
-            new LocalStorageLayout(Options.Create(new StorageOptions()), root),
+            new LocalStorageLayout(
+                Options.Create(new StorageOptions()),
+                rootOverride: root), // v0.7.1: named arg — was misused as legacyRootOverride
             NullLogger<DiagnosticsService>.Instance,
             queueStats: queue);
     }

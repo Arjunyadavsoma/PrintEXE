@@ -19,7 +19,13 @@ public sealed class QueuePriorityTests
     {
         var root = Path.Combine(Path.GetTempPath(), "psh-priority-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var layout = new LocalStorageLayout(Options.Create(new StorageOptions()), root);
+        // v0.7.1 fix: the temp dir is the ROOT override (named arg). Passing it
+        // positionally made it the LEGACY root override, leaving Root at the
+        // real %LocalAppData% — the second open then classified our own
+        // queue.db as a v0.4.7 legacy DB and tried to move it on Windows CI.
+        var layout = new LocalStorageLayout(
+            Options.Create(new StorageOptions()),
+            rootOverride: root);
         var queue = new SqliteJobQueue(
             Options.Create(new StorageOptions { QueueDbPath = Path.Combine(root, "queue.db") }),
             layout,
@@ -71,7 +77,9 @@ public sealed class QueuePriorityTests
         await queue.EnqueueAsync(rec);
 
         // Reopen the same DB file — simulates a restart.
-        var layout = new LocalStorageLayout(Options.Create(new StorageOptions()), root);
+        var layout = new LocalStorageLayout(
+            Options.Create(new StorageOptions()),
+            rootOverride: root);
         var reopened = new SqliteJobQueue(
             Options.Create(new StorageOptions { QueueDbPath = Path.Combine(root, "queue.db") }),
             layout,

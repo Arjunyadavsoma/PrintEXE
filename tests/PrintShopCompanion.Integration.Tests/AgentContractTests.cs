@@ -18,13 +18,29 @@ public sealed class AgentContractTests : IDisposable
 {
     private readonly FakePrintelyxBackend _backend;
     private readonly HttpPrintShopBackend _client;
+    private readonly string _root;
 
     public AgentContractTests()
     {
         _backend = new FakePrintelyxBackend();
+        _root = Path.Combine(Path.GetTempPath(), "psh-integration-" + Guid.NewGuid().ToString("N"));
+
+        // v0.7.1 fix: isolate the layout root AND the device-token path inside
+        // a per-test temp directory. Passing the temp dir as the 2nd positional
+        // argument made it the LEGACY root override, so Root stayed at the real
+        // %LocalAppData% and — critically — DeviceTokenPath defaulted to the
+        // real %AppData%\PrintEXE\device-token.dat. The pairing tests then
+        // persisted a token to that REAL path (DPAPI works on Windows; on
+        // Linux ProtectedData throws non-fatally, which is why the
+        // Unauthorized_calls_fail_closed test only passed here by accident:
+        // the unauthorized client lazily restored the earlier test's token
+        // from disk and never threw).
         var layout = new LocalStorageLayout(
-            Options.Create(new StorageOptions()),
-            Path.Combine(Path.GetTempPath(), "psh-integration-" + Guid.NewGuid().ToString("N")));
+            Options.Create(new StorageOptions
+            {
+                DeviceTokenPath = Path.Combine(_root, "Security", "device-token.dat")
+            }),
+            rootOverride: _root);
         _client = new HttpPrintShopBackend(
             new HttpClient { BaseAddress = new Uri(_backend.BaseUrl) },
             new StubMonitor(new BackendOptions { BaseUrl = _backend.BaseUrl }),
@@ -165,5 +181,9 @@ public sealed class AgentContractTests : IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() => _client.ExchangeDeviceTokenForJwtAsync());
     }
 
-    public void Dispose() => _backend.Dispose();
+    public void Dispose()
+    {
+        _backend.Dispose();
+        try { Directory.Delete(_root, recursive: true); } catch { }
+    }
 }

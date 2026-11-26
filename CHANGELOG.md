@@ -1,5 +1,40 @@
 # PrintShop Companion — Changelog
 
+## v0.7.1 — 2026-11-26 — Windows CI fixes (first Windows test run)
+
+The v0.7.0 push was the first commit to RUN the test suite on `windows-latest`
+(previous CI only built the ZIP). Windows surfaced two defects that Linux
+physically cannot produce, both traced to the same test-isolation mistake and
+one real production hardening gap:
+
+### Fixed
+- **Test isolation: `LocalStorageLayout` root override misuse.** The second
+  constructor parameter is `legacyRootOverride` (v0.4.7 migration detection
+  only), but `QueuePriorityTests`, `DiagnosticsServiceTests` and
+  `AgentContractTests` passed their temp directory positionally — leaving
+  `Root` at the REAL `%LocalAppData%\PrintShop\Companion` and (for the
+  integration tests) `DeviceTokenPath` at the REAL
+  `%AppData%\PrintEXE\device-token.dat`. Added an explicit named
+  `rootOverride:` parameter and fixed all six call sites to use it; the
+  integration fixture now also overrides `DeviceTokenPath` and deletes its
+  temp root on dispose.
+- **Cross-test DPAPI credential pollution (Windows CI only).** The pairing
+  tests persisted a device token to the real contract path; the
+  `Unauthorized_calls_fail_closed` fixture then lazily restored that token
+  from disk and authenticated silently — no exception, test failed. On Linux
+  `ProtectedData` throws non-fatally, so the fail-closed test passed there by
+  accident. With the token path isolated per test, the restore finds nothing
+  and the client throws on every platform, deterministically.
+- **Production: clear SQLite connection pools before the v0.4.7 migration
+  move.** Microsoft.Data.Sqlite parks closed connections in a process-wide
+  pool that keeps the DB file handle open; on Windows `File.Move` fails with
+  "in use" (POSIX allows moving open files — Linux never saw this).
+  `PrepareQueueMigration` now calls `SqliteConnection.ClearAllPools()` before
+  the retry-wrapped move, so an in-process reopen (crash recovery, worker
+  restart) during a v0.4.7 → v0.6 upgrade can no longer wedge the migration.
+- Version 0.7.0 → 0.7.1; no API or contract changes; 256 tests green on
+  Linux (net10.0) and expected green on Windows CI (both TFMs).
+
 ## v0.7.0 — 2026-11-26 — Research-driven reliability + diagnostics release
 
 This release implements the competitor-research program (QZ Tray, PaperCut Mobility

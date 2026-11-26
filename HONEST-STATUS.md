@@ -1,5 +1,25 @@
 # HONEST STATUS — Read This First
 
+> **⚠ v0.7.1 UPDATE 2026-11-26** (first Windows CI test run — run #208):
+> Windows surfaced two defects Linux cannot produce, both fixed here.
+> (1) Three test suites passed their temp dir as the SECOND positional
+> `LocalStorageLayout` argument — which is `legacyRootOverride`, NOT a root
+> override — so tests ran against the real `%LocalAppData%` /
+> `%AppData%\PrintEXE` paths; on Windows the queue-restart test then saw its
+> own DB as a "v0.4.7 legacy file" and the migration move collided with a
+> pooled SQLite handle (`IOException: file in use`), while the integration
+> fail-closed test silently restored a token a previous test had persisted
+> to the real DPAPI path (on Linux `ProtectedData` fails non-fatally, so the
+> test passed there by accident — it was NOT proving fail-closed behavior).
+> All six call sites now use the new named `rootOverride:` parameter; the
+> integration fixture isolates and deletes its own token path.
+> (2) Production hardening: `PrepareQueueMigration` now calls
+> `SqliteConnection.ClearAllPools()` before moving the legacy DB —
+> Microsoft.Data.Sqlite's pool keeps file handles open after close, which
+> wedges a v0.4.7→v0.6 migration on a real Windows machine after any
+> in-process reopen. 256 tests green on Linux; Windows CI is the verifier
+> for this commit.
+
 > **⚠ v0.7.0 UPDATE 2026-11-26** (branch: research-implementation pass on `main`,
 > competitor-research program: QZ Tray / PaperCut Mobility Print / ZMA printer agent /
 > PrintNode → `docs/research/PRINTEXE_*` + engineering decisions D-01..D-15).

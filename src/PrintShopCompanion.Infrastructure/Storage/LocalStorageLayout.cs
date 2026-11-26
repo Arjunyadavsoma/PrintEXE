@@ -66,9 +66,18 @@ public sealed class LocalStorageLayout
     public string? LegacyQueueDbPath { get; }
     public string? LegacyLogDir { get; }
 
-    public LocalStorageLayout(IOptions<StorageOptions> opts, string? legacyRootOverride = null)
+    public LocalStorageLayout(
+        IOptions<StorageOptions> opts,
+        string? legacyRootOverride = null,
+        string? rootOverride = null)
     {
-        Root = Path.Combine(
+        // rootOverride relocates the ENTIRE v0.5 layout (Security/, Database/,
+        // Jobs/, Temp/, Logs/) — used by tests and portable installs. NOTE:
+        // the SECOND parameter is legacyRootOverride (v0.4.7 migration
+        // detection only). Passing a temp dir there — as early tests did —
+        // left Root at the real %LocalAppData% path; the Windows CI failures
+        // fixed in v0.7.1 came from exactly that mistake.
+        Root = rootOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PrintShop", "Companion");
 
@@ -282,6 +291,15 @@ public sealed class LocalStorageLayout
         // If a backup already exists (interrupted migration), don't overwrite it.
         if (!File.Exists(backupPath))
         {
+            // Microsoft.Data.Sqlite parks closed connections in a process-wide
+            // pool that KEEPS the DB file handle open. On Windows, File.Move
+            // fails with "in use" for as long as the pool holds the handle —
+            // the retry loop below cannot fix that, so clear the pool first
+            // (no-op on Linux, where the move succeeded regardless). This is
+            // the Windows CI failure fixed in v0.7.1: a reopen while ANY prior
+            // queue instance in this process had touched the legacy file.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
             // Windows can briefly hold a file handle on the legacy DB
             // after the SQLite connection pool is cleared (the OS takes
             // a few ms to release the handle). Retry the move a handful
