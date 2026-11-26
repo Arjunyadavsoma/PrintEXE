@@ -1,5 +1,45 @@
 # PrintShop Companion — Changelog
 
+## v0.7.17 — 2026-11-26 — Open-source research integration (4 adapted techniques)
+
+A full research pass over nine open-source printing projects (QZ Tray,
+zma-printer, PrintBridge, print-it, PrintHub, printlatch, printpapi,
+clawPDF, TapQueue; myPrinter inaccessible) produced six research
+documents in docs/research/ and four technique-level integrations —
+all original C#, zero new dependencies, zero cloud-contract changes,
+licenses audited (docs/research/OPEN_SOURCE_LICENSE_COMPATIBILITY.md).
+
+### Integrated
+- Real printer status (PrintHub technique, MIT): PrinterStatus
+  vocabulary + PrinterStatusMapper; the Printers page dot was
+  hardcoded green and now shows Ready/Busy/Error/Offline with
+  actionable text.
+- SpoolerChangeWatcher (QZ Tray technique; Microsoft-documented
+  winspool APIs, fresh code): FindFirstPrinterChangeNotification-based
+  watcher refreshes the printer list on add/remove — no manual
+  refresh needed.
+- Socket.IO reconnect hardening (standard capped exponential backoff
+  with full jitter, 500 ms base, 30 s cap, factor 0.5): replaces the
+  fixed 2 s delay that made every agent reconnect in lockstep after a
+  backend blip (thundering herd).
+- Diagnostics recommendations (PrintHub technique, MIT): computed
+  actionable advice (pairing, default printer, offline printer, failed
+  jobs) on the Diagnostics page.
+
+### Fixed
+- PersistDeviceTokenAsync stages its temp file with a process-unique
+  name + retry — fixes the v0.7.16 tag-run flake where two parallel
+  CI testhost legs collided on the shared '.tmp' (1/213 failure).
+
+### Tests
+- OpenSourceIntegrationTests (11): status precedence table, status
+  text, watcher set-change semantics (simulated seam), diagnostics
+  recommendation rules. Simulated and labeled as such — no hardware
+  printing claimed. Suites: Infrastructure 224/224, Integration 12/12,
+  Queue 38/38.
+
+# PrintShop Companion — Changelog
+
 ## v0.7.16 — 2026-11-26 — ThisApp device-id load is contention-safe
 
 The v0.7.15 tag run failed 10 Integration tests with one shared chain:

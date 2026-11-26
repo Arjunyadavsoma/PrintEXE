@@ -1,0 +1,26 @@
+PrintShop Companion — Third-Party Notices
+
+
+Open-source engineering inspiration (v0.7.17)
+=============================================
+
+The following techniques were learned from studying these projects and
+implemented in PrintEXE as original C# code. No source code, schemas,
+or assets from these repositories are included in this product; each
+entry records the engineering idea and its origin.
+
+- Printer status mapping vocabulary
+  Inspired by PrintHub (github.com/Komortes/PrintHub) — MIT License.
+- Spooler change-notification watcher (event-driven printer list refresh)
+  Inspired by QZ Tray's watcher threads (github.com/qzind/tray) — the
+  technique uses Microsoft-documented winspool.drv APIs
+  (FindFirstPrinterChangeNotification); no code copied.
+- Capped exponential backoff with full jitter for reconnect
+  A published standard technique (cf. AWS Architecture Blog "Exponential
+  Backoff and Jitter"); discipline observed in printpapi
+  (github.com/LukiPrince/printpapi).
+- Diagnostics recommendations
+  Inspired by PrintHub (github.com/Komortes/PrintHub) — MIT License.
+
+Full audit trail: docs/research/OPEN_SOURCE_FEATURE_EVIDENCE_MATRIX.md
+and docs/research/OPEN_SOURCE_LICENSE_COMPATIBILITY.md.
