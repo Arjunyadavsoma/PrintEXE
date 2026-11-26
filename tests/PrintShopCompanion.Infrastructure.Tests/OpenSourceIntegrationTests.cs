@@ -71,7 +71,7 @@ public class OpenSourceIntegrationTests
         var r = Diagnostics.DiagnosticsSnapshot.ComputeRecommendations(
             cloudReachable: false, tokenValid: false, deviceRegistered: false, databaseHealthy: false,
             printerCount: 0, hasDefaultPrinter: false, selectedPrinterOffline: true, failedJobs: 2);
-        Assert.Equal(6, r.Count); // everything except the "no default" branch (printerCount==0 wins)
+        Assert.Equal(7, r.Count); // all seven rules fire: unreachable+pair+register+db+no-printers+offline+failed
         Assert.Contains(r, x => x.Contains("unreachable"));
         Assert.Contains(r, x => x.Contains("pair"));
         Assert.Contains(r, x => x.Contains("printer"));
