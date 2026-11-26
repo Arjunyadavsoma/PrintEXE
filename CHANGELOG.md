@@ -1,5 +1,16 @@
 # PrintShop Companion — Changelog
 
+## v0.7.13 — 2026-11-26 — Publish the Worker with an explicit target framework
+
+The v0.7.12 run failed at the Worker publish with `NETSDK1129: The
+'Publish' target is not supported without specifying a target framework` —
+unlike the single-TFM App, the Worker multi-targets
+(net10.0;net10.0-windows), so publishing it requires `-f`.
+
+### Fixed
+- The MSI job's Worker restore + publish now pass `-f net10.0-windows`
+  (the desktop TFM the installer ships).
+
 ## v0.7.12 — 2026-11-26 — Publish the Worker; drop the dead mock-backend from the installer
 
 With the preprocessor variable fixed (v0.7.11), WiX failed WIX0103 on two
