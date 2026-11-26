@@ -1,5 +1,27 @@
 # PrintShop Companion — Changelog
 
+## v0.7.6 — 2026-11-26 — Gate the DI composition tests by TFM, not by OS
+
+The v0.7.5 run narrowed the failure to one test on the Windows runner's
+**net10.0 (neutral) leg**: `CommandPoller_is_resolvable` →
+`Unable to resolve 'IPrinterService' while activating 'CommandExecutor'`.
+The full DI surface — including `IPrinterService`→`WindowsPrinterService`,
+which `CommandExecutor` requires — only exists in the net10.0-windows TFM
+(the TFM every shipped app runs); the neutral TFM deliberately registers a
+partial surface. The tests' `OperatingSystem.IsWindows()` guard was the
+wrong tool: it evaluates the OS, not the TFM, so on a Windows machine the
+neutral leg still executed bodies its composition cannot satisfy.
+
+### Fixed
+- `InfrastructureDiCompositionTests` bodies are now compiled only under
+  `#if WINDOWS` (compile-time TFM gate, matching the DI surface). The
+  neutral leg keeps always-green placeholders so the class still appears
+  in both TFMs' test output.
+- Verified: net10.0 leg builds clean; net10.0-windows leg has no errors in
+  the test file (the windows-TFM cross-compile on Linux fails only in the
+  pre-existing `RawGdiPrinter.cs` GdiPlus references, an environment
+  artifact that CI builds fine on real Windows runners).
+
 ## v0.7.5 — 2026-11-26 — Fix the v0.7.4 Windows test failure
 
 The v0.7.4 tag run's "Run tests" step failed on the Windows runner (the

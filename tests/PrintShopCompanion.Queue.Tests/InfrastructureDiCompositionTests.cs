@@ -34,12 +34,26 @@ using Xunit;
 /// v0.7.3. If a future refactor breaks the concrete-type registration again,
 /// the first test fails with the same message users would have hit at
 /// runtime.</para>
+///
+/// <para><b>Compile-time WINDOWS gate (v0.7.6).</b> The full composition —
+/// including <c>IPrinterService</c>→<c>WindowsPrinterService</c>, which
+/// <c>CommandExecutor</c> requires — only exists in the net10.0-windows TFM
+/// (the TFM every shipped app runs). The neutral net10.0 TFM deliberately
+/// registers a partial surface. A runtime <c>OperatingSystem.IsWindows()</c>
+/// guard was wrong: it evaluates the OS, not the TFM, so on a Windows runner
+/// the net10.0 leg still executed the bodies and failed resolving
+/// <c>IPrinterService</c> (v0.7.5 CI). The bodies are therefore compiled only
+/// under <c>#if WINDOWS</c>; the neutral leg keeps an always-green
+/// placeholder so the test class still shows up in both TFMs.</para>
 /// </summary>
 public class InfrastructureDiCompositionTests : IDisposable
 {
     private readonly string _tempDir;
+#if WINDOWS
     private readonly ServiceProvider _provider;
+#endif
 
+#if WINDOWS
     public InfrastructureDiCompositionTests()
     {
         // Redirect all storage (queue DB, keys, spool dir) into a temp dir —
@@ -65,40 +79,52 @@ public class InfrastructureDiCompositionTests : IDisposable
         services.AddPrintShopCompanionInfrastructure();
         _provider = services.BuildServiceProvider();
     }
+#else
+    public InfrastructureDiCompositionTests()
+    {
+        // Neutral net10.0 leg: the full DI surface (IPrinterService, DPAPI
+        // key store, WindowsPrinterService) does not exist in this TFM, so
+        // the composition tests cannot run here. See the class doc comment.
+        _tempDir = "";
+    }
+#endif
 
     [Fact]
     public void SqliteJobQueue_resolves_by_concrete_type()
     {
-        if (!OperatingSystem.IsWindows()) return;
+#if WINDOWS
         // The exact resolution that threw in v0.7.3.
         var queue = _provider.GetRequiredService<SqliteJobQueue>();
         queue.Should().NotBeNull();
+#endif
     }
 
     [Fact]
     public void DurableCommandStore_is_resolvable()
     {
-        if (!OperatingSystem.IsWindows()) return;
+#if WINDOWS
         // DurableCommandStore(SqliteJobQueue queue, ILogger logger) — this is
         // the constructor that failed to activate in v0.7.3.
         var store = _provider.GetRequiredService<DurableCommandStore>();
         store.Should().NotBeNull();
+#endif
     }
 
     [Fact]
     public void CommandPoller_is_resolvable()
     {
-        if (!OperatingSystem.IsWindows()) return;
+#if WINDOWS
         // The poller sits behind StartCloudConnectionAsync's first line
         // (GetRequiredService<CommandPoller>) — it activates the command
         // execution chain (executor + durable store + queue).
         _provider.GetRequiredService<CommandPoller>().Should().NotBeNull();
+#endif
     }
 
     [Fact]
     public void IJobQueue_and_concrete_registration_share_one_singleton()
     {
-        if (!OperatingSystem.IsWindows()) return;
+#if WINDOWS
         // Both registrations must resolve to the SAME instance, mirroring the
         // JobProcessor/IQueueController pattern. Two separate singletons would
         // fork queue state (one DB gate, two connection strings is survivable,
@@ -107,22 +133,26 @@ public class InfrastructureDiCompositionTests : IDisposable
         var byConcrete = _provider.GetRequiredService<SqliteJobQueue>();
         ReferenceEquals(byInterface, byConcrete).Should().BeTrue(
             "the interface mapping must return the same singleton as the concrete registration");
+#endif
     }
 
     [Fact]
     public void SqlitePendingOpsQueue_resolves_by_concrete_type()
     {
-        if (!OperatingSystem.IsWindows()) return;
+#if WINDOWS
         // SqlitePendingOpsQueue is also registered interface-only today, but
         // nothing currently requests the concrete type — pin the composition
         // we actually ship: IPendingOpsQueue must resolve.
         _provider.GetRequiredService<IPendingOpsQueue>().Should().NotBeNull();
+#endif
     }
 
     public void Dispose()
     {
+#if WINDOWS
         _provider.Dispose();
+#endif
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        try { Directory.Delete(_tempDir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { if (_tempDir.Length > 0) Directory.Delete(_tempDir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 }
