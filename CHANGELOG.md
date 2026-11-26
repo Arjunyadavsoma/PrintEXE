@@ -1,5 +1,19 @@
 # PrintShop Companion — Changelog
 
+## v0.7.14 — 2026-11-26 — Worker restore: no -f (restore has no --framework)
+
+The v0.7.13 tag run failed at the Worker RESTORE with MSB1008 ("Only one
+project can be specified"): `dotnet restore` has no `--framework` option
+(-f means --force there), so `net10.0-windows` became a second positional
+project argument. The multi-targeting requirement from v0.7.13 applies to
+PUBLISH only.
+
+### Fixed
+- The Worker restore drops `-f net10.0-windows` (it restores all TFMs);
+  the publish keeps it (valid for publish, required by NETSDK1129).
+
+# PrintShop Companion — Changelog
+
 ## v0.7.13 — 2026-11-26 — Publish the Worker with an explicit target framework
 
 The v0.7.12 run failed at the Worker publish with `NETSDK1129: The

@@ -559,7 +559,11 @@ jobs:
           # is enough for the worker; it travels with the app's runtime files.
           # v0.7.13: -f net10.0-windows — the Worker multi-targets, and
           # 'Publish' on a multi-targeted project without -f fails NETSDK1129.
-          dotnet restore src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj -r win-x64 -f net10.0-windows
+          # v0.7.14: no -f on the RESTORE — 'dotnet restore' has no
+          # --framework option (-f means --force there), so 'net10.0-windows'
+          # became a second positional project (MSB1008). Restore covers all
+          # TFMs; the publish keeps -f net10.0-windows, which IS valid there.
+          dotnet restore src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj -r win-x64
           dotnet publish src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj `
             -c Release -r win-x64 --self-contained false `
             -f net10.0-windows `
