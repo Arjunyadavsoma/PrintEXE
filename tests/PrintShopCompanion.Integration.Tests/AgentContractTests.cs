@@ -181,6 +181,37 @@ public sealed class AgentContractTests : IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() => _client.ExchangeDeviceTokenForJwtAsync());
     }
 
+    [Fact]
+    public async Task Server_agent_id_is_captured_and_null_lastError_is_never_serialized()
+    {
+        // v0.7.2 sync with printshop-saas (companion contract v1.1):
+        // 1) the client captures the SERVER-assigned agentId (fake pending
+        //    response carries AgentId="agent-1") — Socket.IO revocation and
+        //    command events carry this id, not the local device GUID.
+        // 2) the fake now REJECTS "lastError":null with 400 exactly like the
+        //    production zod (z.string().max(500).optional() — NOT nullable),
+        //    so this report with errorMessage: null only succeeds if the
+        //    client OMITS the field instead of serializing null.
+        await _client.PairWithDeviceTokenAsync(FakePrintelyxBackend.ValidDeviceToken);
+        await _client.FetchPendingJobsAsync();
+        Assert.Equal("agent-1", _client.ServerAgentId);
+
+        var report = await _client.ReportJobStatusAsync("job-e2e-1", "printing", "HP Test Printer", errorMessage: null);
+        Assert.True(report.Applied);
+    }
+
+    [Fact]
+    public async Task Over_length_lastError_is_truncated_to_the_saas_cap()
+    {
+        // v0.7.2 sync: the SaaS zod caps lastError at 500 — the client must
+        // truncate instead of failing the whole report with 400.
+        await _client.PairWithDeviceTokenAsync(FakePrintelyxBackend.ValidDeviceToken);
+        await _client.FetchPendingJobsAsync();
+        var report = await _client.ReportJobStatusAsync(
+            "job-e2e-1", "printing", "HP Test Printer", errorMessage: new string('x', 600));
+        Assert.True(report.Applied);
+    }
+
     public void Dispose()
     {
         _backend.Dispose();

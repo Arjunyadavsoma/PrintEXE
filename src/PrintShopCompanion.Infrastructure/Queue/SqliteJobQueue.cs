@@ -190,12 +190,16 @@ using PrintShopCompanion.Infrastructure.Storage;
         }
         else if (keyStore is not null && !SqlCipherInitializer.IsEncryptionAvailable)
         {
+            // User-facing first (the App's error dialog shows this text), the
+            // developer detail after the "Technical details" marker. The old
+            // text led with NuGet package names and Linux test instructions.
             throw new InvalidOperationException(
-                "SQLCipher native provider is not available. The queue database " +
-                "cannot be opened without encryption. Verify that the " +
-                "SQLitePCLRaw.bundle_e_sqlcipher NuGet package includes the native " +
-                "binary for this platform (win-x64). On Linux, encryption is not " +
-                "supported and tests must pass keyStore: null.");
+                "PrintEXE cannot open its encrypted job database: the encryption component (SQLCipher) " +
+                "is missing or failed to load in this installation. Please reinstall PrintEXE from the " +
+                "official release and start it again. If it still fails after reinstalling, send the log " +
+                "folder to support. Technical details: the SQLitePCLRaw.bundle_e_sqlcipher native provider " +
+                "was not available for this platform (win-x64 expected), or PRAGMA cipher_version returned " +
+                "nothing; see companion.log in the PrintEXE logs folder for the initialization outcome.");
         }
         // If keyStore is null, we're in a test context — proceed without encryption.
 

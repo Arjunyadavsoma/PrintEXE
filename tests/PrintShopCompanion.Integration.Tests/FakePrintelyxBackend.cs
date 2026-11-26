@@ -100,9 +100,24 @@ public sealed class FakePrintelyxBackend : IDisposable
             }
         });
 
-        _app.MapPost("/api/v1/agents/jobs/{jobId}/status", (HttpRequest req, string jobId, AgentJobStatusRequestDto body) =>
+        _app.MapPost("/api/v1/agents/jobs/{jobId}/status", async (HttpRequest req, string jobId) =>
         {
             if (!AuthOk(req)) return Err(401, "UNAUTHORIZED", "Device token rejected");
+
+            // v0.7.2 contract fidelity: the REAL SaaS route validates
+            // `lastError` as z.string().max(500).optional() — NOT .nullable().
+            // A JSON body with "lastError":null fails validation with
+            // 400 VALIDATION_ERROR. Reproduce that here so the client's
+            // serialization (omit nulls) is enforced by the test suite —
+            // previously the fake accepted null and the drift was invisible.
+            using var sr = new StreamReader(req.Body);
+            var raw = await sr.ReadToEndAsync();
+            if (raw.Contains("\"lastError\":null", StringComparison.Ordinal))
+                return Err(400, "VALIDATION_ERROR", "lastError must be a string (max 500) when present — null is not accepted");
+            var body = System.Text.Json.JsonSerializer.Deserialize<AgentJobStatusRequestDto>(
+                raw, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            if (body is null)
+                return Err(400, "VALIDATION_ERROR", "Body required");
             lock (_lock)
             {
                 if (!_jobs.TryGetValue(jobId, out var job))

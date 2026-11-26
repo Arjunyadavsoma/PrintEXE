@@ -178,14 +178,20 @@ jobs:
             Write-Host "✓ $dll present"
           }
 
-          # Native SQLite/SQLCipher lib — check by glob (filename includes
-          # the runtime ID, e.g. e_sqlcipher.dll or e_sqlite3.dll).
-          $nativeCandidates = Get-ChildItem -Path $pub -Filter "e_sql*.dll" -ErrorAction SilentlyContinue
-          if (-not $nativeCandidates) {
-            Write-Error "Missing native SQLCipher/SQLite DLL (e_sql*.dll) in publish output"
+          # Native SQLCipher lib — MUST be e_sqlcipher.dll by exact name. The
+          # previous glob (e_sql*.dll) would happily accept e_sqlite3.dll
+          # alone, which is precisely the failure mode v0.7.2 fixes (plain
+          # SQLite shipped, SQLCipher missing → encrypted queue refused to
+          # open on user machines).
+          $sqlcipher = Get-ChildItem -Path $pub -Filter "e_sqlcipher.dll" -ErrorAction SilentlyContinue
+          if (-not $sqlcipher) {
+            Write-Error "e_sqlcipher.dll MISSING from publish output — the encrypted queue would fail on every user machine"
             exit 1
           }
-          foreach ($n in $nativeCandidates) { Write-Host "✓ Native: $($n.Name)" }
+          Write-Host "✓ e_sqlcipher.dll present ($($sqlcipher.FullName))"
+          foreach ($n in (Get-ChildItem -Path $pub -Filter "e_sql*.dll" -ErrorAction SilentlyContinue)) {
+            Write-Host "✓ Native: $($n.Name)"
+          }
 
           # appsettings.json must travel with the EXE (runtime config).
           if (-not (Test-Path (Join-Path $pub "appsettings.json"))) {

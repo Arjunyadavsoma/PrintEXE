@@ -75,9 +75,14 @@ public sealed class SqlitePendingOpsQueue : IPendingOpsQueue
         }
         else if (keyStore is not null && !SqlCipherInitializer.IsEncryptionAvailable)
         {
+            // User-facing first (the App's error dialog shows this text); dev
+            // detail after the "Technical details" marker.
             throw new InvalidOperationException(
-                "SQLCipher native provider is not available. The pending ops " +
-                "queue database cannot be opened without encryption.");
+                "PrintEXE cannot open its encrypted job database: the encryption component (SQLCipher) " +
+                "is missing or failed to load in this installation. Please reinstall PrintEXE from the " +
+                "official release and start it again. If it still fails after reinstalling, send the log " +
+                "folder to support. Technical details: the pending-ops queue requires the SQLCipher " +
+                "provider (e_sqlcipher), which was not available at startup; see companion.log.");
         }
 
         _connectionString = builder.ToString();

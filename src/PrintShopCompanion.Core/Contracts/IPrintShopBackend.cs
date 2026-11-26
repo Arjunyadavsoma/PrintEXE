@@ -23,6 +23,17 @@ public interface IPrintShopBackend
     /// <summary>Current device registration, or null if not paired.</summary>
     DeviceRegistration? CurrentDevice { get; }
 
+    /// <summary>
+    /// v0.7.2 sync: the agent id the SERVER assigned (the PrintAgent uuid,
+    /// returned by pair / heartbeat / pending-jobs responses). Socket.IO
+    /// <c>agent.revoked</c>, <c>device.revoked</c> and
+    /// <c>device.command.issued</c> payloads carry THIS id — not the local
+    /// <c>ThisApp.DeviceId</c> GUID, which never matched and made revocation
+    /// events silently unnoticeable before v0.7.2. Default null (test fakes);
+    /// the HTTP client captures it on every authenticated call.
+    /// </summary>
+    string? ServerAgentId => null;
+
     /// <summary>Store the device token obtained from the web dashboard. The shopkeeper pastes the token into PrintEXE;
     /// PrintEXE stores it (DPAPI-encrypted) and uses it as the Bearer
     /// credential on every subsequent call.

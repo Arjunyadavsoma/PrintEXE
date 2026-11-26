@@ -36,7 +36,22 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     private DeviceToken? _token;
     private DeviceRegistration? _device;
     private ShopInfo? _shop;
+    /// <summary>v0.7.2 sync: agent id assigned by the SERVER (pair/heartbeat/pending responses) — see <see cref="IPrintShopBackend.ServerAgentId"/>.</summary>
+    private string? _serverAgentId;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Write-side serializer: NEVER emit JSON nulls. v0.7.2 sync with the SaaS
+    /// route zod (<c>agents/jobs/[id]/status</c>): <c>lastError</c> and
+    /// <c>printerName</c> are <c>.optional()</c> but NOT <c>.nullable()</c> —
+    /// a literal <c>"lastError":null</c> in the body fails validation with
+    /// 400 VALIDATION_ERROR on the production backend (the integration fake
+    /// now enforces the same rule). Internal so tests can assert the omission.
+    /// </summary>
+    internal static readonly JsonSerializerOptions JsonWrite = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public HttpPrintShopBackend(
         HttpClient http,
@@ -55,6 +70,9 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     public bool IsAuthenticated => _token is not null;
     public ShopInfo? CurrentShop => _shop;
     public DeviceRegistration? CurrentDevice => _device;
+
+    /// <inheritdoc cref="IPrintShopBackend.ServerAgentId"/>
+    public string? ServerAgentId => _serverAgentId;
 
     /// <summary>
     /// Store the device token obtained from the web dashboard. The shopkeeper
@@ -220,6 +238,10 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
             ?? throw new PairingTicketException("UNKNOWN", "Empty pair response.");
         var dto = envelope.Data
             ?? throw new PairingTicketException("UNKNOWN", "Pair response missing data field.");
+
+        // v0.7.2 sync: capture the SERVER-assigned agent id — Socket.IO
+        // agent.revoked / device.command.issued events carry it.
+        _serverAgentId = dto.AgentId ?? _serverAgentId;
 
         // Persist the returned device token via the same path as paste-token
         // pairing (DPAPI, current-user scope). This reuses PairWithDeviceTokenAsync
@@ -515,6 +537,8 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<AgentHeartbeatResponseDto>>(Json, ct)
             ?? throw new InvalidOperationException("Empty heartbeat response");
         var dto = envelope.Data;
+        // v0.7.2 sync: heartbeat response carries the server agent id — capture it.
+        _serverAgentId = dto?.AgentId ?? _serverAgentId;
         var serverTime = dto?.Ts ?? DateTimeOffset.UtcNow;
         // If the heartbeat returned a shopId, update our shop info.
         // (The /agents/heartbeat response doesn't currently include shopId,
@@ -538,6 +562,16 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<PendingJobsEnvelopeDto>>(Json, ct)
             ?? throw new InvalidOperationException("Empty pending-jobs response");
+        // v0.7.2 sync: capture the server agent id from the pending response.
+        _serverAgentId = envelope.Data?.AgentId ?? _serverAgentId;
+        // v0.7.2 sync: the real route also returns failedJobs (jobs the backend
+        // could not prepare: DOCUMENT_MISSING, JOB_INVALID, STORAGE_UNAVAILABLE).
+        // They are dead server-side — log them, never enqueue them.
+        if (envelope.Data?.FailedJobs is { Count: > 0 } failed)
+            _logger.LogWarning(
+                "Backend reported {FailedJobCount} failed job(s): {FailedJobSummary}",
+                failed.Count,
+                string.Join("; ", failed.Take(5).Select(f => $"{f.JobId}={f.Code ?? "UNKNOWN"}")));
         var jobs = envelope.Data?.Jobs ?? new List<PrintJobDto>();
         return jobs.Select(MapToRecord).ToList();
     }
@@ -556,12 +590,20 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         var body = new AgentJobStatusRequestDto
         {
             Status = status,
-            PrinterName = printerName,
-            LastError = errorMessage
+            // v0.7.2 sync: the SaaS zod caps lastError at 500 and printerName at
+            // 200 — truncate client-side instead of failing the whole report
+            // with 400 VALIDATION_ERROR.
+            PrinterName = TruncateForWire(printerName, 200),
+            LastError = TruncateForWire(errorMessage, 500),
         };
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(body)
+            // JsonWrite (WhenWritingNull): a literal "lastError":null body is
+            // rejected by the SaaS zod (.optional(), not .nullable()) with 400.
+            Content = new StringContent(
+                JsonSerializer.Serialize(body, JsonWrite),
+                System.Text.Encoding.UTF8,
+                "application/json")
         };
         AddAuth(req);
         using var resp = await _http.SendAsync(req, ct);
@@ -1081,13 +1123,19 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         Color = dto.ColorMode == "color",
         Duplex = dto.Duplex,
         PdfUrl = Uri.TryCreate(dto.DownloadUrl, UriKind.Absolute, out var u) ? u : null,
-        PdfSha256 = null,
+        // v0.7.2 sync: the pending route sends pdfSha256 (nullable) — carry it so
+        // the download integrity gate can verify without a second fetch.
+        PdfSha256 = dto.PdfSha256,
         Status = JobStatus.Pending,
         AttemptCount = 0,
         CreatedAt = DateTimeOffset.UtcNow,
         QueuedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow
     };
+
+    /// <summary>Truncate a string to the SaaS zod cap (the server 400s over-length strings).</summary>
+    private static string? TruncateForWire(string? s, int max) =>
+        string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max];
 
     public void Dispose() => _http.Dispose();
 }

@@ -7,26 +7,22 @@ using Microsoft.Extensions.Logging;
 /// is opened. Must be called once at app startup, BEFORE any
 /// <c>SqliteConnection</c> is created.
 ///
-/// <para><b>How it works:</b></para>
+/// <para><b>How it works (v0.7.2):</b></para>
 /// <para>
 /// <c>Microsoft.Data.Sqlite</c> uses <c>SQLitePCLRaw</c> under the hood to
-/// load the native SQLite library. By default, it loads the plain
-/// <c>e_sqlite3</c> binary which does NOT support encryption. The
-/// <c>SQLitePCLRaw.bundle_e_sqlcipher</c> NuGet package includes a version
-/// of the native library with the SQLCipher extension compiled in, and
-/// registers it via <c>Batteries_V2.Init()</c>.
+/// load the native SQLite library. The app references
+/// <c>Microsoft.Data.Sqlite.Core</c> (which auto-registers NOTHING) plus
+/// <c>SQLitePCLRaw.bundle_e_sqlcipher</c>, and this class sets the
+/// <c>e_sqlcipher</c> provider directly via
+/// <c>SQLitePCL.raw.SetProvider(new SQLite3Provider_e_sqlcipher())</c> —
+/// no reflection, no Batteries indirection. Availability is then PROVEN by
+/// opening an in-memory keyed connection and reading
+/// <c>PRAGMA cipher_version</c>.
 /// </para>
 /// <para>
-/// We must call <c>SQLitePCL.Batteries_V2.Init()</c> (from the
-/// <c>SQLitePCLRaw.core</c> package, which is a transitive dependency of
-/// <c>bundle_e_sqlcipher</c>) before ANY <c>SqliteConnection</c> is opened.
-/// If we don't, <c>Microsoft.Data.Sqlite</c> picks the default provider
-/// (plain <c>e_sqlite3</c>) and the <c>Password=</c> connection string
-/// parameter is silently ignored — the database opens as plain text.
-/// </para>
-/// <para>
-/// This class is registered as an <c>IHostedService</c> or called directly
-/// from <c>App.OnStartup</c> before the DI host is built.
+/// This class is called from the <c>SqliteJobQueue</c> and
+/// <c>SqlitePendingOpsQueue</c> constructors (idempotent, thread-safe) so
+/// the provider is always in place before the first connection.
 /// </para>
 /// </summary>
 public static class SqlCipherInitializer
@@ -47,53 +43,58 @@ public static class SqlCipherInitializer
 
         try
         {
-            // SQLitePCL.Batteries_V2.Init() registers the SQLCipher-capable
-            // native provider. This is from the SQLitePCLRaw.core package
-            // (transitive of bundle_e_sqlcipher).
-            // The method name varies by version — try Batteries_V2 first,
-            // then Batteries (the older API).
+            // v0.7.2 fix: set the provider DIRECTLY. The previous version
+            // used reflection to find SQLitePCL.Batteries_V2 in
+            // "SQLitePCLRaw.core" and "SQLitePCLRaw.bundle_e_sqlcipher" —
+            // NEITHER assembly contains that type (it lives in
+            // SQLitePCLRaw.batteries_v2), so initialization ALWAYS failed in
+            // the field and the queue refused to open ("SQLCipher native
+            // provider is not available", user report 2026-11-26). On top of
+            // that, the meta Microsoft.Data.Sqlite package shipped a SECOND
+            // SQLitePCLRaw.batteries_v2 assembly registering the PLAIN
+            // provider — same assembly identity, undefined bind race. The
+            // app now references Microsoft.Data.Sqlite.Core (auto-registers
+            // nothing) + bundle_e_sqlcipher, so e_sqlcipher is the only
+            // provider candidate and this call is deterministic.
             try
             {
-                // The bundle_e_sqlcipher package exports a Batteries_V2 class
-                // in the SQLitePCL namespace. Calling Init() registers the
-                // e_sqlcipher provider as the default.
-                var batteriesType = Type.GetType("SQLitePCL.Batteries_V2, SQLitePCLRaw.core")
-                                 ?? Type.GetType("SQLitePCL.Batteries_V2, SQLitePCLRaw.bundle_e_sqlcipher");
-                if (batteriesType != null)
-                {
-                    var initMethod = batteriesType.GetMethod("Init", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
-                    initMethod?.Invoke(null, null);
-                    _encryptionAvailable = true;
-                    logger?.LogInformation("SQLCipher native provider initialized (Batteries_V2.Init) — encryption available");
-                }
-                else
-                {
-                    // Fall back to the older Batteries API.
-                    var legacyBatteries = Type.GetType("SQLitePCL.Batteries, SQLitePCLRaw.core");
-                    if (legacyBatteries != null)
-                    {
-                        var initMethod = legacyBatteries.GetMethod("Init", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
-                        initMethod?.Invoke(null, null);
-                        _encryptionAvailable = true;
-                        logger?.LogInformation("SQLCipher native provider initialized (legacy Batteries.Init) — encryption available");
-                    }
-                    else
-                    {
-                        logger?.LogWarning("Could not find SQLitePCL Batteries type — encryption may not be available");
-                        _encryptionAvailable = false;
-                    }
-                }
+                SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_e_sqlcipher());
             }
             catch (Exception ex)
             {
-                logger?.LogWarning(ex, "Failed to initialize SQLCipher native provider — database will be unencrypted");
+                // "Provider already set" or native-load failure — the probe
+                // below, not this catch, decides the final verdict.
+                logger?.LogDebug(ex, "SetProvider(e_sqlcipher) did not complete cleanly — probing anyway");
+            }
+
+            // Definitive availability probe: a SQLCipher-capable provider
+            // answers PRAGMA cipher_version (verified experimentally with the
+            // exact shipped package set: "4.5.2 community"). A plain provider
+            // either errors on the unknown pragma or ignores Password= and
+            // returns no row — both count as "not available".
+            using var conn = new Microsoft.Data.Sqlite.SqliteConnection(
+                "Data Source=:memory:;Password=sqlcipher-availability-probe");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "PRAGMA cipher_version;";
+            var version = cmd.ExecuteScalar()?.ToString();
+
+            if (!string.IsNullOrWhiteSpace(version))
+            {
+                _encryptionAvailable = true;
+                logger?.LogInformation("SQLCipher native provider ready — cipher_version {CipherVersion}", version);
+            }
+            else
+            {
                 _encryptionAvailable = false;
+                logger?.LogWarning(
+                    "SQLCipher probe returned no cipher_version — provider loaded but encryption is NOT available");
             }
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "SQLCipher initialization failed");
             _encryptionAvailable = false;
+            logger?.LogWarning(ex, "SQLCipher initialization failed — encryption unavailable");
         }
 
         return _encryptionAvailable;

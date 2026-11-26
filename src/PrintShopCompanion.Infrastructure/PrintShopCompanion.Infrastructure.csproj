@@ -23,7 +23,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <!-- v0.7.2 fix: use the CORE package, NOT the meta Microsoft.Data.Sqlite.
+         The meta package drags in SQLitePCLRaw.bundle_e_sqlite3, which ships
+         an assembly with the SAME identity as bundle_e_sqlcipher's
+         (SQLitePCLRaw.batteries_v2.dll) but registers the PLAIN provider —
+         two same-named batteries assemblies in one app make the provider
+         selection undefined, and the plain one silently ignoring Password=
+         was worse than a crash. Microsoft.Data.Sqlite.Core auto-registers
+         NOTHING; SqlCipherInitializer sets the provider explicitly. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2" />
@@ -58,17 +66,22 @@
            - SQLitePCLRaw.lib.e_sqlite3 2.1.11 (GHSA-2m69-gcr7-jv3q)
 
          The first two are gone after the SocketIOClient 3.2.0 bump (they came
-         via System.Net.WebSockets.Client.Managed). The other two are pinned
-         here to safe versions so any other transitive consumer resolves to
-         the fixed version rather than the vulnerable one. -->
+         via System.Net.WebSockets.Client.Managed). Newtonsoft.Json is pinned
+         here to a safe version. The lib.e_sqlite3 pin that fixed GHSA-2m69-
+         gcr7-jv3q is GONE in v0.7.2 — for two reasons: (1) Microsoft.Data.
+         Sqlite.Core no longer pulls lib.e_sqlite3 into the graph at all, so
+         the advisory is gone with it; (2) pinning lib.e_sqlite3 3.50.3 next
+         to bundle_e_sqlcipher 2.1.11 shipped a plain-SQLite native alongside
+         the SQLCipher one and contributed to the provider confusion that
+         broke the encrypted queue on Windows (screenshots 2026-11-26). -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <!-- v0.5: SQLCipher for at-rest encryption of queue.db. The bundle_e_sqlcipher
-         package includes BOTH the e_sqlite3 native library AND the SQLCipher
-         encryption extension. It registers via SQLitePCL.Batteries_V2.Init().
-         Version 2.1.11 is the latest stable on NuGet (the 3.x line is for
-         SQLitePCLRaw.lib.e_sqlite3 only, not the bundle packages). -->
+    <!-- v0.5: SQLCipher for at-rest encryption of queue.db. The bundle brings
+         provider.e_sqlcipher (managed) + lib.e_sqlcipher (natives: e_sqlcipher.dll
+         for win-x64, libe_sqlcipher.so for linux-x64 — verified in the NuGet
+         cache). Version 2.1.11 is the latest stable; the 3.x line exists only
+         for SQLitePCLRaw.lib.* packages, not bundles. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlcipher" Version="2.1.11" />
   </ItemGroup>
 
   <ItemGroup>

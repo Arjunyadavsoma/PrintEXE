@@ -1,5 +1,57 @@
 # PrintShop Companion — Changelog
 
+## v0.7.2 — 2026-11-26 — SQLCipher runtime fix + printshop-saas contract sync
+
+Two tracks: the encrypted-queue failure reported from a real Windows machine
+(screenshots: "SQLCipher native provider is not available"), and a field-by-
+field contract sync against the actual `printshop-saas` implementation
+(commit `0701237`, companion contract v1.1 — full report in
+`docs/contracts/CONTRACT_SYNC_2026-11-26.md`).
+
+### Fixed — SQLCipher provider (queue refused to open on Windows)
+- **Root cause:** `SqlCipherInitializer` looked for `SQLitePCL.Batteries_V2`
+  by reflection in `SQLitePCLRaw.core` / `SQLitePCLRaw.bundle_e_sqlcipher` —
+  neither assembly contains that type (it lives in `SQLitePCLRaw.
+  batteries_v2`), so initialization ALWAYS failed and the fail-closed queue
+  threw on every machine. Worse, the meta `Microsoft.Data.Sqlite` package
+  pulled `bundle_e_sqlite3`, shipping a SECOND assembly with the same
+  identity (`SQLitePCLRaw.batteries_v2.dll`) registering the PLAIN provider —
+  two same-named batteries assemblies made provider selection undefined.
+- **Fix:** reference `Microsoft.Data.Sqlite.Core` (auto-registers nothing) +
+  `bundle_e_sqlcipher`; set the provider DIRECTLY
+  (`SQLitePCL.raw.SetProvider(new SQLite3Provider_e_sqlcipher())`); PROVE
+  availability by opening an in-memory keyed connection and reading
+  `PRAGMA cipher_version` (validated experimentally with the shipped package
+  set: "4.5.2 community"). Removed the `SQLitePCLRaw.lib.e_sqlite3 3.50.3`
+  NU1903 pins from all four projects (the advisory leaves the graph with the
+  Core package).
+- **User-facing error text** rewritten (the dialogs showed NuGet package
+  names and Linux test instructions): user action first, dev detail after
+  "Technical details:".
+- **CI guard tightened:** publish validation now requires `e_sqlcipher.dll`
+  by exact name (the old `e_sql*.dll` glob would have passed with the plain
+  `e_sqlite3.dll` alone — precisely the reported failure).
+
+### Synced — printshop-saas contract (v1.1)
+- **`lastError: null` → 400** (would have failed EVERY claim/failure report
+  against production): the status route zod is `.optional()` not
+  `.nullable()`; client now omits nulls (`WhenWritingNull` write options) and
+  truncates lastError/printerName to the 500/200 caps. The integration fake
+  rejects `"lastError":null` like production, so the suite enforces it.
+- **Revocation/command events fixed:** they carry the SERVER-assigned agentId;
+  the client compared the local device GUID (never matched — a revoked device
+  kept printing). New `IPrintShopBackend.ServerAgentId` captured from
+  pair/heartbeat/pending responses.
+- **`failedJobs` + `pdfSha256`** from the pending route now surfaced (logged /
+  carried into the record for the integrity gate).
+- **Verified aligned** (no change): auth model, pairing caps, claim/complete
+  state machine, receipt checksum format, Socket.IO auth-event handshake,
+  commands, sync pull/push, shop-snapshot, 401/403/404 semantics, deployment
+  defaults (incl. the note that Vercel runs REALTIME_PROVIDER=memory — REST
+  polling is the effective delivery path there).
+
+256 + 2 new tests green locally (net10.0 neutral TFM).
+
 ## v0.7.1 — 2026-11-26 — Windows CI fixes (first Windows test run)
 
 The v0.7.0 push was the first commit to RUN the test suite on `windows-latest`

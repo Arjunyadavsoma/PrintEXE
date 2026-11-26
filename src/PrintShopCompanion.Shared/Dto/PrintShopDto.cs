@@ -403,6 +403,31 @@ public sealed class PrintJobDto
 
     [JsonPropertyName("pageRange")]
     public string? PageRange { get; init; }
+
+    /// <summary>v0.7.2 sync: SHA-256 of the PDF, sent by the pending route when known (nullable — optional in the zod).</summary>
+    [JsonPropertyName("pdfSha256")]
+    public string? PdfSha256 { get; init; }
+}
+
+/// <summary>
+/// v0.7.2 sync — wire DTO for a job the backend could NOT dispatch
+/// (GET /agents/jobs/pending returns these as 200 within <c>failedJobs</c>:
+/// DOCUMENT_MISSING, JOB_INVALID, STORAGE_UNAVAILABLE). They are dead
+/// server-side; the agent logs them and must not enqueue them.
+/// </summary>
+public sealed class FailedJobDto
+{
+    [JsonPropertyName("jobId")]
+    public required string JobId { get; init; }
+
+    [JsonPropertyName("fileId")]
+    public string? FileId { get; init; }
+
+    [JsonPropertyName("code")]
+    public string? Code { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
 }
 
 /// <summary>Response envelope for GET /agents/jobs/pending (envelope-wrapped).</summary>
@@ -413,6 +438,10 @@ public sealed class PendingJobsEnvelopeDto
 
     [JsonPropertyName("agentId")]
     public string? AgentId { get; init; }
+
+    /// <summary>v0.7.2 sync: jobs the backend refused to dispatch (see <see cref="FailedJobDto"/>).</summary>
+    [JsonPropertyName("failedJobs")]
+    public List<FailedJobDto>? FailedJobs { get; init; }
 }
 
 /// <summary>

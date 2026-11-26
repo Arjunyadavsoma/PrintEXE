@@ -144,7 +144,7 @@ public sealed class SocketIoRealtimeClient : IDisposable
             try
             {
                 var payload = ev.GetValue<AgentRevokedPayload>();
-                if (payload?.AgentId == ThisApp.DeviceId.ToString("N"))
+                if (IsUs(payload?.AgentId))
                 {
                     _logger.LogWarning("This device was revoked by the shopkeeper");
                     Revoked?.Invoke();
@@ -164,8 +164,7 @@ public sealed class SocketIoRealtimeClient : IDisposable
             try
             {
                 var payload = ev.GetValue<DeviceCommandIssuedPayload>();
-                if (payload?.AgentId is null ||
-                    payload.AgentId == ThisApp.DeviceId.ToString("N"))
+                if (IsUs(payload?.AgentId))
                 {
                     _logger.LogInformation("Socket.IO device.command.issued — type={CommandType} id={CommandId}",
                         payload?.CommandType, payload?.CommandId);
@@ -183,8 +182,7 @@ public sealed class SocketIoRealtimeClient : IDisposable
             try
             {
                 var payload = ev.GetValue<DeviceRevokedPayload>();
-                if (payload?.AgentId is null ||
-                    payload.AgentId == ThisApp.DeviceId.ToString("N"))
+                if (IsUs(payload?.AgentId))
                 {
                     _logger.LogWarning("This device was revoked (device.revoked event)");
                     Revoked?.Invoke();
@@ -273,6 +271,19 @@ public sealed class SocketIoRealtimeClient : IDisposable
     }
 
     private void OnError(object? sender, string err) => _logger.LogError("Socket.IO error: {Err}", err);
+
+    /// <summary>
+    /// v0.7.2 sync: revocation/command events carry the SERVER-assigned agentId
+    /// (PrintAgent uuid from pair/heartbeat/pending responses). Match on that
+    /// (the local-GUID comparison stays for backward compatibility) —
+    /// previously the local GUID never equaled the server id, so
+    /// agent.revoked / device.revoked were silently ignored and a revoked
+    /// device kept printing.
+    /// </summary>
+    private bool IsUs(string? payloadAgentId) =>
+        string.IsNullOrEmpty(payloadAgentId) ||
+        payloadAgentId == _backend.ServerAgentId ||
+        payloadAgentId == ThisApp.DeviceId.ToString("N");
 
     private PrintJobRecord MapDtoToRecord(PrintJobDto dto, string? knownShopId) => new()
     {

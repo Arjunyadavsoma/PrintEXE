@@ -1,5 +1,26 @@
 # HONEST STATUS — Read This First
 
+> **⚠ v0.7.2 UPDATE 2026-11-26** (real-machine failure + contract sync):
+> (1) **SQLCipher**: a real Windows machine could not open the encrypted queue
+> ("SQLCipher native provider is not available"). Root cause: the initializer
+> reflected over Batteries types in assemblies that DON'T EXIST (the class
+> lives in `SQLitePCLRaw.batteries_v2`), so init always failed; additionally
+> the meta Microsoft.Data.Sqlite package shipped a SECOND same-named
+> batteries assembly registering the PLAIN provider. Fixed: Microsoft.Data.
+> Sqlite.Core + bundle_e_sqlcipher only, provider set directly, availability
+> PROVEN via `PRAGMA cipher_version` (validated: "4.5.2 community"); CI now
+> hard-fails if `e_sqlcipher.dll` is missing from the published ZIP; error
+> dialogs rewritten for end users. (2) **Contract sync with
+> Arjunyadavsoma/printshop-saas** (v1.1, commit 0701237): full field-by-field
+> verification in `docs/contracts/CONTRACT_SYNC_2026-11-26.md`; fixed drifts
+> that would break against production — `lastError:null` → 400 (now omitted
+> + truncated, enforced by a contract-faithful fake), revocation/command
+> events now matched against the SERVER agentId (they never matched the
+> local GUID — a revoked device kept printing), `failedJobs`/`pdfSha256`
+> surfaced. `companion-v1.schema.json` copied byte-identical into
+> `docs/contracts/`. STILL NOT verified against the LIVE backend (needs a
+> real pairing session) — the sync is against the route code, not a live run.
+
 > **⚠ v0.7.1 UPDATE 2026-11-26** (first Windows CI test run — run #208):
 > Windows surfaced two defects Linux cannot produce, both fixed here.
 > (1) Three test suites passed their temp dir as the SECOND positional

@@ -40,7 +40,10 @@
          so it inherits the vulnerable transitive deps. Pinning them at safe versions
          here too ensures the publish output bundles the fixed versions. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <!-- v0.7.2: the lib.e_sqlite3 pin was removed — Microsoft.Data.Sqlite.Core
+         (Infrastructure) no longer pulls lib.e_sqlite3, so the advisory is
+         gone from the graph and the plain-SQLite native no longer ships next
+         to the SQLCipher one. -->
   </ItemGroup>
 
   <ItemGroup>
