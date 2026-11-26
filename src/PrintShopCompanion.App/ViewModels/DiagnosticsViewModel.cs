@@ -63,6 +63,10 @@ public partial class DiagnosticsViewModel : ObservableObject
     [ObservableProperty]
     private string _errors = "";
 
+    /// <summary>v0.7.17: actionable recommendations computed from the snapshot.</summary>
+    [ObservableProperty]
+    private string _recommendations = "";
+
     [ObservableProperty]
     private string _exportPath = "";
 
@@ -164,5 +168,6 @@ public partial class DiagnosticsViewModel : ObservableObject
         LastPrint = s.LastSuccessfulPrintAt?.ToString("yyyy-MM-dd HH:mm 'UTC'") ?? "never";
 
         Errors = s.Errors.Count > 0 ? string.Join(Environment.NewLine, s.Errors) : "";
+        Recommendations = s.Recommendations.Count > 0 ? string.Join(Environment.NewLine, s.Recommendations) : "";
     }
 }

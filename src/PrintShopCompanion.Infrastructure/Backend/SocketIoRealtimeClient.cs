@@ -74,7 +74,17 @@ public sealed class SocketIoRealtimeClient : IDisposable
             Path = "/",
             Reconnection = true,
             ReconnectionAttempts = int.MaxValue,
-            ReconnectionDelay = 2000,
+            // v0.7.17: exponential backoff with a ceiling instead of a fixed
+            // 2 s delay. A fixed delay makes every agent of every shop
+            // reconnect in lockstep after a backend blip (thundering herd).
+            // Technique: standard capped exponential backoff with full
+            // jitter (printpapi's agent uses the same discipline —
+            // docs/research/OPEN_SOURCE_FEATURE_EVIDENCE_MATRIX.md C1).
+            // 500 ms base doubling to a 30 s ceiling, ±randomness, so the
+            // long-run average settles ~15 s without synchronization.
+            ReconnectionDelay = 500,
+            ReconnectionDelayMax = 30_000,
+            RandomizationFactor = 0.5,
             Transport = SocketIOClient.Transport.TransportProtocol.WebSocket
         });
 

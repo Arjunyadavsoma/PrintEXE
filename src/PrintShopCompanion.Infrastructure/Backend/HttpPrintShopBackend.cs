@@ -801,14 +801,37 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         var credPath = ResolveDeviceTokenPath();
         var dir = Path.GetDirectoryName(credPath)!;
         Directory.CreateDirectory(dir);
-        var tmpPath = credPath + ".tmp";
         var bakPath = credPath + ".bak";
 
         byte[] plaintext = System.Text.Encoding.UTF8.GetBytes(deviceToken);
         byte[] encrypted = System.Security.Cryptography.ProtectedData.Protect(
             plaintext, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
 
-        await File.WriteAllBytesAsync(tmpPath, encrypted, ct);
+        // v0.7.17: the CI test matrix runs two testhost processes in
+        // parallel on one runner (net10.0 + net10.0-windows legs) and both
+        // legs exercise token persistence against the SAME %APPDATA% file
+        // set. The shared ".tmp" staging name collided (IOException from
+        // WriteAllBytesAsync on the second writer). Retry with a
+        // process-unique staging name — each writer stages its own file,
+        // and the final atomic Move (overwrite: true) makes the last
+        // writer win cleanly, which is the same outcome the single-process
+        // app always had.
+        var tmpPath = $"{credPath}.{Environment.ProcessId}.tmp";
+        var wroteTmp = false;
+        for (var attempt = 0; attempt < 5 && !wroteTmp; attempt++)
+        {
+            try
+            {
+                await File.WriteAllBytesAsync(tmpPath, encrypted, ct);
+                wroteTmp = true;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                await Task.Delay(50, ct);
+            }
+        }
+        if (!wroteTmp)
+            await File.WriteAllBytesAsync(tmpPath, encrypted, ct); // final attempt surfaces the real error
 
         // Round-trip verify the .tmp file BEFORE replacing the live credential.
         var verify = System.Security.Cryptography.ProtectedData.Unprotect(

@@ -132,6 +132,14 @@ public sealed class DiagnosticsService
             snap.FreeDiskBytes = drive.IsReady ? drive.AvailableFreeSpace : null;
             if (snap.FreeDiskBytes is < 256 * 1024 * 1024)
                 snap.Errors.Add("Low disk space (< 256 MB) — the queue refuses new downloads below this threshold");
+
+            // v0.7.17: computed advice (rules live on the snapshot type, tested pure).
+            snap.Recommendations = DiagnosticsSnapshot.ComputeRecommendations(
+                snap.CloudReachable, snap.TokenValid, snap.DeviceRegistered, snap.DatabaseHealthy,
+                snap.PrinterCount,
+                hasDefaultPrinter: snap.PrinterIssues.All(i => !i.Contains("default", StringComparison.OrdinalIgnoreCase)) && snap.PrinterCount > 0,
+                selectedPrinterOffline: snap.PrinterIssues.Any(i => i.Contains("offline", StringComparison.OrdinalIgnoreCase)),
+                failedJobs: snap.QueueCounts.TryGetValue(JobStatus.Failed, out var failed) ? failed : 0);
         }
         catch (Exception ex)
         {
@@ -218,5 +226,25 @@ public sealed class DiagnosticsSnapshot
     public IReadOnlyDictionary<JobStatus, int> QueueCounts { get; set; } = new Dictionary<JobStatus, int>();
     public List<string> Errors { get; set; } = new();
 
+    /// <summary>v0.7.17: actionable advice computed from the facts above (technique adapted from PrintHub's GetDiagnosticsAsync — MIT; docs/research/OPEN_SOURCE_FEATURE_EVIDENCE_MATRIX.md G1).</summary>
+    public List<string> Recommendations { get; set; } = new();
+
     public bool Healthy => CloudReachable && TokenValid && DeviceRegistered && DatabaseHealthy && Errors.Count == 0;
+
+    /// <summary>Pure rule set — static so tests drive it without services.</summary>
+    public static List<string> ComputeRecommendations(
+        bool cloudReachable, bool tokenValid, bool deviceRegistered, bool databaseHealthy,
+        int printerCount, bool hasDefaultPrinter, bool selectedPrinterOffline, int failedJobs)
+    {
+        var r = new List<string>();
+        if (!cloudReachable) r.Add("Backend is unreachable — check internet, then try Sync now. Jobs queue locally and print when the connection returns.");
+        if (!tokenValid) r.Add("Device token is invalid or expired — pair this computer again (web dashboard → Devices → Add Computer).");
+        if (!deviceRegistered) r.Add("This computer is not registered with a shop yet — finish pairing.");
+        if (!databaseHealthy) r.Add("The local queue database failed its health check — restart the companion; if it persists, reinstall (queued jobs are preserved on disk).");
+        if (printerCount == 0) r.Add("No printers installed — add one in Windows Settings → Bluetooth & devices → Printers & scanners, then refresh.");
+        else if (!hasDefaultPrinter) r.Add("No Windows default printer set — pick one on the Printers page so jobs always have a target.");
+        if (selectedPrinterOffline) r.Add("The selected printer reports offline — check power and cable, then use Test print to confirm.");
+        if (failedJobs > 0) r.Add($"{failedJobs} job(s) failed — open Print Queue, review the error, then Retry or Reprint.");
+        return r;
+    }
 }

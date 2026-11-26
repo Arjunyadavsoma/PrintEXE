@@ -84,16 +84,24 @@
                     <ListView.ItemTemplate>
                         <DataTemplate>
                             <DockPanel Margin="20,16">
-                                <!-- Status dot -->
+                                <!-- v0.7.17: REAL status dot — was hardcoded green.
+                                     Color follows the spooler-reported state:
+                                     Ready=green, Busy=brand, Error=amber, Offline=red,
+                                     Unknown=gray (mapping in Core.Printers.PrinterStatusMapper). -->
                                 <Border Style="{StaticResource StatusDot}"
-                                        Background="{DynamicResource SuccessBrush}"
-                                        DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                                        DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,14,0"
+                                        Background="{Binding Status, Converter={StaticResource PrinterStatusBrush}}"
+                                        ToolTip="{Binding StatusText}"/>
 
                                 <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding DisplayName}" Style="{StaticResource CardTitleText}"/>
-                                    <TextBlock Text="{Binding FullName}" FontSize="11.5"
-                                               Foreground="{DynamicResource TextMutedBrush}" TextTrimming="CharacterEllipsis"
-                                               Margin="0,2,0,0" MaxWidth="450"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11.5"
+                                                   Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding FullName}" FontSize="11.5"
+                                                   Foreground="{DynamicResource TextSubtleBrush}" VerticalAlignment="Center"
+                                                   Margin="8,0,0,0" TextTrimming="CharacterEllipsis" MaxWidth="330"/>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <!-- Badges -->

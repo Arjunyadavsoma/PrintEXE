@@ -48,12 +48,25 @@ public sealed class WindowsPrinterService : IPrinterService, ISpoolerMonitor
             {
                 q.Refresh();
                 var caps = q.GetPrintCapabilities();
+                // v0.7.17: real status, not a green-for-everyone dot. The
+                // mapping lives in PrinterStatusMapper (pure, tested);
+                // precedence Offline > Error > Busy(paused) > Ready.
+                var status = PrintShopCompanion.Core.Printers.PrinterStatusMapper.Map(
+                    isOffline: (q.QueueStatus & PrintQueueStatus.Offline) != 0,
+                    isPaused: (q.QueueStatus & PrintQueueStatus.Paused) != 0,
+                    isError: (q.QueueStatus & PrintQueueStatus.Error) != 0,
+                    isBusy: (q.QueueStatus & PrintQueueStatus.Busy) != 0,
+                    isPrinting: (q.QueueStatus & PrintQueueStatus.Printing) != 0,
+                    isInitializing: (q.QueueStatus & PrintQueueStatus.Initializing) != 0,
+                    isPendingDeletion: (q.QueueStatus & PrintQueueStatus.PendingDeletion) != 0);
                 list.Add(new PrinterInfo
                 {
                     FullName = q.FullName,
                     DisplayName = string.IsNullOrWhiteSpace(q.Description) ? q.Name : q.Description,
                     IsDefault = q.FullName.Equals(server.DefaultPrintQueue?.FullName, StringComparison.OrdinalIgnoreCase),
                     IsOffline = (q.QueueStatus & PrintQueueStatus.Offline) != 0,
+                    Status = status,
+                    StatusText = PrintShopCompanion.Core.Printers.PrinterStatusMapper.TextFor(status),
                     IsNetwork = q.FullName.StartsWith(@"\\", StringComparison.OrdinalIgnoreCase)
                                 || q.FullName.Contains("http", StringComparison.OrdinalIgnoreCase)
                                 || q.FullName.Contains("WSD", StringComparison.OrdinalIgnoreCase),

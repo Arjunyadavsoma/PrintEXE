@@ -70,4 +70,22 @@ public partial class PrintersViewModel : ObservableObject
 
     [RelayCommand]
     private void RefreshList() => Refresh();
+
+    /// <summary>
+    /// v0.7.17: called by the spooler change watcher (via the view, on the
+    /// UI dispatcher) whenever the installed-printer set changes, so the
+    /// list stays current without a manual refresh. The watcher itself
+    /// lives in Infrastructure (SpoolerChangeWatcher) — technique adapted
+    /// from QZ Tray's connections watchdog (see
+    /// docs/research/OPEN_SOURCE_FEATURE_EVIDENCE_MATRIX.md A5).
+    /// </summary>
+    public void RefreshFromSpoolerChange()
+    {
+        // Preserve the operator's selection across the refresh when the
+        // printer still exists; Refresh() re-selects it via IsSelected.
+        var keep = Selected?.FullName;
+        Refresh();
+        if (keep is not null)
+            Selected = Printers.FirstOrDefault(p => p.FullName == keep) ?? Selected;
+    }
 }

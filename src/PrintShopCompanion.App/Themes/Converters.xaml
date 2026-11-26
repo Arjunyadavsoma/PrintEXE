@@ -7,6 +7,8 @@
     <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
     <!-- v0.7.15: empty-state driver — Visible when count/collection is empty -->
     <conv:ZeroToVisibilityConverter x:Key="ZeroToVis" />
+    <!-- v0.7.17: printer status dot color (Ready/Busy/Error/Offline/Unknown) -->
+    <conv:PrinterStatusBrushConverter x:Key="PrinterStatusBrush" />
     <conv:InverseBoolConverter x:Key="InverseBool" />
     <conv:StringToVisibilityConverter x:Key="StringToVis" />
     <conv:InverseStringToVisibilityConverter x:Key="InverseStringToVis" />

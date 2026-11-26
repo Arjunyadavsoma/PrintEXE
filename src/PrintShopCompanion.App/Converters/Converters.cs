@@ -68,6 +68,48 @@ public sealed class InverseBoolConverter : IValueConverter
 }
 
 /// <summary>
+/// v0.7.17: maps the coarse PrinterStatus vocabulary to semantic status
+/// brushes for the Printers page dot (web-parity token colors:
+/// success/brand/warning/danger/muted). Technique reference:
+/// PrintHub status mapping — docs/research/OPEN_SOURCE_FEATURE_EVIDENCE_MATRIX.md (A3).
+/// </summary>
+public sealed class PrinterStatusBrushConverter : IValueConverter
+{
+    private static readonly System.Windows.Media.SolidColorBrush Ready =
+        Freeze(System.Windows.Media.Color.FromRgb(0x00, 0x7F, 0x3D));   // SuccessColor
+    private static readonly System.Windows.Media.SolidColorBrush Busy =
+        Freeze(System.Windows.Media.Color.FromRgb(0x28, 0x58, 0xCD));   // BrandColor
+    private static readonly System.Windows.Media.SolidColorBrush Error =
+        Freeze(System.Windows.Media.Color.FromRgb(0xE4, 0x8E, 0x26));   // WarningColor
+    private static readonly System.Windows.Media.SolidColorBrush Offline =
+        Freeze(System.Windows.Media.Color.FromRgb(0xBE, 0x22, 0x2A));   // DangerColor
+    private static readonly System.Windows.Media.SolidColorBrush Unknown =
+        Freeze(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));   // TextSubtleColor
+
+    private static System.Windows.Media.SolidColorBrush Freeze(System.Windows.Media.Color c)
+    {
+        var b = new System.Windows.Media.SolidColorBrush(c);
+        b.Freeze();
+        return b;
+    }
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is PrintShopCompanion.Core.Models.PrinterStatus s
+            ? s switch
+            {
+                PrintShopCompanion.Core.Models.PrinterStatus.Ready => Ready,
+                PrintShopCompanion.Core.Models.PrinterStatus.Busy => Busy,
+                PrintShopCompanion.Core.Models.PrinterStatus.Error => Error,
+                PrintShopCompanion.Core.Models.PrinterStatus.Offline => Offline,
+                _ => Unknown,
+            }
+            : Unknown;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// v0.7.15: Visible when the bound count/collection is EMPTY (0, null, or
 /// an empty collection) — drives the teaching empty states that replaced
 /// bare "No X yet" text rows. Collapsed as soon as content exists.

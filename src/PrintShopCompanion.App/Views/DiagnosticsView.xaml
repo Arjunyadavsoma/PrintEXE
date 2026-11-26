@@ -112,7 +112,15 @@
 
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="Issues" Style="{StaticResource CardTitleText}" Margin="0,0,0,10"/>
+                        <TextBlock Text="Recommended actions" Style="{StaticResource CardTitleText}" Margin="0,0,0,10"/>
+                <TextBlock Style="{StaticResource BodyText}" Text="{Binding Recommendations}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BrandDarkBrush}"/>
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="Issues" Style="{StaticResource CardTitleText}" Margin="0,0,0,10"/>
                         <TextBlock Text="{Binding Errors}" Style="{StaticResource BodyText}" TextWrapping="Wrap"
                                    Foreground="{DynamicResource DangerBrush}"/>
                     </StackPanel>
