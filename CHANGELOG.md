@@ -1,5 +1,39 @@
 # PrintShop Companion — Changelog
 
+## v0.7.19 — 2026-11-27 — Second startup-crash layer: InputField/PasswordBox TargetType mismatch
+
+Field screenshot (Startup Error dialog): "Set property
+'System.Windows.FrameworkElement.Style' threw an exception" — the app could
+not start at all. This is the layer that was MASKED by the v0.7.18 fix: the
+MainWindow ctor used to abort on the removed NavItem style keys BEFORE
+navigation created LoginView; once that crash was fixed, startup proceeded
+into LoginView.xaml and hit the next defect.
+
+### Root cause
+`Themes/Components.xaml` defined `InputField` with `TargetType="TextBox"`,
+but `LoginView.xaml` (line 144) applies it to a **PasswordBox** — a SIBLING
+type (both derive from `TextBoxBase`, neither derives from the other). WPF
+throws `InvalidOperationException` at the Style assignment during
+`InitializeComponent`, wrapped as a `XamlParseException` that propagated
+through the MainWindow ctor → DI → `App.OnStartup` → the fatal catch → the
+"PrintShop Companion could not start." dialog.
+
+### Fixed
+- Retargeted `InputField` to `{x:Type TextBoxBase}` — the common base of
+  TextBox and PasswordBox — so one input style serves both. Every setter
+  (Padding, FontSize, Background, Foreground, BorderBrush, BorderThickness,
+  VerticalContentAlignment) is a Control/TextBoxBase-level property; no
+  TextBox-only property is used, so the 6 TextBox usages are unaffected.
+
+### Audited (full static sweep of all 20 XAML files)
+- every StaticResource/DynamicResource reference resolves against the merged
+  dictionaries + local resources — 0 missing;
+- every BasedOn target exists AND is TargetType-compatible (same type or
+  ancestor) — 0 conflicts;
+- no duplicate x:Key within any file; all 16 converter classes in
+  Converters.xaml exist — 0 problems;
+- element-vs-style TargetType mismatches — exactly this one.
+
 ## v0.7.18 — 2026-11-27 — Startup-crash fix + credential self-heal ("sync always")
 
 Field-log driven release: a v0.0.240 dev build crashed ON STARTUP, and a
