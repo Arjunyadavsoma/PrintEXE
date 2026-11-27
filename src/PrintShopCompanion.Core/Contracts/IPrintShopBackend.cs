@@ -343,3 +343,22 @@ public sealed class DeviceDisabledException : Exception
 {
     public DeviceDisabledException(string message) : base(message) { }
 }
+
+/// <summary>
+/// The backend answered 401 UNAUTHORIZED to a device-token-authenticated
+/// call: the token is unknown, revoked, or expired — the credential is dead
+/// and retrying can never succeed. Distinct from
+/// <see cref="DeviceDisabledException"/> (403 — the token is recognized but
+/// the shop admin suspended the device; the credential must be kept because
+/// re-enabling restores it).
+/// <para>v0.7.18: derives from <see cref="InvalidOperationException"/> so
+/// every existing catch block keeps working. The specific type lets callers
+/// (startup restore, heartbeat/command-poll timers) distinguish "credential
+/// rejected" from "network down": a rejection must trip the circuit breaker
+/// (stop polling, clear the credential, surface re-pairing) instead of
+/// hammering the backend forever — the endless-401 loop seen in the field.</para>
+/// </summary>
+public sealed class DeviceTokenRejectedException : InvalidOperationException
+{
+    public DeviceTokenRejectedException(string message) : base(message) { }
+}

@@ -108,13 +108,30 @@ public partial class MainWindow : Window
 
         // Highlight the active nav button (and demote the rest). OrderDetails
         // is reached FROM Orders — keep the Orders rail item highlighted.
+        //
+        // v0.7.18 CRASH FIX: this line still referenced the style keys
+        // "NavItem"/"NavItemActive" that the v0.7.15 UI revamp renamed to
+        // "NavRailItem"/"NavRailItemActive" (MainWindow.xaml line 49+ +
+        // Themes/Components.xaml). FindResource threw
+        // ResourceReferenceKeyNotFoundException on the missing key, and the
+        // TryFindResource/UnsetValue variant produced the companion crash
+        // "Unable to cast object of type 'MS.Internal.NamedObject' to type
+        // 'System.Windows.Style'" — both killed the app ON STARTUP (this
+        // method runs from the constructor). Two layers of defense now:
+        //   1. Use the style keys that actually exist.
+        //   2. TryFindResource + `is Style` — a missing or non-style resource
+        //      (WPF returns the UnsetValue sentinel object) leaves the
+        //      button's XAML-assigned style in place instead of crashing.
         var navHighlight = current == "OrderDetails" ? "Orders" : current;
         foreach (var name in new[] { "Overview", "Orders", "PrintQueue", "Printers", "SyncCenter", "Diagnostics", "Settings" })
         {
             var btn = FindName("Nav" + name) as Button;
             if (btn == null) continue;
             var isActive = name == navHighlight;
-            btn.Style = (Style)FindResource(isActive ? "NavItemActive" : "NavItem");
+            if (TryFindResource(isActive ? "NavRailItemActive" : "NavRailItem") is Style navStyle)
+            {
+                btn.Style = navStyle;
+            }
         }
 
         // Show the right view. OrderDetails consumes the navigation parameter

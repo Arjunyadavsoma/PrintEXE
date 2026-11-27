@@ -242,6 +242,17 @@ public sealed class HttpShopBackend : IShopBackend, IDisposable
         }).ToList();
     }
 
+    public async Task SetDeviceEnabledAsync(string deviceId, bool isEnabled, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+            throw new ArgumentException("Device id cannot be empty", nameof(deviceId));
+        // PATCH /api/v1/shops/me/devices/{deviceId} — body schema on the SaaS
+        // is z.object({ name?, isEnabled? }).refine(at-least-one). We only
+        // ever flip the enabled flag (rename stays a dashboard action).
+        var resp = await SendAuthedAsync(HttpMethod.Patch, $"shops/me/devices/{Uri.EscapeDataString(deviceId)}", ct, new { isEnabled });
+        await ReadEnvelopeAsync<System.Text.Json.JsonElement>(resp, ct);
+    }
+
     public Task SignOutAsync(CancellationToken ct = default)
     {
         _session = null;

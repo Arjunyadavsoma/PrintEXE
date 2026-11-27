@@ -75,6 +75,34 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     public string? ServerAgentId => _serverAgentId;
 
     /// <summary>
+    /// v0.7.18 self-heal: after <see cref="RestoreAsync"/> returned false, this
+    /// flag says WHY. True = the backend actually answered 401 (the credential
+    /// is dead — re-pairing can recover). False = the token file is missing,
+    /// unreadable, or the backend was unreachable (re-pairing would only spam
+    /// the backend and must NOT run). The App's startup self-heal keys on this.
+    /// </summary>
+    public bool LastRestoreWasAuthRejection { get; private set; }
+
+    /// <summary>
+    /// v0.7.18: does this exception chain end in a CONFIRMED credential
+    /// rejection (401 from the backend)? Walks inner exceptions because
+    /// <see cref="PairWithDeviceTokenAsync"/> wraps the heartbeat failure in
+    /// an InvalidOperationException while preserving the cause.
+    /// Deliberately excludes <see cref="DeviceDisabledException"/> (403): a
+    /// disabled device is an ADMIN DECISION — the shopkeeper suspended this
+    /// PC from the dashboard, and silently re-registering it would defeat
+    /// that control.
+    /// </summary>
+    public static bool IsDeviceTokenRejection(Exception? ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is DeviceTokenRejectedException) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Store the device token obtained from the web dashboard. The shopkeeper
     /// pastes the token into PrintEXE; PrintEXE stores it (DPAPI-encrypted)
     /// and uses it as the Bearer credential on every subsequent call.
@@ -289,7 +317,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);   // 403 → DeviceDisabledException
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend");
+            throw new DeviceTokenRejectedException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<PendingCommandsEnvelopeDto>>(Json, ct)
@@ -365,7 +393,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend");
+            throw new DeviceTokenRejectedException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<ReportCommandResponseDto>>(Json, ct)
@@ -383,6 +411,8 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
     /// </summary>
     public async Task<bool> RestoreAsync(CancellationToken ct = default)
     {
+        // v0.7.18: reset per call — the flag describes the LATEST restore only.
+        LastRestoreWasAuthRejection = false;
         try
         {
             var credPath = ResolveDeviceTokenPath();
@@ -400,6 +430,12 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         }
         catch (Exception ex)
         {
+            // v0.7.18: classify the failure. A confirmed 401 rejection sets
+            // LastRestoreWasAuthRejection=true, which lets the App's startup
+            // self-heal attempt automatic re-pairing with the shopkeeper
+            // session. Network failures leave it false — re-pairing on a
+            // network hiccup would only spam the backend with new devices.
+            LastRestoreWasAuthRejection = IsDeviceTokenRejection(ex);
             _logger.LogWarning(ex, "Failed to restore device token — user needs to re-pair");
             return false;
         }
@@ -419,7 +455,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend (token may be revoked or expired)");
+            throw new DeviceTokenRejectedException("Device token rejected by backend (token may be revoked or expired)");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<AgentTokenResponseDto>>(Json, ct)
@@ -531,7 +567,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend");
+            throw new DeviceTokenRejectedException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<AgentHeartbeatResponseDto>>(Json, ct)
@@ -557,7 +593,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend");
+            throw new DeviceTokenRejectedException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<PendingJobsEnvelopeDto>>(Json, ct)
@@ -609,7 +645,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend");
+            throw new DeviceTokenRejectedException("Device token rejected by backend");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<AgentJobStatusResponseDto>>(Json, ct)
@@ -751,7 +787,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend — rotation requires a currently-valid token");
+            throw new DeviceTokenRejectedException("Device token rejected by backend — rotation requires a currently-valid token");
         resp.EnsureSuccessStatusCode();
 
         var envelope = await resp.Content.ReadFromJsonAsync<ApiEnvelope<TokenRotationResponseDto>>(Json, ct)
@@ -960,7 +996,7 @@ public sealed class HttpPrintShopBackend : IPrintShopBackend, IDisposable
         using var resp = await _http.SendAsync(req, ct);
         await EnsureNotDisabledAsync(resp, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Device token rejected by backend");
+            throw new DeviceTokenRejectedException("Device token rejected by backend");
         // 404 = job not found or not in this shop (tenant isolation)
         // 409 = job already in terminal state (completed/cancelled)
         resp.EnsureSuccessStatusCode();

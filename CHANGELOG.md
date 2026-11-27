@@ -1,5 +1,56 @@
 # PrintShop Companion — Changelog
 
+## v0.7.18 — 2026-11-27 — Startup-crash fix + credential self-heal ("sync always")
+
+Field-log driven release: a v0.0.240 dev build crashed ON STARTUP, and a
+v0.7.14 production install with a revoked device token produced an endless
+401 loop (heartbeat 15s + command poll 3s + Socket.IO token exchange, all
+rejected, none stopping).
+
+### Fixed
+- **Startup crash** (`ResourceReferenceKeyNotFoundException: 'NavItem'
+  resource not found` → `InvalidCastException: Unable to cast object of type
+  'MS.Internal.NamedObject' to type 'System.Windows.Style'`): the v0.7.15
+  UI revamp renamed the sidebar styles to `NavRailItem`/`NavRailItemActive`
+  in XAML but missed the code-behind — `MainWindow.OnViewChanged` (which
+  runs from the constructor) still looked up the removed keys. Fixed to use
+  the real keys with a safe `TryFindResource … is Style` lookup: a missing
+  or non-style resource keeps the XAML-assigned style instead of crashing
+  the constructor.
+- **Endless 401 loop**: a device token rejected by the backend (revoked,
+  expired, or the backend DB reset) can never succeed on retry, yet every
+  timer kept firing. Device-authed 401 responses now throw the typed
+  `DeviceTokenRejectedException` (still an `InvalidOperationException`, so
+  existing catches keep working) and the app trips a circuit breaker:
+  heartbeat + command-poll timers stop, the dead credential is cleared
+  (which also silences the Socket.IO HTTP-fallback poller via its
+  `IsAuthenticated` guard), and the app returns to the pairing state.
+  403 `DEVICE_DISABLED` stops polling too, but deliberately KEEPS the
+  credential — an admin suspension is reversible by re-enabling.
+
+### Added
+- **Automatic re-pairing ("sync always")**: when the saved device token is
+  rejected (confirmed 401 — never on network failure, never on an admin
+  disable) AND the shopkeeper session is valid, the agent re-pairs itself:
+  disables this machine's stale offline device row (free-tier shops allow
+  ONE enabled device; a dead-but-enabled row would block re-registration
+  with `ENTITLEMENT_REQUIRED`), registers a fresh token via the
+  shopkeeper-authed `POST /api/v1/agents/register`, and validates + persists
+  it through the production pairing path (heartbeat validation + DPAPI
+  atomic persist). New `IShopBackend.SetDeviceEnabledAsync`
+  (PATCH `/api/v1/shops/me/devices/{id}` with `{isEnabled}`).
+- **Session-only sign-in honesty**: when the shopkeeper session works but
+  no device token does, the app enters the Overview (shop data syncs over
+  the shopkeeper JWT) but starts NO device-token cloud services — previously
+  it started everything and 401-spammed the backend. Heartbeat/command-poll/
+  Socket.IO now start only when a validated device token exists.
+- Integration tests (`SelfHealContractTests`): typed rejection classifies
+  true through the wrapper; network failures and
+  `DeviceDisabledException` classify false; the restore flag stays false
+  when nothing was saved; the full self-heal wire flow (login → list →
+  disable stale row → register → pair-validate) runs against a fake
+  speaking the production contract shapes.
+
 ## v0.7.17 — 2026-11-26 — Open-source research integration (4 adapted techniques)
 
 A full research pass over nine open-source printing projects (QZ Tray,

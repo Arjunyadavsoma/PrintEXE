@@ -251,20 +251,31 @@ public partial class App : Application
                     // Restore credentials — try BOTH paths:
                     //   1. The v0.4.7+ device-token flow (HttpPrintShopBackend.RestoreAsync)
                     //   2. The legacy shopkeeper session flow (HttpShopBackend.RestoreSession)
-                    // The app STAYS on the Login screen (with a status line) until one
-                    // of them succeeds; background services start only after that.
-                    bool restored = false;
+                    //   3. (v0.7.18) Self-heal: if the shopkeeper session is valid but
+                    //      the device token was REJECTED by the backend (401 — dead,
+                    //      not merely unreachable), re-pair automatically with the
+                    //      session's authority: free this machine's stale device slot,
+                    //      register a fresh token, validate + persist it.
+                    //
+                    // Two independent flags — the endless-401 lesson: a valid
+                    // shopkeeper session does NOT make the device token valid, and
+                    // starting the device-token cloud services (heartbeat 15s +
+                    // command poll 3s + Socket.IO) with a dead token just spams the
+                    // backend with 401s forever (v0.7.14 field log: 20+ requests in
+                    // 30 seconds). Cloud services start ONLY when devicePaired.
+                    bool devicePaired = false;
+                    bool sessionRestored = false;
+                    var printShopBackend = _host.Services.GetRequiredService<IPrintShopBackend>() as HttpPrintShopBackend;
 
                     // Path 1: device-token restore (the recommended v0.4.7+ flow).
                     if (hasSavedCredentials)
                     {
                         try
                         {
-                            var printShopBackend = _host.Services.GetRequiredService<IPrintShopBackend>() as HttpPrintShopBackend;
                             if (printShopBackend != null)
                             {
-                                restored = await printShopBackend.RestoreAsync();
-                                if (restored)
+                                devicePaired = await printShopBackend.RestoreAsync();
+                                if (devicePaired)
                                 {
                                     Log.Information("Device token restored in background");
                                 }
@@ -278,7 +289,7 @@ public partial class App : Application
 
                     // Path 2: legacy shopkeeper session (kept for backward compat with shops
                     // that haven't set up a print agent yet — they used email+password login).
-                    if (!restored && hasSavedCredentials)
+                    if (!devicePaired && hasSavedCredentials)
                     {
                         try
                         {
@@ -290,7 +301,7 @@ public partial class App : Application
                                 if (shopBackend != null)
                                 {
                                     shopBackend.RestoreSession(creds.Session);
-                                    restored = true;
+                                    sessionRestored = true;
                                     Log.Information("Legacy shopkeeper session restored in background");
                                 }
                             }
@@ -301,7 +312,18 @@ public partial class App : Application
                         }
                     }
 
-                    if (restored)
+                    // Path 3 (v0.7.18): self-heal auto re-pair. ONLY on a confirmed
+                    // 401 rejection — a network outage must never trigger re-pairing
+                    // (it would mint throwaway devices and race the entitlement
+                    // limits). A 403 DEVICE_DISABLED is also excluded inside
+                    // LastRestoreWasAuthRejection: an admin-disable is an explicit
+                    // shopkeeper decision and must not be silently overridden.
+                    if (!devicePaired && sessionRestored && printShopBackend is { LastRestoreWasAuthRejection: true })
+                    {
+                        devicePaired = await TryAutoRepairPairingAsync();
+                    }
+
+                    if (devicePaired)
                     {
                         // Credentials verified — NOW enter the app.
                         Dispatcher.Invoke(() =>
@@ -311,6 +333,26 @@ public partial class App : Application
                             nav.NavigateTo("Overview");
                         });
                         Log.Information("Auto sign-in succeeded — navigated to Overview");
+                    }
+                    else if (sessionRestored)
+                    {
+                        // v0.7.18: the shopkeeper session is valid, but there is NO
+                        // working device token (restore failed AND auto re-pair did
+                        // not succeed). Enter the app — shop data still syncs over
+                        // the shopkeeper JWT — but do NOT start the device-token
+                        // cloud services. This replaces the old behavior of starting
+                        // everything whenever "restored" was true (which treated a
+                        // valid session as a valid device and produced the endless
+                        // 401 loop). The UI stays honest: no live connection until
+                        // the device is paired again.
+                        Dispatcher.Invoke(() =>
+                        {
+                            restoreState.Succeeded();
+                            restoreState.Reset();
+                            nav.NavigateTo("Overview");
+                        });
+                        Log.Warning(
+                            "Auto sign-in succeeded, but the device is NOT paired — heartbeat/command-poll/Socket.IO stay stopped until re-pairing. Pair this PC from the web dashboard's Printer Setup page.");
                     }
                     else
                     {
@@ -323,12 +365,12 @@ public partial class App : Application
                         return; // no credentials → do NOT start background services
                     }
 
-                    // Start background services — pass the shared token so they
-                    // all stop together on shutdown. ONLY after credentials are
-                    // verified: the previous code started the sync/print pipeline
-                    // unconditionally, so a device with a dead token kept firing
-                    // authenticated requests (and showed stale UI activity) before
-                    // the restore verdict was in.
+                    // Start LOCAL background services — pass the shared token so
+                    // they all stop together on shutdown. ONLY after credentials
+                    // are verified: the previous code started the sync/print
+                    // pipeline unconditionally, so a device with a dead token kept
+                    // firing authenticated requests (and showed stale UI activity)
+                    // before the restore verdict was in.
                     var queue = _host.Services.GetRequiredService<IJobQueue>();
                     await queue.ReplayInFlightAsync();
                     _host.Services.GetRequiredService<JobProcessor>().StartAsync(_appCts.Token);
@@ -344,6 +386,16 @@ public partial class App : Application
                     var retention = _host.Services.GetRequiredService<FileRetentionManager>();
                     retention.Start(_appCts.Token);
                     Log.Information("FileRetentionManager started");
+
+                    if (!devicePaired)
+                    {
+                        // v0.7.18: session-only sign-in. The device-token cloud
+                        // connection (Socket.IO + heartbeat + command poll) requires
+                        // a valid device token — starting it here is exactly the
+                        // endless-401 bug. Local print queue + shopkeeper-JWT sync
+                        // keep working; the user re-pairs from the dashboard.
+                        return;
+                    }
 
                     // v1 contract §3 + §6 — start the realtime client (Socket.IO), the
                     // command poller (REST fallback + immediate on device.command.issued),
@@ -587,6 +639,15 @@ public partial class App : Application
                 async _ =>
                 {
                     try { await backend.HeartbeatAsync(_appCts.Token); }
+                    catch (OperationCanceledException) { }
+                    // v0.7.18 circuit breaker: a 401 mid-session (token revoked /
+                    // DB reset) can NEVER succeed on retry. Previously this was a
+                    // generic catch-and-debug-log, so the timer kept firing every
+                    // 15s forever — the field log showed 401 spam every few
+                    // seconds. Trip the breaker: stop timers, clear credential,
+                    // return to the pairing state.
+                    catch (DeviceTokenRejectedException ex) { HandleDeviceCredentialRejected(ex, "heartbeat"); }
+                    catch (DeviceDisabledException ex) { HandleDeviceDisabled(ex, "heartbeat"); }
                     catch (Exception ex) { Log.Debug(ex, "Heartbeat tick failed (will retry)"); }
                 },
                 null,
@@ -604,6 +665,8 @@ public partial class App : Application
                 {
                     try { await poller.TickOnceAsync(_appCts.Token); }
                     catch (OperationCanceledException) { }
+                    catch (DeviceTokenRejectedException ex) { HandleDeviceCredentialRejected(ex, "command poll"); }
+                    catch (DeviceDisabledException ex) { HandleDeviceDisabled(ex, "command poll"); }
                     catch (Exception ex) { Log.Debug(ex, "Command poll tick failed (will retry)"); }
                 },
                 null,
@@ -653,6 +716,186 @@ public partial class App : Application
         {
             Log.Warning(ex, "Credential rotation failed (non-fatal — the previous token remains valid; rotation retries on next launch)");
         }
+    }
+
+    // ── v0.7.18: device-credential self-heal + circuit breaker ───────────
+
+    /// <summary>
+    /// Idempotency guard for the rejection handlers — the heartbeat (15s) and
+    /// command-poll (3s) timers can both trip in the same second; the breaker
+    /// must fire once, not once per tick.
+    /// </summary>
+    private int _credentialRejectionHandled;
+
+    /// <summary>
+    /// v0.7.18 self-heal ("sync always"): the saved device token was rejected
+    /// by the backend (confirmed 401 — <see cref="HttpPrintShopBackend.LastRestoreWasAuthRejection"/>),
+    /// but the shopkeeper session is valid. Re-pair automatically instead of
+    /// leaving the device dead and spamming 401s:
+    ///   1. Disable this machine's stale device row(s) via the shopkeeper
+    ///      session — free-tier shops are limited to ONE enabled device, and
+    ///      a dead-but-enabled row makes agents/register fail with
+    ///      ENTITLEMENT_REQUIRED. Only offline rows are touched: a row that
+    ///      is actively heartbeating belongs to a healthy device (possibly a
+    ///      different PC with the same hostname) and is left alone.
+    ///   2. Register a fresh device token (POST /api/v1/agents/register,
+    ///      shopkeeper JWT).
+    ///   3. Validate + persist it through the production pairing path
+    ///      (<see cref="HttpPrintShopBackend.PairWithDeviceTokenAsync"/> —
+    ///      heartbeat validation + DPAPI atomic persist).
+    /// Any failure leaves the device cleanly UNPAIRED (the caller then skips
+    /// the cloud services) — never a half-paired state.
+    /// </summary>
+    private async Task<bool> TryAutoRepairPairingAsync()
+    {
+        if (_appCts is { IsCancellationRequested: true }) return false;
+        try
+        {
+            var shopBackend = _host?.Services.GetService<IShopBackend>() as HttpShopBackend;
+            if (shopBackend is null || !shopBackend.IsAuthenticated)
+            {
+                Log.Information("Auto re-pair skipped: no valid shopkeeper session");
+                return false;
+            }
+            if (_host?.Services.GetService<IPrintShopBackend>() is not HttpPrintShopBackend printBackend)
+            {
+                return false;
+            }
+
+            Log.Warning("Device token was rejected by the backend — attempting automatic re-pairing with the shopkeeper session");
+
+            // 1. Free the device slot: disable THIS machine's stale rows.
+            try
+            {
+                var devices = await shopBackend.ListDevicesAsync();
+                foreach (var stale in devices)
+                {
+                    if (!string.Equals(stale.Name, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (stale.IsOnline)
+                    {
+                        Log.Information(
+                            "Auto re-pair: device row {DeviceId} reports online — leaving it alone (belongs to a healthy device)",
+                            stale.DeviceId);
+                        continue;
+                    }
+                    if (stale.DeviceId is not { Length: > 0 })
+                        continue;
+                    Log.Information("Auto re-pair: disabling stale offline row {DeviceId} ({Name}) to free the device slot",
+                        stale.DeviceId, stale.Name);
+                    try { await shopBackend.SetDeviceEnabledAsync(stale.DeviceId, isEnabled: false); }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Auto re-pair: could not disable stale row {DeviceId} — registration may fail with ENTITLEMENT_REQUIRED", stale.DeviceId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Auto re-pair: device list fetch failed (continuing — registration may still succeed)");
+            }
+
+            // 2. Mint a fresh device token with the shopkeeper session.
+            var token = await shopBackend.RegisterDeviceAsync(
+                Environment.MachineName,
+                os: "win32",
+                version: AppVersion.Short);
+            Log.Information("Auto re-pair: new device token minted (agent={AgentId})", token.AgentId);
+
+            // 3. Validate against the backend + DPAPI-persist (production path).
+            await printBackend.PairWithDeviceTokenAsync(token.Token);
+            Log.Information("Auto re-pair succeeded — device re-paired and validated");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex,
+                "Auto re-pair failed — the device stays unpaired. Pair this PC again from the web dashboard's Printer Setup page (generate a pairing code or paste a new device token).");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// v0.7.18 circuit breaker for 401 rejections DURING a running session
+    /// (revoked token, backend DB reset, rotated-away credential). The old
+    /// behavior — debug-log and retry forever — produced the endless 401
+    /// loop. Now: stop the timers, clear the dead credential (which also
+    /// silences the Socket.IO HTTP fallback poller via its IsAuthenticated
+    /// guard and SyncEngine's device-token paths), and return to the pairing
+    /// state on the UI thread.
+    /// </summary>
+    private void HandleDeviceCredentialRejected(Exception ex, string source)
+    {
+        if (System.Threading.Interlocked.Exchange(ref _credentialRejectionHandled, 1) == 1) return;
+        Log.Warning(ex,
+            "Device credential REJECTED by backend ({Source}) — circuit breaker: stopping heartbeat + command poll, clearing credential, returning to pairing state",
+            source);
+
+        DisposeCloudTimers();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var backend = _host?.Services.GetService<IPrintShopBackend>();
+                if (backend is not null) await backend.RevokeDeviceAsync();
+                Log.Information("Rejected device credential cleared from local storage");
+            }
+            catch (Exception e) { Log.Warning(e, "Failed to clear rejected credential (non-fatal)"); }
+
+            try
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        var nav = _host?.Services.GetService<INavigationService>();
+                        nav?.NavigateTo("Login");
+                    }
+                    catch (Exception e) { Log.Warning(e, "Navigation to Login after credential rejection failed"); }
+                });
+            }
+            catch { /* shutting down */ }
+        });
+    }
+
+    /// <summary>
+    /// v0.7.18 circuit breaker for 403 DEVICE_DISABLED mid-session: the
+    /// shopkeeper (or admin) suspended this PC from the dashboard. Per the
+    /// v1 contract the credential is KEPT (re-enabling restores the device)
+    /// but all polling stops — no 403 spam. The Login screen explains why.
+    /// </summary>
+    private void HandleDeviceDisabled(DeviceDisabledException ex, string source)
+    {
+        if (System.Threading.Interlocked.Exchange(ref _credentialRejectionHandled, 1) == 1) return;
+        Log.Warning(ex,
+            "Device DISABLED by the shop administrator ({Source}) — stopping heartbeat + command poll. The credential is kept; ask the shopkeeper to re-enable this device from /shop/devices.",
+            source);
+
+        DisposeCloudTimers();
+
+        try
+        {
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    var nav = _host?.Services.GetService<INavigationService>();
+                    nav?.NavigateTo("Login");
+                }
+                catch (Exception e) { Log.Warning(e, "Navigation to Login after device-disable failed"); }
+            });
+        }
+        catch { /* shutting down */ }
+    }
+
+    /// <summary>v0.7.18: shared timer disposal for the circuit breaker + OnExit.</summary>
+    private void DisposeCloudTimers()
+    {
+        try { _heartbeatTimer?.Dispose(); } catch { }
+        _heartbeatTimer = null;
+        try { _commandPollTimer?.Dispose(); } catch { }
+        _commandPollTimer = null;
     }
 
     protected override void OnExit(ExitEventArgs e)

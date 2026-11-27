@@ -78,6 +78,16 @@ public interface IShopBackend
     /// <summary>GET /api/v1/shops/me/agents — lists all devices for this shop.</summary>
     Task<IReadOnlyList<DeviceRegistration>> ListDevicesAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// PATCH /api/v1/shops/me/devices/{deviceId} — enable or disable a device.
+    /// v0.7.18 self-heal: free-tier shops are limited to ONE enabled device;
+    /// when the stored token is dead-but-enabled, the stale row would block
+    /// re-registration with ENTITLEMENT_REQUIRED. Disabling it (shopkeeper
+    /// session = owner authority) frees the slot. The backend also accepts a
+    /// rename via the same route — not needed here.
+    /// </summary>
+    Task SetDeviceEnabledAsync(string deviceId, bool isEnabled, CancellationToken ct = default);
+
     /// <summary>Sign out — clears the in-memory session. The persisted credentials file is NOT deleted (the shopkeeper may re-login).</summary>
     Task SignOutAsync(CancellationToken ct = default);
 }
