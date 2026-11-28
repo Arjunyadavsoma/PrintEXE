@@ -1,5 +1,23 @@
 # HONEST STATUS — Read This First
 
+> **⚠ PHASE 8 UPDATE 2026-11-28** (Windows validation — pipeline GREEN):
+> The full pipeline ran GREEN on GitHub's hosted Windows runner, twice
+> (runs 46122065378 and 46122718334, commits e355025 + 3d556ad): build,
+> both-TFM tests (0 failed; windows leg executes the DPAPI/SQLCipher/DI
+> tests that skip on Linux), publish, output validation, startup
+> verification, UI automation probe (REAL login interaction: typing,
+> password toggle, mirror check, screenshot artifact), fatal-path
+> fail-closed (malformed config -> exit!=0 + FTL), ZIP+SHA-256 packaging.
+> Key discoveries, honestly recorded: (1) the hosted runner session never
+> completes a WPF render pass, so MainWindow.Loaded cannot fire there — the
+> app now reports RENDER-UNVERIFIED and the REQUIRED UIA probe verifies real
+> UI interaction instead (liveness alone can never pass); (2) corrupt
+> queue.db does NOT fail startup BY DESIGN (lazy open + degrade-and-heal);
+> (3) KNOWN ISSUE F-1 (MEDIUM): JobProcessor.RunAsync retries forever on a
+> corrupt DB with no heal/surfacing — fix before stable release; (4) MSI
+> build needs a dispatch-capable token or an authorized tag (PAT lacks
+> actions:write; build-msi input ready). NO tag, NO release created.
+
 > **⚠ PHASE 7 UPDATE 2026-11-27** (production-grade CI + startup verification):
 > (1) **The v0.7.19 "fix" was wrong and the second startup-crash layer was STILL
 > LIVE in HEAD.** The v0.7.19 commit message claimed PasswordBox derives from
