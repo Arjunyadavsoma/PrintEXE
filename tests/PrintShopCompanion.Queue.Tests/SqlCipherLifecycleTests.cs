@@ -106,7 +106,10 @@ public class SqlCipherLifecycleTests : IDisposable
 
     private static async Task<string> IntegrityCheckAsync(string dbPath, string password)
     {
-        await using var conn = new SqliteConnection($"Data Source={dbPath};Password={password};Pooling=false");
+        // Builder-built: the raw-key Password value contains single quotes a
+        // hand-built connection string cannot carry (run 46158534088 SQL10).
+        var b = new SqliteConnectionStringBuilder { DataSource = dbPath, Password = password, Pooling = false };
+        await using var conn = new SqliteConnection(b.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "PRAGMA integrity_check;";
@@ -258,8 +261,10 @@ public class SqlCipherLifecycleTests : IDisposable
 
         // Demand the production encrypted path over the SAME file.
         var encryptedQueue = NewEncryptedQueue();
-        var jobsAfter = await encryptedQueue.ListAsync();   // quarantine + fresh encrypted DB, NO throw
+        var jobsAfterQuarantine = await encryptedQueue.ListAsync();   // fresh DB: empty
         await encryptedQueue.EnqueueAsync(MakeJob("job-plain-002", "Fresh encrypted DB works"));
+        var jobsAfter = await encryptedQueue.ListAsync();
+        Assert.Empty(jobsAfterQuarantine);
         SqliteConnection.ClearAllPools();
 
         // The plaintext file was QUARANTINED byte-identical (preserved as
@@ -302,7 +307,8 @@ public class SqlCipherLifecycleTests : IDisposable
 
         var ks = NewKeyStore();
         var password = ks.GetKeyForConnectionString();
-        await using (var conn = new SqliteConnection($"Data Source={DbPath};Password={password};Pooling=false"))
+        var b2 = new SqliteConnectionStringBuilder { DataSource = DbPath, Password = password, Pooling = false };
+        await using (var conn = new SqliteConnection(b2.ConnectionString))
         {
             await conn.OpenAsync();
             await using (var wal = conn.CreateCommand())

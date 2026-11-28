@@ -406,7 +406,11 @@ if (-not $queueHarnessReady) {
 function Invoke-QueueHarness {
     param([string]$Command, [string[]]$HarnessArgs = @(), [string]$OutFile = '')
     if (-not $queueHarnessReady) { return @{ Exit = 3; Output = 'BLOCKED: harness not built' } }
-    $out = & $queueHarnessExe $Command '--data-root' $dataRoot @HarnessArgs | Out-String
+    # Capture BOTH streams: HARNESS-ERROR diagnostics go to stderr (run
+    # 46157255871 evidence: an exit-2 failure produced empty stdout and the
+    # cause was invisible). Bounded single attempt; the wrapper never retries
+    # silently.
+    $out = & $queueHarnessExe $Command '--data-root' $dataRoot @HarnessArgs 2>&1 | Out-String
     $exit = $LASTEXITCODE
     if ($OutFile) { Set-Content -Path $OutFile -Value $out -Encoding UTF8 }
     return @{ Exit = $exit; Output = $out }
@@ -602,6 +606,11 @@ try {
     # (no secrets - only SHA-256 fingerprints) feeds Stage 5 upgrade verify.
     $qSeedVerdict = '<not run>'
     if ($queueHarnessReady) {
+        # A lingering tray-app instance from LAUNCH1b holds a pooled SQLite
+        # handle on queue.db and blocks the harness (run 46157255871). This
+        # is an ephemeral CI runner - no user apps to disturb.
+        Get-Process PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
         $qh = Invoke-QueueHarness -Command 'seed' -HarnessArgs @('--pending', '1', '--completed', '1', '--pdfs-dir', 'x') -OutFile $qSnapshot
         if ($qh.Exit -eq 0) {
             $qSeedVerdict = "REAL encrypted queue DB created via the app's own EnqueueAsync: " +
@@ -715,6 +724,8 @@ try {
         $metrics['app_working_set_after_upgrade_mb'] = $m.WorkingSetMb
         if (-not $m.ProcessAlive) { throw "upgraded app did NOT stay alive: $($m.Shutdown)" }
         if (-not $queueHarnessReady) { throw 'pre-upgrade snapshot exists but the harness vanished - evidence chain broken' }
+        Get-Process PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
         $qv = Invoke-QueueHarness -Command 'verify' -HarnessArgs @('--expected', $qSnapshot) -OutFile $qVerify
         if ($qv.Exit -ne 0) {
             $failList = ''
