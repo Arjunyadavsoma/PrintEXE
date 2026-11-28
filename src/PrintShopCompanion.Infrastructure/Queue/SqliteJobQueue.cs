@@ -239,12 +239,25 @@ using PrintShopCompanion.Infrastructure.Storage;
     {
         if (Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {
-            await EnsureDiskSpaceAsync(ct);
+            try
+            {
+                await EnsureDiskSpaceAsync(ct);
 
-            // v0.5.3: migrate from v0.4.7 if needed (before creating the schema).
-            await MigrateFromV047Async(ct);
+                // v0.5.3: migrate from v0.4.7 if needed (before creating the schema).
+                await MigrateFromV047Async(ct);
 
-            await EnsureSchemaOrRecoverAsync(ct);
+                await EnsureSchemaOrRecoverAsync(ct);
+            }
+            catch
+            {
+                // Phase 9 (Windows CI evidence): a transient failure during
+                // initialization (e.g. BUSY while another process holds a write
+                // lock) must NOT brick the queue — reset the flag so the NEXT
+                // open retries schema creation instead of serving a database
+                // with no tables ("no such table" forever until restart).
+                Interlocked.Exchange(ref _initialized, 0);
+                throw;
+            }
         }
 
         // Phase 0 audit: WAL + busy_timeout + synchronous=NORMAL (see
@@ -411,7 +424,21 @@ using PrintShopCompanion.Infrastructure.Storage;
     {
         if (_layout.IsMigrationComplete()) return;
 
-        var backupPath = _layout.PrepareQueueMigration();
+        string? backupPath;
+        try
+        {
+            backupPath = _layout.PrepareQueueMigration();
+        }
+        catch (Exception pex)
+        {
+            // Phase 9 (Windows CI evidence): preparing the migration backup can
+            // FAIL on a shared machine (the legacy file or an existing .bak is
+            // held open by another instance). Migration is best-effort by
+            // design — the app MUST still start; the legacy file is preserved
+            // untouched and a fresh encrypted queue is created. Never fatal.
+            _logger.LogError(pex, "v0.4.7 migration preparation failed — continuing with a fresh queue; legacy file preserved for manual recovery");
+            return;
+        }
         if (backupPath is null) return;  // no migration needed
 
         _logger.LogInformation("Starting v0.4.7 → v0.5 migration: backing up old queue.db to {Backup}", backupPath);
@@ -604,6 +631,12 @@ using PrintShopCompanion.Infrastructure.Storage;
         // halts with a classified error.
         if (_recovery.RecoveryCount >= 3)
         {
+            // Drop pooled handles BEFORE returning: the failed connection from
+            // the caller's open attempt is pooled-open on the corrupt file, and
+            // on Windows that handle blocks any subsequent read of the file
+            // (sharing violation) — including diagnostics that want to inspect
+            // the preserved evidence.
+            SqliteConnection.ClearAllPools();
             _recovery.MarkStorageFailing();
             AppendRecoveryJournal(new RecoveryJournalEntry(
                 DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
