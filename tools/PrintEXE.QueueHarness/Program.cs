@@ -29,26 +29,43 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
-        try
+        // Transient file-lock retry: on an ephemeral runner, Defender's
+        // real-time scan can hold a freshly-created database file for a few
+        // seconds ("being used by another process", run 46160668069). This is
+        // a bounded infrastructure-retry for ONE specific transient message —
+        // never a logic-error retry, and the attempt count is visible.
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            if (args.Length < 2) return Usage();
-            var command = args[0].ToLowerInvariant();
-            var dataRoot = GetArg(args, "--data-root") ?? throw new ArgumentException("--data-root is required");
-
-            return command switch
+            try
             {
-                "seed" => RunSeed(dataRoot, args),
-                "verify" => RunVerify(dataRoot, args),
-                "integrity" => RunIntegrity(dataRoot),
-                _ => Usage(),
-            };
+                if (args.Length < 2) return Usage();
+                var command = args[0].ToLowerInvariant();
+                var dataRoot = GetArg(args, "--data-root") ?? throw new ArgumentException("--data-root is required");
+
+                return command switch
+                {
+                    "seed" => RunSeed(dataRoot, args),
+                    "verify" => RunVerify(dataRoot, args),
+                    "integrity" => RunIntegrity(dataRoot),
+                    _ => Usage(),
+                };
+            }
+            catch (IOException ioEx) when (
+                ioEx.Message.Contains("being used by another process", StringComparison.OrdinalIgnoreCase)
+                && attempt < maxAttempts)
+            {
+                Console.Error.WriteLine($"HARNESS-RETRY: transient file lock (attempt {attempt}/{maxAttempts}), waiting 4 s");
+                Thread.Sleep(4000);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("HARNESS-ERROR: " + ex.GetType().Name + ": " +
+                    Truncate(ex.Message, 400));
+                return 2;
+            }
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine("HARNESS-ERROR: " + ex.GetType().Name + ": " +
-                Truncate(ex.Message, 400));
-            return 2;
-        }
+        return 2;
     }
 
     private static int Usage()
