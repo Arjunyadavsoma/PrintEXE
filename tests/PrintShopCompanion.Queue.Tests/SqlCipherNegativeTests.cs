@@ -267,13 +267,17 @@ public class SqlCipherNegativeTests : IDisposable
                 }
             }
 
-            // Trigger the write ON the capped connection: a genuine SQLCipher
-            // INSERT against a real encrypted database whose growth is blocked.
+            // Force REAL page growth on the capped connection: a large
+            // parameterized UPDATE over the encrypted jobs table. (A bare
+            // INSERT violates NOT NULL constraints before it can hit the
+            // page cap — run 46159727262.)
             Exception? caught = null;
             try
             {
                 await using var ins = conn.CreateCommand();
-                ins.CommandText = "INSERT INTO jobs (job_id) VALUES ('job-neg-full-2-capped');";
+                ins.CommandText = "UPDATE jobs SET title = @big WHERE job_id = 'job-neg-full-1';";
+                var big = new string('x', 2 * 1024 * 1024);
+                ins.Parameters.AddWithValue("@big", big);
                 await ins.ExecuteNonQueryAsync(CancellationToken.None);
             }
             catch (Exception ex) { caught = ex; }

@@ -337,15 +337,18 @@ public class SqlCipherLifecycleTests : IDisposable
         await queue.EnqueueAsync(MakeJob("job-enc-008", "Pool test"));
         var jobs = await queue.ListAsync();
         Assert.NotEmpty(jobs);
-
-        // Pooled connections keep the file locked until pools are cleared.
-        Assert.ThrowsAny<IOException>(() => Directory.Delete(_root, recursive: true));
-
         SqliteConnection.ClearAllPools();
+
+        // The security/durability property under test: after pool cleanup the
+        // file is no longer locked and can be safely moved (backup/recovery).
+        // (Whether a pooled handle blocks an unrelated Directory.Delete is
+        // runtime-version dependent — run 46159727262: it did not — so that
+        // incidental behaviour is not asserted.)
         var moved = Path.Combine(_root, "Database", "queue.db.moved-by-test");
         File.Move(DbPath, moved);
         Assert.True(File.Exists(moved));
         File.Move(moved, DbPath);
+        Assert.True(File.Exists(DbPath));
     }
 
     // ── SQL-12: key-file permission checks ──────────────────────────────────
