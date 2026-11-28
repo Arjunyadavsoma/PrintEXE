@@ -101,7 +101,7 @@ jobs:
         run: |
           $ver = "0.9.$env:GITHUB_RUN_NUMBER"
           wix build -arch x64 `
-            -d PublishDir=publish `
+            -d PublishDir="$env:GITHUB_WORKSPACE\publish" `
             -d RepoRoot=$env:GITHUB_WORKSPACE `
             -d BuildVersion=$ver `
             -out "PrintShopCompanion-$ver-x64.msi" `
@@ -117,7 +117,7 @@ jobs:
           # mandatory: GITHUB_RUN_NUMBER is a string ("254" + 1 = "2541").
           $ver = "0.9." + ([int]$env:GITHUB_RUN_NUMBER + 1)
           wix build -arch x64 `
-            -d PublishDir=publish `
+            -d PublishDir="$env:GITHUB_WORKSPACE\publish" `
             -d RepoRoot=$env:GITHUB_WORKSPACE `
             -d BuildVersion=$ver `
             -out "PrintShopCompanion-$ver-x64.msi" `

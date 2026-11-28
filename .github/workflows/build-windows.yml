@@ -866,7 +866,7 @@ jobs:
           if ($version -notmatch '^\d+\.\d+\.\d+$') { $version = "0.9.$env:GITHUB_RUN_NUMBER" }
           Write-Host "MSI ProductVersion = $version"
           wix build -arch x64 `
-            -d PublishDir=publish `
+            -d PublishDir="$env:GITHUB_WORKSPACE\publish" `
             -d RepoRoot=$env:GITHUB_WORKSPACE `
             -d BuildVersion=$version `
             -out "PrintShopCompanion-$version-x64.msi" `
