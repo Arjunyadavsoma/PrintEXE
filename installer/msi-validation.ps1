@@ -61,6 +61,17 @@ $queuedDir  = Join-Path $dataRoot 'Jobs\queued'
 # the roaming logs dir.
 $roamingLogs    = Join-Path $env:AppData 'PrintShop\Companion\logs'
 $ciSmokeResult  = Join-Path $roamingLogs 'ci-smoke-result.txt'
+# Phase 10.3: the queue harness drives the app's REAL production classes
+# (QueueKeyStore/DPAPI + SqliteJobQueue/SQLCipher) to materialize a REAL
+# encrypted queue DB with real jobs and PDFs, and to prove encrypted-data
+# preservation across the MSI upgrade with a machine-readable comparison.
+# Its output contains NO key material - only SHA-256 fingerprints.
+$repoRoot       = Split-Path -Parent $PSScriptRoot
+$queueHarness   = Join-Path $repoRoot 'tools\PrintEXE.QueueHarness'
+$queueHarnessExe= Join-Path $ResultsDir 'QueueHarness\PrintEXE.QueueHarness.exe'
+$qSnapshot      = Join-Path $ResultsDir 'f-pre-upgrade-snapshot.json'
+$qVerify        = Join-Path $ResultsDir 'f-post-upgrade-verify.json'
+$qEncProof      = Join-Path $ResultsDir 'sqlcipher-queue-proof.json'
 $tokenPath  = Join-Path $env:AppData 'PrintEXE\device-token.dat'
 
 New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
@@ -368,6 +379,39 @@ function Get-FootprintMb {
 }
 
 # ---- P0: context ------------------------------------------------------------
+# ---- Phase 10.3: build the queue harness (real-queue evidence tool) -----------
+Write-Step "QH BUILD: publish PrintEXE.QueueHarness (app's real queue classes)"
+$queueHarnessReady = $false
+try {
+    $pub = Start-Process -FilePath 'dotnet' -ArgumentList @(
+        'publish', "`"$queueHarness\PrintEXE.QueueHarness.csproj`"",
+        '-c', 'Release', '-r', 'win-x64', '--self-contained', 'false',
+        '-o', "`"$(Join-Path $ResultsDir 'QueueHarness')`""
+    ) -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$ResultsDir\qh-publish.log" -RedirectStandardError "$ResultsDir\qh-publish-err.log"
+    # Start-Process with dotnet may return before MSBuild finishes on some
+    # hosts if the runtime resolves the apphost; fall back to a bounded wait.
+    $deadline = (Get-Date).AddSeconds(300)
+    while (-not (Test-Path $queueHarnessExe) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+    $queueHarnessReady = Test-Path $queueHarnessExe
+    Write-Host "     QueueHarness ready: $queueHarnessReady (exit=$($pub.ExitCode))"
+} catch {
+    Write-Host "     QueueHarness publish failed: $($_.Exception.Message)"
+}
+if (-not $queueHarnessReady) {
+    Write-Host "     BLOCKED: real-queue scenarios will be classified WITHOUT the harness (documented limitation)"
+}
+
+# Queue harness wrapper: bounded run, JSON captured, never prints secrets.
+# Args are passed as an ARRAY (paths may contain spaces - never string-split).
+function Invoke-QueueHarness {
+    param([string]$Command, [string[]]$HarnessArgs = @(), [string]$OutFile = '')
+    if (-not $queueHarnessReady) { return @{ Exit = 3; Output = 'BLOCKED: harness not built' } }
+    $out = & $queueHarnessExe $Command '--data-root' $dataRoot @HarnessArgs | Out-String
+    $exit = $LASTEXITCODE
+    if ($OutFile) { Set-Content -Path $OutFile -Value $out -Encoding UTF8 }
+    return @{ Exit = $exit; Output = $out }
+}
+
 Write-Step "P0 CONTEXT"
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
             ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -551,7 +595,27 @@ try {
     }
     if (Test-Path $queueDb) { $headerProof = Assert-QueueDbEncrypted }
 
-    Record 'SQLCIPHER' 'First-run SQLCipher validation (provider, DPAPI key, enforcement, restart)' $sqlStatus "provider: cipher_version 4.5.2 (app log); DPAPI key created by run 1 and RETRIEVED after restart by later runs (queue.key ${keySize}B sha=$keySha, content never exported); app log markers: $($startupMarkers -join ' / '); header proof: $headerProof$sqlNote"
+    # STAGE 4 (Phase 10.3): materialize a REAL encrypted queue DB through the
+    # application's own production classes (QueueKeyStore/DPAPI +
+    # SqliteJobQueue/SQLCipher + EnqueueAsync) at the app's real data root.
+    # Real pending AND completed jobs + real PDF payloads; the JSON snapshot
+    # (no secrets - only SHA-256 fingerprints) feeds Stage 5 upgrade verify.
+    $qSeedVerdict = '<not run>'
+    if ($queueHarnessReady) {
+        $qh = Invoke-QueueHarness -Command 'seed' -HarnessArgs @('--pending', '1', '--completed', '1', '--pdfs-dir', 'x') -OutFile $qSnapshot
+        if ($qh.Exit -eq 0) {
+            $qSeedVerdict = "REAL encrypted queue DB created via the app's own EnqueueAsync: " +
+                (($qh.Output -split "`n" | Where-Object { $_ -match 'databaseSizeBytes|databaseHeader16Hex|integrityCheck|jobId|status' } | Select-Object -First 6) -join ' / ')
+            $headerProof = (Get-Content $qEncProof -Raw | ConvertFrom-Json).databaseHeader16Hex
+            if ($headerProof -eq '53514C697465666F726D6174203300') { throw 'REAL queue.db came out PLAIN SQLite - encryption broken' }
+        } elseif ($qh.Exit -eq 3) {
+            $qSeedVerdict = 'BLOCKED: ' + $qh.Output.Trim()
+        } else {
+            throw "QueueHarness seed failed (exit $($qh.Exit)): $($qh.Output)"
+        }
+    }
+
+    Record 'SQLCIPHER' 'First-run SQLCipher validation (provider, DPAPI key, enforcement, restart)' $sqlStatus "provider: cipher_version 4.5.2 (app log); DPAPI key created by run 1 and RETRIEVED after restart by later runs (queue.key ${keySize}B sha=$keySha, content never exported); app log markers: $($startupMarkers -join ' / '); header proof: $headerProof; real-queue materialization: $qSeedVerdict$sqlNote"
     $metrics['snapshot_after_launch_vA'] = Get-AppDataSnapshot
 } catch {
     Record 'SQLCIPHER' 'First-run SQLCipher validation' 'FAILED' $_.Exception.Message
@@ -635,14 +699,30 @@ try {
     $tokSame = $before.TokenSha    -eq $after.TokenSha
     if (-not $keySame) { throw "queue.key CHANGED during upgrade - DPAPI key material must be preserved byte-identical" }
     if (-not $tokSame) { throw "device token CHANGED during upgrade" }
-    if ($null -eq $before.QueueDbSha) {
-        # Phase 10.2: an unpaired headless app never creates queue.db (lazy
-        # creation) - the DB-level checks are then honestly conditional.
-        # The key/token/PDF-level preservation checks below still bind.
+    if ($null -eq $before.QueueDbSha -and -not (Test-Path $qSnapshot)) {
+        # Phase 10.2 fallback: neither the app nor the harness created queue.db
+        # (harness unavailable). The key/token/PDF-level checks still bind.
         $m = Invoke-AppLaunch 'vB-after-upgrade'
         $metrics['app_working_set_after_upgrade_mb'] = $m.WorkingSetMb
         if (-not $m.ProcessAlive) { throw "upgraded app did NOT stay alive: $($m.Shutdown)" }
         Record 'F' 'Upgrade with existing encrypted queue data' 'PARTIALLY VERIFIED' "no queue.db existed pre-upgrade (unpaired headless app - lazy DB creation, documented); preserved across upgrade: queue.key byte-identical, device token byte-identical, queued PDFs ($($before.QueuedPdfCount) -> $($after.QueuedPdfCount)); upgraded app launched and stayed alive; shutdown=$($m.Shutdown); DB-content preservation requires a paired-session run (documented limitation)"
+    } elseif (Test-Path $qSnapshot) {
+        # Phase 10.3 (Stage 5): a REAL encrypted queue DB (real pending AND
+        # printed jobs, real PDFs) was created pre-upgrade by the app's own
+        # classes. Prove preservation with the harness's machine-readable
+        # comparison, then the upgraded app itself still launches.
+        $m = Invoke-AppLaunch 'vB-after-upgrade'
+        $metrics['app_working_set_after_upgrade_mb'] = $m.WorkingSetMb
+        if (-not $m.ProcessAlive) { throw "upgraded app did NOT stay alive: $($m.Shutdown)" }
+        if (-not $queueHarnessReady) { throw 'pre-upgrade snapshot exists but the harness vanished - evidence chain broken' }
+        $qv = Invoke-QueueHarness -Command 'verify' -HarnessArgs @('--expected', $qSnapshot) -OutFile $qVerify
+        if ($qv.Exit -ne 0) {
+            $failList = ''
+            try { $failList = ((Get-Content $qVerify -Raw | ConvertFrom-Json).failures -join ' | ') } catch { $failList = $qv.Output }
+            throw "encrypted-data preservation FAILED: $failList"
+        }
+        $j = Get-Content $qVerify -Raw | ConvertFrom-Json
+        Record 'F' 'Upgrade with existing encrypted queue data' 'VERIFIED' "REAL encrypted queue DB preserved across the MSI upgrade (machine-readable comparison, exit 0): key fingerprint continuity=$($j.keyFingerprintContinuity); still SQLCipher-encrypted=$($j.stillEncrypted); jobs $($j.jobCountBefore) -> $($j.jobCountAfter) (pending stay pending, printed stay printed, no duplicates/loss); PDFs byte-identical; integrity_check=$($j.integrityCheck); upgraded app launch: alive with WS $($m.WorkingSetMb) MB, shutdown=$($m.Shutdown); evidence: f-pre-upgrade-snapshot.json + f-post-upgrade-verify.json"
     } else {
         if (-not (Test-Path $queueDb)) { throw "queue.db present pre-upgrade but MISSING after upgrade" }
         $dbSame = $before.QueueDbSha -eq $after.QueueDbSha

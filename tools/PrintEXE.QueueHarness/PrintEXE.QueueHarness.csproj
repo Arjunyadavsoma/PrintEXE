@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- Framework-dependent deploy: the runner already has the .NET runtime. -->
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same vulnerable-transitive pin as the production projects. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <!-- The SQLCipher native provider must be present in the harness output. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PrintShopCompanion.Core\PrintShopCompanion.Core.csproj" />
+    <ProjectReference Include="..\..\src\PrintShopCompanion.Infrastructure\PrintShopCompanion.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
