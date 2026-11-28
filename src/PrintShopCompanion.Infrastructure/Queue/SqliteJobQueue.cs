@@ -618,6 +618,17 @@ using PrintShopCompanion.Infrastructure.Storage;
 
         string? quarantined = null;
         int? recoverableJobs = null;
+        Exception? qexCapture = null;
+
+        // Phase 9 (Windows CI evidence, run for 2b1dfe5): Microsoft.Data.Sqlite
+        // POOLS connections by connection string, and on Windows an open pool
+        // handle makes File.Move FAIL with a sharing violation — the quarantine
+        // silently failed there, and the recreate below then re-opened the
+        // still-corrupt file (SQLITE_NOTADB). On Linux Move-over-open-handle
+        // succeeds, which is why local tests passed. Drop ALL pooled handles
+        // BEFORE touching the file so the quarantine can actually move it.
+        SqliteConnection.ClearAllPools();
+
         try
         {
             var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
@@ -650,16 +661,28 @@ using PrintShopCompanion.Infrastructure.Storage;
         }
         catch (Exception qex)
         {
+            qexCapture = qex;
             _logger.LogError(qex, "Could not quarantine corrupt DB at {Path}", _dbPath);
         }
 
-        // Phase 9 (test-1 evidence): Microsoft.Data.Sqlite POOLS connections by
-        // connection string. After the rename, a pooled connection can still
-        // hold the OLD file's handle, and the fresh-DB recreation below would
-        // receive that stale connection from the pool and fail with
-        // SQLITE_NOTADB — recovery would never complete. Drop all pooled
-        // connections so every subsequent open creates a genuinely fresh file.
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        // FAIL CLOSED when quarantine failed (Windows: file held by another
+        // process). We must NOT recreate a fresh database over the corrupt
+        // file — that would silently convert the failed database into an
+        // empty queue. Halt instead: original preserved, classified error
+        // surfaces to JobProcessor (which stops processing without retries).
+        if (quarantined is null)
+        {
+            _recovery.MarkDegraded(cls, "quarantine failed — recovery aborted");
+            AppendRecoveryJournal(new RecoveryJournalEntry(
+                DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                cls.ToString(), "quarantine-failed", null, null, "STOPPED",
+                "original file could not be moved (held open or locked?) — recovery aborted, no recreation attempted"));
+            throw new InvalidOperationException(
+                "Queue database recovery ABORTED: the corrupt file could not be quarantined " +
+                "(it may be held open by another process). The original database is preserved " +
+                "untouched and NO fresh database was created. Close other PrintEXE instances and restart.",
+                qexCapture);
+        }
 
         // Journal + state + authoritative guard (interlocks with the
         // pre-check above for races). If it trips now, stop immediately.
