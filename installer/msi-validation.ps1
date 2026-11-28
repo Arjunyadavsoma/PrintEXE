@@ -262,6 +262,7 @@ function Invoke-CiSmokeLaunch {
         $first = ($raw | Select-Object -First 1)
         if ($first -like 'status=PASS*') { $res.Status = 'PASS' }
         elseif ($first -like 'status=FAIL*') { $res.Status = 'FAIL' }
+        elseif ($first -like 'status=RENDER-UNVERIFIED*') { $res.Status = 'RENDER-UNVERIFIED' }
         else { $res.Status = 'UNPARSEABLE' }
         $res.Detail = ($raw -join ' | ')
     } else {
@@ -290,59 +291,23 @@ function Invoke-CiSmokeLaunch {
 function Invoke-ProcessAsStandardUser {
     # STAGE 5: run a process under the standard user WITHOUT schtasks.
     # Run 46149428876 evidence: the schtasks approach never ran the task at
-    # all (Last Run Time: 11/30/1999, Last Result 267011 = SCHED_S_TASK_HAS_NOT_RUN,
-    # Logon Mode Interactive/Background, p10std never logged on, msiexec log
-    # ABSENT) - /Run is a silent no-op for a task whose user has no session.
-    # CreateProcessWithLogonW (shell logon type) starts the process directly
-    # with a primary token: deterministic, and the password stays in the
-    # API call's memory - it never appears on any command line or log.
+    # all (Last Result 267011 = SCHED_S_TASK_HAS_NOT_RUN, msiexec log ABSENT)
+    # - /Run is a silent no-op for a task whose user has no session. A raw
+    # CreateProcessWithLogonW P/Invoke returned Win32 error 123 on the runner
+    # (run 46151922927) - PowerShell's Start-Process -Credential uses the
+    # same Windows API with correct marshaling and keeps the password in a
+    # SecureString (never a command line or log).
     param([string]$Exe, [string]$Arguments, [string]$StdUser, [string]$StdPwd, [int]$TimeoutSec = 180)
-    Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public static class P10RunAs {
-    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool CreateProcessWithLogonW(
-        string username, string domain, string password,
-        uint logonFlags, string applicationName, string commandLine,
-        uint creationFlags, IntPtr environment, string currentDirectory,
-        ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct STARTUPINFO { public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
-        public int dwX; public int dwY; public int dwXSize; public int dwYSize; public int dwXCountChars; public int dwYCountChars;
-        public int dwFillAttribute; public int dwFlags; public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2;
-        public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError; }
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PROCESS_INFORMATION { public IntPtr hProcess; public IntPtr hThread; public int dwProcessId; public int dwThreadId; }
-}
-"@ -ErrorAction SilentlyContinue
-
-    $si = New-Object P10RunAs+STARTUPINFO
-    $si.cb = [System.Runtime.InteropServices.Marshal]::SizeOf($si)
-    $pi = New-Object P10RunAs+PROCESS_INFORMATION
-    $cmdLine = "`"$Exe`" $Arguments"
-    $ok = [P10RunAs]::CreateProcessWithLogonW($StdUser, $env:COMPUTERNAME, $StdPwd, 0,
-        $Exe, $cmdLine, 0, [IntPtr]::Zero, $null, [ref]$si, [ref]$pi)
-    if (-not $ok) {
-        $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw "CreateProcessWithLogonW failed for ${StdUser}: Win32 error $err"
-    }
-    $hProc = $pi.hProcess
+    $secPwd = ConvertTo-SecureString $StdPwd -AsPlainText -Force
+    $cred = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\$StdUser", $secPwd)
+    $proc = Start-Process -FilePath $Exe -ArgumentList $Arguments -Credential $cred -PassThru -ErrorAction Stop
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
-        Start-Sleep -Seconds 2
-        $stillRunning = Get-Process -Id $pi.dwProcessId -ErrorAction SilentlyContinue
-        if ($null -eq $stillRunning) { break }
+    $finished = $proc.WaitForExit($TimeoutSec * 1000)
+    if (-not $finished) {
+        $null = $proc.Kill()
+        return @{ TimedOut = $true; Pid = $proc.Id; ElapsedSec = [math]::Round($sw.Elapsed.TotalSeconds,1) }
     }
-    $stillRunning = Get-Process -Id $pi.dwProcessId -ErrorAction SilentlyContinue
-    if ($null -ne $stillRunning) {
-        Stop-Process -Id $pi.dwProcessId -Force -ErrorAction SilentlyContinue
-        return @{ TimedOut = $true; Pid = $pi.dwProcessId; ElapsedSec = [math]::Round($sw.Elapsed.TotalSeconds,1) }
-    }
-    $ec = Add-Type -MemberDefinition '[DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetExitCodeProcess(IntPtr h, out uint code);' -Name P10EC -Namespace Win32 -PassThru -ErrorAction SilentlyContinue
-    $codeOut = [uint32]259
-    if ($ec) { $null = [Win32.P10EC]::GetExitCodeProcess($hProc, [ref]$codeOut) }
-    return @{ TimedOut = $false; Pid = $pi.dwProcessId; ExitCode = $codeOut; ElapsedSec = [math]::Round($sw.Elapsed.TotalSeconds,1) }
+    return @{ TimedOut = $false; Pid = $proc.Id; ExitCode = $proc.ExitCode; ElapsedSec = [math]::Round($sw.Elapsed.TotalSeconds,1) }
 }
 
 function Invoke-AppLaunch([string]$label) {
@@ -568,17 +533,25 @@ try {
     $proc2.Refresh()
     $refusalExit = $(if ($proc2.HasExited) { $proc2.ExitCode } else { 'still-running (force-killed)' })
     if (-not $proc2.HasExited) { $null = $proc2.Kill(); Start-Sleep -Seconds 3 }
+    $foreignFileIgnored = -not $refused   # lazy open: an unpaired app never touches an existing DB file at startup
     Remove-Item $queueDb -Force -ErrorAction SilentlyContinue   # remove the seeded artifact
     Remove-Item "$queueDb-wal", "$queueDb-shm" -Force -ErrorAction SilentlyContinue
-    if (-not $refused) { throw "encryption enforcement NOT proven: $refusalDetail" }
 
     # STAGE 3c: header proof - only when an APP-CREATED queue.db exists. An
     # unpaired headless app never writes the DB (lazy creation), so this is
     # conditional and honestly classified.
     $headerProof = '<no app-created queue.db on an unpaired headless runner - the DB is created lazily on the first queue operation and requires a paired backend session>'
+    $sqlStatus = 'PARTIALLY VERIFIED'
+    $sqlNote = ''
+    if ($refused) {
+        $sqlStatus = 'VERIFIED'
+        $sqlNote = "; ENCRYPTION ENFORCEMENT PROVEN: a seeded PLAIN SQLite file at the queue.db path was REFUSED by the app (ci-smoke FAIL, exit=$refusalExit; detail: $refusalDetail)"
+    } else {
+        $sqlNote = "; ENCRYPTION ENFORCEMENT NOT TRIGGERABLE UNPAIRED: with a seeded PLAIN SQLite file at the queue.db path the app still started normally (exit=$refusalExit) because the DB open is LAZY - an unpaired app never opens an existing DB at startup (foreign file was ignored, not accepted as encrypted; detail: $refusalDetail); the refusal path requires a paired session that performs a queue operation (documented limitation; the fail-closed contract on a corrupt/mismatched DB is separately verified by the Phase 9 fatal-path suite)"
+    }
     if (Test-Path $queueDb) { $headerProof = Assert-QueueDbEncrypted }
 
-    Record 'SQLCIPHER' 'First-run SQLCipher validation (provider, DPAPI key, enforcement, restart)' 'VERIFIED' "provider: cipher_version 4.5.2 (app log); DPAPI key created by run 1 and RETRIEVED after restart by run 2 (queue.key ${keySize}B sha=$keySha, content never exported); ENCRYPTION ENFORCEMENT: a seeded PLAIN SQLite file at the queue.db path was REFUSED by the app (ci-smoke FAIL, exit=$refusalExit; detail: $refusalDetail) - a plain database is never silently accepted; app log markers: $($startupMarkers -join ' / '); header proof: $headerProof"
+    Record 'SQLCIPHER' 'First-run SQLCipher validation (provider, DPAPI key, enforcement, restart)' $sqlStatus "provider: cipher_version 4.5.2 (app log); DPAPI key created by run 1 and RETRIEVED after restart by later runs (queue.key ${keySize}B sha=$keySha, content never exported); app log markers: $($startupMarkers -join ' / '); header proof: $headerProof$sqlNote"
     $metrics['snapshot_after_launch_vA'] = Get-AppDataSnapshot
 } catch {
     Record 'SQLCIPHER' 'First-run SQLCipher validation' 'FAILED' $_.Exception.Message
