@@ -131,7 +131,8 @@ using PrintShopCompanion.Infrastructure.Storage;
         IOptions<StorageOptions> storage,
         LocalStorageLayout layout,
         QueueKeyStore? keyStore,
-        ILogger<SqliteJobQueue> logger)
+        ILogger<SqliteJobQueue> logger,
+        DatabaseRecoveryState? recoveryState = null)
     {
         // Initialize the SQLCipher native provider BEFORE any connection is opened.
         // Without this call, Microsoft.Data.Sqlite picks the plain e_sqlite3
@@ -206,7 +207,15 @@ using PrintShopCompanion.Infrastructure.Storage;
         _connectionString = builder.ToString();
         _logger = logger;
         _layout = layout;
+        // Phase 9 (F-1 fix): process-wide recovery state (quarantine accounting,
+        // repeat guard, UI/diagnostics exposure). Tests may inject their own.
+        _recovery = recoveryState ?? new DatabaseRecoveryState();
     }
+
+    /// <summary>Phase 9: recovery state for this queue (DI singleton in production).</summary>
+    public DatabaseRecoveryState RecoveryState => _recovery;
+
+    private readonly DatabaseRecoveryState _recovery;
 
     private readonly string _dbPath;
     private readonly bool _isEncrypted;
@@ -301,14 +310,14 @@ using PrintShopCompanion.Infrastructure.Storage;
             var result = (string?)(await integrity.ExecuteScalarAsync(ct));
             if (!string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogError("SQLite integrity_check returned {Result}; quarantining corrupt DB", result);
-                QuarantineCorruptDb();
-                // Re-open the fresh DB.
-                await using var c2 = new SqliteConnection(_connectionString);
-                await c2.OpenAsync(ct);
-                await using var cmd2 = c2.CreateCommand();
-                cmd2.CommandText = InitSql;
-                await cmd2.ExecuteNonQueryAsync(ct);
+                // Phase 9: classified corruption with a documented recovery
+                // policy — quarantine (original file PRESERVED, WAL/SHM sidecars
+                // preserved as evidence), journal, account for jobs, guard
+                // against repeat recovery attempts on a failing volume.
+                _logger.LogError("SQLite integrity_check returned {Result}; classified={Class}; invoking recovery policy",
+                    result, DbFailureClass.Corruption);
+                await QuarantineAndRecreateAsync(DbFailureClass.Corruption,
+                    $"integrity_check returned '{result}'", ct);
                 return;
             }
 
@@ -357,10 +366,32 @@ using PrintShopCompanion.Infrastructure.Storage;
             }
         }
         catch (SqliteException ex) when (ex.Message.Contains("database disk image is malformed", StringComparison.OrdinalIgnoreCase)
-                                       || ex.Message.Contains("file is encrypted", StringComparison.OrdinalIgnoreCase))
+                                       || ex.Message.Contains("file is encrypted", StringComparison.OrdinalIgnoreCase)
+                                       || ex.Message.Contains("file is not a database", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogError(ex, "SQLite database is corrupt or unreadable; quarantining");
-            QuarantineCorruptDb();
+            // Phase 9: classified corruption — same documented recovery policy.
+            // 'file is not a database' (SQLITE_NOTADB, 26) is added: a garbage
+            // or truncated file fails at PRAGMA time (journal_mode/WAL), long
+            // BEFORE integrity_check runs — the corruption-recovery catch MUST
+            // see it (test 1 evidence: without it the queue threw instead of
+            // recovering). Same class for a WRONG SQLCipher KEY (NOTADB on an
+            // encrypted file): the file is quarantined and preserved — never
+            // deleted, never decrypted — and the classified failure surfaces
+            // to JobProcessor (KeyMismatch/Corruption → no retry).
+            _logger.LogError(ex, "SQLite database is corrupt or unreadable (class={Class}); invoking recovery policy",
+                DbErrorClassifier.Classify(ex));
+            await QuarantineAndRecreateAsync(DbErrorClassifier.Classify(ex), ex.Message, ct);
+        }
+        catch (SqliteException ex)
+        {
+            // Phase 9 (Stage 4): other SQLite failures are CLASSIFIED — the
+            // caller (queue operation or JobProcessor) decides retry vs stop
+            // from the exception; recovery only happens for corruption.
+            var cls = DbErrorClassifier.Classify(ex);
+            _recovery.MarkFailure(cls);
+            _logger.LogError(ex, "Queue database open failed — classified={Class}, consecutive={Count}",
+                cls, _recovery.ConsecutiveFailures);
+            throw;
         }
     }
 
@@ -550,19 +581,138 @@ using PrintShopCompanion.Infrastructure.Storage;
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    private void QuarantineCorruptDb()
+    /// <summary>
+    /// Phase 9 (Stage 2): the documented corrupt-database recovery policy.
+    ///
+    /// <para>Steps, in order: (1) quarantine the ORIGINAL file under a
+    /// timestamped sibling name — never deleted, never decrypted; (2) preserve
+    /// the WAL/SHM sidecars under matching names (crash evidence, may hold the
+    /// last committed transactions); (3) attempt a best-effort count of
+    /// recoverable jobs from the quarantined copy (null = unreadable —
+    /// recorded as unknown, never fabricated); (4) journal the recovery to
+    /// <c>Database/recovery-log.jsonl</c>; (5) update the DI-visible recovery
+    /// state; (6) REPEAT GUARD — if recoveries keep failing or the guard has
+    /// tripped, mark the storage failing and THROW (queue processing halts;
+    /// the app never silently converts a failing volume into repeated empty
+    /// queues); (7) recreate a clean, empty database with the schema.</para>
+    /// </summary>
+    private async Task QuarantineAndRecreateAsync(DbFailureClass cls, string reason, CancellationToken ct)
     {
+        // REPEAT GUARD FIRST (Phase 9): once the guard has tripped, this
+        // method must do NOTHING destructive — the original (corrupt) file
+        // stays exactly where it is for manual recovery, and processing
+        // halts with a classified error.
+        if (_recovery.RecoveryCount >= 3)
+        {
+            _recovery.MarkStorageFailing();
+            AppendRecoveryJournal(new RecoveryJournalEntry(
+                DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                cls.ToString(), "repeat-guard-tripped", null, null, "STOPPED",
+                "repeat recovery guard tripped — storage layer failing; operator action required"));
+            throw new InvalidOperationException(
+                "Queue database recovery guard tripped: the storage layer keeps failing. " +
+                "Queue processing is halted to prevent repeated destructive recoveries. " +
+                "The original database is preserved for manual recovery. " +
+                $"Quarantined copies so far: {_recovery.RecoveryCount}, last: {_recovery.LastQuarantinedPath ?? "(none)"}");
+        }
+
+        string? quarantined = null;
+        int? recoverableJobs = null;
         try
         {
             var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-            var corrupt = _dbPath + ".corrupt-" + stamp;
-            if (File.Exists(_dbPath)) File.Move(_dbPath, corrupt, overwrite: true);
-            // Wipe sidecar files too.
-            foreach (var ext in new[] { "-wal", "-shm" })
-                if (File.Exists(_dbPath + ext)) File.Delete(_dbPath + ext);
-            _logger.LogWarning("Quarantined corrupt DB to {Path}; a fresh empty queue will be created", corrupt);
+            quarantined = _dbPath + ".corrupt-" + stamp;
+            if (File.Exists(_dbPath))
+            {
+                File.Move(_dbPath, quarantined, overwrite: true);
+                // PRESERVE the sidecars as evidence (Phase 9: renamed, NOT deleted —
+                // the Phase 8 code deleted -wal/-shm, losing committed transactions).
+                foreach (var ext in new[] { "-wal", "-shm" })
+                    if (File.Exists(_dbPath + ext))
+                        File.Move(_dbPath + ext, quarantined + ext, overwrite: true);
+            }
+
+            // Best-effort job accounting from the QUARANTINED copy. On an
+            // encrypted database this usually fails (that is WHY we are here) —
+            // recorded as unknown. Never delete the copy to read it.
+            try
+            {
+                await using var qc = new SqliteConnection(_connectionString);
+                await qc.OpenAsync(ct);
+                await using var qcmd = qc.CreateCommand();
+                qcmd.CommandText = "SELECT COUNT(*) FROM jobs;";
+                recoverableJobs = Convert.ToInt32(await qcmd.ExecuteScalarAsync(ct));
+            }
+            catch
+            {
+                recoverableJobs = null; // unknown — recorded honestly
+            }
         }
-        catch (Exception ex) { _logger.LogError(ex, "Could not quarantine corrupt DB"); }
+        catch (Exception qex)
+        {
+            _logger.LogError(qex, "Could not quarantine corrupt DB at {Path}", _dbPath);
+        }
+
+        // Phase 9 (test-1 evidence): Microsoft.Data.Sqlite POOLS connections by
+        // connection string. After the rename, a pooled connection can still
+        // hold the OLD file's handle, and the fresh-DB recreation below would
+        // receive that stale connection from the pool and fail with
+        // SQLITE_NOTADB — recovery would never complete. Drop all pooled
+        // connections so every subsequent open creates a genuinely fresh file.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        // Journal + state + authoritative guard (interlocks with the
+        // pre-check above for races). If it trips now, stop immediately.
+        var recorded = _recovery.TryRecordRecovery(
+            cls, quarantined ?? "(quarantine failed)", recoverableJobs, "quarantined-and-recreated", reason);
+        if (!recorded)
+        {
+            _recovery.MarkStorageFailing();
+            AppendRecoveryJournal(new RecoveryJournalEntry(
+                DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                cls.ToString(), "repeat-guard-tripped", quarantined, recoverableJobs, "STOPPED",
+                "repeat recovery guard tripped — storage layer failing; operator action required"));
+            throw new InvalidOperationException(
+                "Queue database recovery guard tripped: the storage layer keeps failing. " +
+                "Queue processing is halted to prevent repeated destructive recoveries. " +
+                "The original database is preserved for manual recovery. " +
+                $"Last quarantine: {quarantined ?? "(none)"}");
+        }
+
+        AppendRecoveryJournal(new RecoveryJournalEntry(
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            cls.ToString(), "quarantine-and-recreate", quarantined, recoverableJobs, "recreated-clean",
+            reason));
+
+        _logger.LogWarning(
+            "Recovery policy applied: corrupt DB quarantined to {Quarantined}, recoverable jobs: {Jobs}; " +
+            "a fresh encrypted queue database is being created. Recovery count this session: {Count}",
+            quarantined ?? "(none)",
+            recoverableJobs?.ToString(CultureInfo.InvariantCulture) ?? "unknown",
+            _recovery.RecoveryCount);
+
+        // Recreate the clean database (same encryption, same key — never weakened).
+        await using var c2 = new SqliteConnection(_connectionString);
+        await c2.OpenAsync(ct);
+        await SqliteConnectionPragmas.ApplyToAsync(c2, ct);
+        await using var cmd2 = c2.CreateCommand();
+        cmd2.CommandText = InitSql;
+        await cmd2.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Append a recovery journal entry (JSONL). No sensitive content by construction.</summary>
+    private void AppendRecoveryJournal(RecoveryJournalEntry entry)
+    {
+        try
+        {
+            var dbDir = Path.GetDirectoryName(_dbPath);
+            if (string.IsNullOrEmpty(dbDir)) return;
+            Directory.CreateDirectory(dbDir);
+            File.AppendAllText(
+                Path.Combine(dbDir, "recovery-log.jsonl"),
+                JsonSerializer.Serialize(entry) + Environment.NewLine);
+        }
+        catch { /* journal is best-effort — never crash recovery */ }
     }
 
     public async Task<PrintJobRecord> EnqueueAsync(PrintJobRecord job, CancellationToken ct = default)

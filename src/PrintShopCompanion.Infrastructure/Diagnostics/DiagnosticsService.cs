@@ -1,11 +1,13 @@
 namespace PrintShopCompanion.Infrastructure.Diagnostics;
 
 using System.IO.Compression;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PrintShopCompanion.Core.Contracts;
 using PrintShopCompanion.Core.Models;
 using PrintShopCompanion.Core.Options;
+using PrintShopCompanion.Infrastructure.Queue;
 using PrintShopCompanion.Infrastructure.Storage;
 
 /// <summary>
@@ -33,6 +35,7 @@ public sealed class DiagnosticsService
     private readonly IPrinterService? _printers;
     private readonly LocalStorageLayout _layout;
     private readonly ILogger<DiagnosticsService> _logger;
+    private readonly DatabaseRecoveryState? _recovery;
 
     public DiagnosticsService(
         IOptionsMonitor<BackendOptions> backendOpts,
@@ -42,7 +45,8 @@ public sealed class DiagnosticsService
         ILogger<DiagnosticsService> logger,
         IQueueDiagnostics? queueStats = null,
         IQueueController? queueController = null,
-        IPrinterService? printers = null)
+        IPrinterService? printers = null,
+        DatabaseRecoveryState? recovery = null)
     {
         _backendOpts = backendOpts;
         _backend = backend;
@@ -52,6 +56,9 @@ public sealed class DiagnosticsService
         _queueStats = queueStats;
         _queueController = queueController;
         _printers = printers;
+        // Phase 9: recovery state is DI-optional so unit tests can construct
+        // this service without a queue; production gets the DI singleton.
+        _recovery = recovery ?? (queue as SqliteJobQueue)?.RecoveryState;
     }
 
     /// <summary>Collect the current health snapshot. Never throws — every check degrades to an error entry.</summary>
@@ -76,6 +83,27 @@ public sealed class DiagnosticsService
             snap.Errors.Add("Cloud heartbeat failed: " + ex.Message);
         }
         snap.BaseUrl = _backendOpts.CurrentValue.BaseUrl;
+
+        // Phase 9 (Stage 6): database recovery observability — health, last
+        // recovery, error classification, retry counts. Never includes key
+        // material, tokens or document contents.
+        if (_recovery is not null)
+        {
+            snap.QueueHealth = _recovery.QueueHealth;
+            snap.RecoveryStatus = _recovery.Status;
+            snap.RecoveryCount = _recovery.RecoveryCount;
+            snap.LastRecoveryUtc = _recovery.LastRecoveryUtc;
+            snap.LastHealthyUtc = _recovery.LastHealthyUtc;
+            snap.LastFailureClass = _recovery.LastFailureClass.ToString();
+            snap.LastQuarantinedPath = _recovery.LastQuarantinedPath;
+            snap.LastRecoverableJobs = _recovery.LastRecoverableJobs;
+            snap.ConsecutiveDbFailures = _recovery.ConsecutiveFailures;
+            snap.RecentRecoveryEvents = _recovery.RecentEntries()
+                .Select(e => $"{e.Utc} [{e.FailureClass}] {e.Action} → {e.Outcome} (recoverable jobs: {e.RecoverableJobs?.ToString() ?? "unknown"})")
+                .ToList();
+            if (_recovery.Status is not RecoveryStatus.Healthy)
+                snap.Errors.Add($"Queue health: {_recovery.QueueHealth} (last failure class: {_recovery.LastFailureClass})");
+        }
 
         // Database health (integrity via the queue's own open path).
         try
@@ -225,6 +253,19 @@ public sealed class DiagnosticsSnapshot
     public DateTimeOffset? LastSuccessfulPrintAt { get; set; }
     public IReadOnlyDictionary<JobStatus, int> QueueCounts { get; set; } = new Dictionary<JobStatus, int>();
     public List<string> Errors { get; set; } = new();
+
+    // ── Phase 9 (Stage 6): database & recovery observability ──
+    /// <summary>healthy / recovered-from-corruption / degraded / storage-failing.</summary>
+    public string? QueueHealth { get; set; }
+    public RecoveryStatus RecoveryStatus { get; set; }
+    public int RecoveryCount { get; set; }
+    public DateTimeOffset? LastRecoveryUtc { get; set; }
+    public DateTimeOffset? LastHealthyUtc { get; set; }
+    public string? LastFailureClass { get; set; }
+    public string? LastQuarantinedPath { get; set; }
+    public int? LastRecoverableJobs { get; set; }
+    public int ConsecutiveDbFailures { get; set; }
+    public List<string> RecentRecoveryEvents { get; set; } = new();
 
     /// <summary>v0.7.17: actionable advice computed from the facts above (technique adapted from PrintHub's GetDiagnosticsAsync — MIT; docs/research/OPEN_SOURCE_FEATURE_EVIDENCE_MATRIX.md G1).</summary>
     public List<string> Recommendations { get; set; } = new();

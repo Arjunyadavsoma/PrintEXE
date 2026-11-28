@@ -1,5 +1,31 @@
 # HONEST STATUS — Read This First
 
+> **PHASE 9 UPDATE 2026-11-28** (F-1 fixed: database reliability, recovery & MSI):
+> (1) **F-1 ELIMINATED.** The unclassified 5-second retry loop is gone.
+> Failures are now CLASSIFIED (Transient / Corruption / KeyMismatch /
+> PermissionDenied / DiskFull / Configuration / Unknown), and the queue loop
+> either backs off exponentially with jitter (2s..300s cap), opens a circuit
+> breaker (probe every 60s, auto-resume), or STOPS permanently — queued jobs
+> are NEVER discarded and processing resumes after restart or recovery.
+> (2) **Corruption recovery policy (documented, tested):** classify →
+> quarantine the original file (timestamped sibling, NEVER deleted, NEVER
+> decrypted) → preserve WAL/SHM sidecars as evidence (the old code DELETED
+> them) → best-effort recoverable-job accounting (recorded as unknown when
+> unreadable — never fabricated) → JSONL recovery journal
+> (Database/recovery-log.jsonl) → DI-visible recovery state → clean recreate
+> with the SAME key. Repeat guard: after 3 recoveries the storage layer is
+> declared failing and recovery STOPS (no repeated destructive attempts).
+> (3) Two real bugs the new tests caught during development: SQLITE_NOTADB
+> (26) now also triggers recovery (it fires at PRAGMA time, before
+> integrity_check), and Microsoft.Data.Sqlite CONNECTION POOLING served
+> stale handles to the fresh-DB recreation after quarantine (ClearAllPools
+> added). (4) Recovery status surfaces in the window title (degraded
+> suffix), DiagnosticsService snapshot + export, and structured logs with
+> correlation IDs. (5) MSI: built + INSTALL-TESTED (silent install → file
+> layout → launch → uninstall → reinstall) on EVERY push to main as an
+> artifact — never a release. Full regression: Queue.Tests 59+23 new passed,
+> Infrastructure 220 passed, Integration 18 passed, 0 failures.
+
 > **⚠ PHASE 8 UPDATE 2026-11-28** (Windows validation — pipeline GREEN):
 > The full pipeline ran GREEN on GitHub's hosted Windows runner, twice
 > (runs 46122065378 and 46122718334, commits e355025 + 3d556ad): build,

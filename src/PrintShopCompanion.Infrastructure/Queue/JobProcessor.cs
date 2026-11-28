@@ -32,6 +32,11 @@ public sealed class JobProcessor : IQueueController
     private readonly SemaphoreSlim _concurrency = new(1, 1);
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
+    // Phase 9 (F-1 fix): classified retry policy + recovery state. The old
+    // loop caught EVERY exception and retried every 5 seconds forever — that
+    // is how a corrupt database produced an unbounded error loop.
+    private readonly QueueRetryPolicy _retryPolicy = new();
+    private readonly DatabaseRecoveryState _recovery;
 
     // Phase F (brief §C) — cooperative pause gate. The gate is a SemaphoreSlim
     // used as a SIGNAL: when paused, the gate has count 0 (waiters block); when
@@ -111,7 +116,8 @@ public sealed class JobProcessor : IQueueController
         IOptions<PrinterOptions> options,
         IOptions<BackendOptions> backendOpts,
         IOptions<StorageOptions> storageOpts,
-        ILogger<JobProcessor> logger)
+        ILogger<JobProcessor> logger,
+        DatabaseRecoveryState? recoveryState = null)
     {
         _queue = queue;
         _backend = backend;
@@ -125,6 +131,8 @@ public sealed class JobProcessor : IQueueController
         _backendOpts = backendOpts;
         _storageOpts = storageOpts;
         _logger = logger;
+        // Phase 9: DI singleton in production; tests may inject their own.
+        _recovery = recoveryState ?? new DatabaseRecoveryState();
     }
 
     public Task StartAsync(CancellationToken ct = default)
@@ -164,6 +172,7 @@ public sealed class JobProcessor : IQueueController
         _logger.LogInformation("JobProcessor loop started");
         while (!ct.IsCancellationRequested)
         {
+            var chainId = _retryPolicy.ChainId;
             try
             {
                 await _concurrency.WaitAsync(ct);
@@ -172,15 +181,97 @@ public sealed class JobProcessor : IQueueController
                     await ProcessOneAsync(ct);
                 }
                 finally { _concurrency.Release(); }
+                _retryPolicy.OnSuccess();
+                _recovery.MarkHealthy();
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "JobProcessor iteration failed; backing off 5s");
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                // Phase 9 (F-1 fix): CLASSIFY, then bounded decision — never an
+                // unclassified 5-second loop. Structure: correlation id for the
+                // whole failure chain, class, consecutive count, explicit reason.
+                var cls = DbErrorClassifier.Classify(ex);
+                var decision = _retryPolicy.OnFailure(cls);
+                _recovery.MarkFailure(cls);
+                using (var _ = _logger.BeginScope(new Dictionary<string, object>
+                       { ["CorrelationId"] = chainId, ["FailureClass"] = cls.ToString() }))
+                {
+                    if (decision.Permanent)
+                    {
+                        // Corruption / key mismatch / permission / configuration:
+                        // retrying can NEVER help and destructive retries are
+                        // forbidden. Halt processing; queued jobs stay on disk;
+                        // the recovery policy (quarantine + recreate) has already
+                        // run for corruption at the storage layer.
+                        _recovery.MarkDegraded(cls, decision.Reason);
+                        _logger.LogCritical(
+                            "Job processing HALTED — permanent failure (class={Class}): {Reason}. " +
+                            "Queued jobs are preserved on disk and will be processed after the issue is fixed and the app restarts. CorrelationId={CorrelationId}",
+                            cls, decision.Reason, chainId);
+                        break;
+                    }
+                    if (decision.BreakerOpen)
+                    {
+                        // Circuit breaker OPEN after repeated infrastructure
+                        // failures (locked/busy/IO/disk). Enter the bounded
+                        // health-probe loop: a cheap SELECT probe every 60s;
+                        // when the underlying problem resolves, resume — jobs
+                        // are never discarded.
+                        _recovery.MarkDegraded(cls, decision.Reason);
+                        _logger.LogCritical(
+                            "Circuit breaker OPEN (class={Class}, consecutive={N}): {Reason}. " +
+                            "Probing every 60s until the database responds; queued jobs preserved. CorrelationId={CorrelationId}",
+                            cls, _retryPolicy.ConsecutiveFailures, decision.Reason, chainId);
+                        await WaitForDatabaseRecoveryAsync(ct);
+                        continue;
+                    }
+                    _logger.LogError(
+                        ex,
+                        "JobProcessor iteration failed (class={Class}, consecutive={N}) — {Reason}. CorrelationId={CorrelationId}",
+                        cls, _retryPolicy.ConsecutiveFailures, decision.Reason, chainId);
+                    await Task.Delay(TimeSpan.FromSeconds(decision.DelaySeconds!.Value), ct);
+                }
             }
         }
-        _logger.LogInformation("JobProcessor loop stopped");
+        _logger.LogInformation("JobProcessor loop stopped (recoveryStatus={Status})", _recovery.QueueHealth);
+    }
+
+    /// <summary>
+    /// Circuit-breaker half-open path: probe the database with a cheap SELECT
+    /// every 60 seconds until it responds, then reset the retry chain and let
+    /// the main loop resume. Probes never touch or modify job data.
+    /// </summary>
+    private async Task WaitForDatabaseRecoveryAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(60), ct);
+            try
+            {
+                if (_queue is SqliteJobQueue sqliteQueue)
+                {
+                    await using var conn = await sqliteQueue.OpenScopedAsync(ct);
+                    await using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "SELECT 1;";
+                    await cmd.ExecuteScalarAsync(ct);
+                }
+                else
+                {
+                    // Non-SQLite IJobQueue (test fakes): probe by a harmless count.
+                    var peek = _queue.DequeueAsync(ct);
+                    await peek.WaitAsync(TimeSpan.FromSeconds(5), ct);
+                }
+                _retryPolicy.OnSuccess();
+                _recovery.MarkHealthy();
+                _logger.LogWarning("Database responded — circuit breaker CLOSED, queue processing resumes");
+                return;
+            }
+            catch (Exception pex)
+            {
+                _logger.LogInformation("Database probe failed (class={Class}) — breaker stays open, probing again in 60s",
+                    DbErrorClassifier.Classify(pex));
+            }
+        }
     }
 
     private async Task ProcessOneAsync(CancellationToken ct)

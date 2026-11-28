@@ -281,6 +281,12 @@ public partial class App : Application
                 StartCiSmokeRenderWatchdog();
             }
 
+            // Phase 9 (Stage 2): expose queue/database recovery status in the
+            // UI — the window title (and therefore the tray tooltip) carries a
+            // degraded-state suffix while the queue is not healthy. Refreshed
+            // every 30s; recovery flips the suffix away automatically.
+            StartQueueHealthTitleWatch(main);
+
             // ALL ASYNC WORK happens AFTER the window is shown.
             // We capture the Task so OnExit can WaitAsync for it before disposing.
             _startupTask = Task.Run(async () =>
@@ -629,6 +635,37 @@ public partial class App : Application
             Dispatcher.BeginInvoke(new Action(() => Shutdown(0)));
         };
         watchdog.Start();
+    }
+
+    private void StartQueueHealthTitleWatch(Window main)
+    {
+        // Phase 9 (Stage 2 requirement: "Expose recovery status to the
+        // application UI"): the window title — and therefore the tray tooltip
+        // — carries a degraded-state suffix while the queue database is not
+        // healthy. A 30s DispatcherTimer refreshes it; when recovery or the
+        // circuit breaker closes, the suffix disappears automatically. This is
+        // diagnostics-only: every failure path is swallowed so the watcher can
+        // never crash the app or block startup.
+        DatabaseRecoveryState? recovery = null;
+        try { recovery = _host?.Services.GetService<DatabaseRecoveryState>(); }
+        catch { /* never block startup on a diagnostics surface */ }
+        if (recovery is null) return;
+
+        const string baseTitle = "PrintShop Companion";
+        var timer = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromSeconds(30) };
+        timer.Tick += (s, e) =>
+        {
+            try
+            {
+                var health = recovery.QueueHealth;
+                main.Title = health == "healthy"
+                    ? baseTitle
+                    : $"{baseTitle} — queue {health} (see diagnostics)";
+            }
+            catch { /* window may be closing */ }
+        };
+        timer.Start();
     }
 
     private void WriteCiSmokeResult(string status, string detail)

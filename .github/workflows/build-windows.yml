@@ -745,14 +745,14 @@ jobs:
           retention-days: 30
 
   msi:
-    name: Build MSI (installer, tag only)
+    name: Build MSI + install smoke (artifact only)
     needs: [build, xaml-audit]
     timeout-minutes: 25
-    # Phase 8 Stage 7: build-msi=true (manual dispatch) builds the MSI as an
-    # uploaded artifact for installer validation WITHOUT any release. Releases
-    # remain gated to tags a human pushed (the release job's condition below
-    # intentionally does NOT include build-msi).
-    if: ${{ github.event.inputs.release-tag != '' || github.event.inputs.build-msi == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+    # Phase 9 Stage 7: the MSI is built and INSTALL-TESTED on EVERY push to
+    # main as an uploaded ARTIFACT - installer validation no longer requires a
+    # tag or dispatch permission. Nothing here ever publishes a release (the
+    # release job below still requires an explicitly pushed tag).
+    if: ${{ github.event_name == 'push' || github.event.inputs.release-tag != '' || github.event.inputs.build-msi == 'true' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -818,6 +818,9 @@ jobs:
           $tag = '${{ github.event.inputs.release-tag || github.ref_name }}'
           $ver = $tag -replace '^v',''
           if ($ver -match '^(\d+\.\d+\.\d+)') { $ver = $Matches[1] }
+          # Phase 9: MSI builds on every main push - 'main' is not a valid
+          # WiX ProductVersion, so fall back to a numeric per-run version.
+          if ($ver -notmatch '^\d+\.\d+\.\d+$') { $ver = "0.9.$env:GITHUB_RUN_NUMBER" }
           Write-Host "BUILD_VERSION = $ver (from '$tag')"
           # v0.7.8 fix: restore explicitly FIRST so a restore problem
           # surfaces with real diagnostics instead of MSB4181, then publish
@@ -856,6 +859,9 @@ jobs:
           # variable). BuildInstaller.bat already passes BuildVersion —
           # match it.
           $version = '${{ github.event.inputs.release-tag || github.ref_name }}' -replace '^v',''
+          if ($version -match '^(\d+\.\d+\.\d+)') { $version = $Matches[1] }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { $version = "0.9.$env:GITHUB_RUN_NUMBER" }
+          Write-Host "MSI ProductVersion = $version"
           wix build -arch x64 `
             -d PublishDir=publish `
             -d RepoRoot=$env:GITHUB_WORKSPACE `
@@ -863,11 +869,72 @@ jobs:
             -out "PrintShopCompanion-$version-x64.msi" `
             installer/PrintShopCompanion.Installer.wxs
 
+      - name: Install smoke (silent install, launch, uninstall, reinstall)
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          # Phase 9 Stage 7: validate the MSI as a REAL installer on the
+          # Windows runner (admin session): silent install, file layout,
+          # start-menu shortcut, executable launch (--version), silent
+          # uninstall, clean removal, and reinstall (repair path).
+          $msi = Get-ChildItem -Path . -Filter 'PrintShopCompanion-*.msi' | Select-Object -First 1
+          if (-not $msi) { Write-Error 'MSI not found for install smoke'; exit 1 }
+          Write-Host "MSI under test: $($msi.Name) ($([math]::Round($msi.Length/1MB,1)) MB)"
+
+          Write-Host '── 1. integrity: Windows Installer can open the package ──'
+          $info = Get-ItemProperty -Path $msi.FullName
+          if (-not $info) { Write-Error 'MSI unreadable'; exit 1 }
+
+          Write-Host '── 2. clean silent install ──'
+          $log1 = "$env:GITHUB_WORKSPACE\install-smoke-install.log"
+          $p = Start-Process msiexec -ArgumentList "/i", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$log1`"" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { Get-Content $log1 -Tail 30; Write-Error "silent install failed with exit $($p.ExitCode)"; exit 1 }
+
+          Write-Host '── 3. installed file layout + registration ──'
+          $installDir = "$env:ProgramFiles\PrintShopCompanion"
+          if (-not (Test-Path $installDir)) {
+            # discover from the installer log
+            $installDir = (Select-String -Path $log1 -Pattern 'INSTALLDIR = (.+)$' |
+              Select-Object -First 1).Matches[0].Groups[1].Value.Trim()
+          }
+          if (-not (Test-Path $installDir)) { Write-Error "install directory not found"; exit 1 }
+          $exe = Join-Path $installDir 'PrintShopCompanion.exe'
+          if (-not (Test-Path $exe)) { Write-Error 'PrintShopCompanion.exe missing after install'; exit 1 }
+          $dllCount = (Get-ChildItem $installDir -Filter '*.dll').Count
+          Write-Host "installed: exe present, $dllCount DLLs, dir=$installDir"
+          if ($dllCount -lt 5) { Write-Error "suspiciously few DLLs ($dllCount) — incomplete install"; exit 1 }
+          $startMenu = Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter '*PrintShop*' -ErrorAction SilentlyContinue
+          Write-Host "start-menu entries: $($startMenu.Count)"
+          $upgradeCode = Select-String -Path $log1 -Pattern 'UPGRADECODE = (.+)$' | Select-Object -First 1
+          Write-Host "registered in Windows Installer: $($null -ne $upgradeCode)"
+
+          Write-Host '── 4. first launch of the INSTALLED exe (--version) ──'
+          $out = & $exe --version 2>&1
+          Write-Host "version output: $out"
+
+          Write-Host '── 5. silent uninstall ──'
+          $code = (Select-String -Path $log1 -Pattern 'ProductCode = ([{].+[}])' |
+            Select-Object -First 1).Matches[0].Groups[1].Value
+          $p2 = Start-Process msiexec -ArgumentList "/x", "`"$code`"", "/qn", "/norestart", "/l*v", "$env:GITHUB_WORKSPACE\install-smoke-uninstall.log" -PassThru -Wait
+          if ($p2.ExitCode -ne 0) { Write-Error "uninstall failed with exit $($p2.ExitCode)"; exit 1 }
+          if (Test-Path $exe) { Write-Error 'exe still present after uninstall'; exit 1 }
+          Write-Host 'uninstall removed the installation cleanly'
+
+          Write-Host '── 6. reinstallation (repair path) ──'
+          $p3 = Start-Process msiexec -ArgumentList "/i", "`"$($msi.FullName)`"", "/qn", "/norestart" -PassThru -Wait
+          if ($p3.ExitCode -ne 0) { Write-Error "reinstall failed with exit $($p3.ExitCode)"; exit 1 }
+          if (-not (Test-Path $exe)) { Write-Error 'exe missing after reinstall'; exit 1 }
+          $p4 = Start-Process msiexec -ArgumentList "/x", "`"$code`"", "/qn", "/norestart" -PassThru -Wait
+          if ($p4.ExitCode -ne 0) { Write-Error "final uninstall failed with exit $($p4.ExitCode)"; exit 1 }
+          Write-Host "[OK] INSTALL SMOKE PASSED: install, layout, launch, uninstall, reinstall all verified"
+
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: PrintShopCompanion-msi
-          path: PrintShopCompanion-*.msi
+          path: |
+            PrintShopCompanion-*.msi
+            install-smoke-*.log
           retention-days: 90
         if: always()
 

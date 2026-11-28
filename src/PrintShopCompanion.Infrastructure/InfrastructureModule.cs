@@ -85,6 +85,10 @@ public static class InfrastructureModule
         // (Socket.IO realtime + heartbeat timer + command poller never started;
         // the server marked the device offline 30s later). Mirrors the
         // JobProcessor/IQueueController pattern below.
+        // Phase 9 (F-1): ONE recovery state shared by the queue, the job
+        // processor, diagnostics and the UI — recovery outcome is visible
+        // everywhere and the repeat guard is process-wide.
+        services.AddSingleton<DatabaseRecoveryState>();
         services.AddSingleton<SqliteJobQueue>();
         services.AddSingleton<IJobQueue>(sp => sp.GetRequiredService<SqliteJobQueue>());
 
