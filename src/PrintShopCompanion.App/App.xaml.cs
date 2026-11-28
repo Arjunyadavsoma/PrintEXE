@@ -1174,14 +1174,46 @@ public partial class App : Application
         try
         {
             var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+                "Microsoft", "Windows", "Start Menu", "Programs", StartupDirSuffix);
             Directory.CreateDirectory(dir);
             var exe = Environment.ProcessPath;
             if (exe == null) return;
-            var script = $"$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"{Path.Combine(dir, "PrintShop Companion.lnk")}\");$s.TargetPath=\"{exe}\";$s.Save()";
-            System.Diagnostics.Process.Start("powershell.exe", $"-NoProfile -Command \"{script}\"")?.WaitForExit(3000);
+            var lnk = Path.Combine(dir, "PrintShop Companion.lnk");
+            CreateShortcutInProcess(lnk, exe);
+            if (File.Exists(lnk)) return;
+            // Phase 10.2 (run 46153782748 evidence): the powershell child
+            // previously got only a 3 s wait - under a cold standard-user
+            // logon token it needs longer, so autostart SILENTLY failed
+            // (lnk created after the caller checked). In-process COM above
+            // is deterministic; the spawned powershell remains as a
+            // fallback with a bounded verification wait.
+            var script = $"$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"{lnk}\");$s.TargetPath=\"{exe}\";$s.Save()";
+            System.Diagnostics.Process.Start("powershell.exe", $"-NoProfile -Command \"{script}\"")?.WaitForExit(15000);
         }
         catch { }
+    }
+
+    private const string StartupDirSuffix = "Startup";
+
+    private static void CreateShortcutInProcess(string lnkPath, string targetExe)
+    {
+        var shellType = Type.GetTypeFromProgID("WScript.Shell");
+        if (shellType == null) return;
+        object shell = Activator.CreateInstance(shellType);
+        try
+        {
+            var shortcut = shellType.InvokeMember("CreateShortcut",
+                System.Reflection.BindingFlags.InvokeMethod, null, shell, new[] { lnkPath });
+            try
+            {
+                shortcut.GetType().InvokeMember("TargetPath",
+                    System.Reflection.BindingFlags.SetProperty, null, shortcut, new[] { targetExe });
+                shortcut.GetType().InvokeMember("Save",
+                    System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
+            }
+            finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(shortcut); }
+        }
+        finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
     }
 
     private static void UnregisterAutoStart()

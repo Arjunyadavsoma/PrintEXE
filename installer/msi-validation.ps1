@@ -833,9 +833,14 @@ try {
     $stdDbDir = Test-Path (Join-Path $stdLocalData 'Database')
 
     $g2b = Invoke-ProcessAsStandardUser -Exe $exePath -Arguments '--register-autostart' -StdUser $stdUser -StdPwd $stdPwd -TimeoutSec 60
-    $lnkCreated = Test-Path $stdStartupLnk
+    # Phase 10.2: the app's autostart registration previously raced (3 s
+    # powershell wait - fixed in-app to in-process COM); poll briefly so the
+    # assertion cannot lose a race that the app no longer has.
+    $lnkCreated = $false
+    for ($i = 0; $i -lt 15; $i++) { if (Test-Path $stdStartupLnk) { $lnkCreated = $true; break } else { Start-Sleep -Seconds 1 } }
     $null = Invoke-ProcessAsStandardUser -Exe $exePath -Arguments '--unregister-autostart' -StdUser $stdUser -StdPwd $stdPwd -TimeoutSec 60
-    $lnkCleaned = -not (Test-Path $stdStartupLnk)
+    $lnkCleaned = $true
+    for ($i = 0; $i -lt 10; $i++) { if (-not (Test-Path $stdStartupLnk)) { $lnkCleaned = $true; break } else { Start-Sleep -Seconds 1; $lnkCleaned = $false } }
 
     $g2Ok = (-not $g2a.TimedOut) -and ($stdSmoke -like '*status=PASS*' -or $stdSmoke -like '*status=RENDER-UNVERIFIED*') -and $stdKey -and $lnkCreated -and $lnkCleaned
     if ($g2Ok) {
