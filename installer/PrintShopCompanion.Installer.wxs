@@ -103,12 +103,33 @@
 
   <Fragment>
     <ComponentGroup Id="AppComponents" Directory="INSTALLDIR">
-      <Component Id="PrintShopCompanion.exe" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D31">
-        <File Id="PrintShopCompanion.exe"
-              Source="$(var.PublishDir)\PrintShopCompanion.exe"
-              KeyPath="yes" Checksum="yes" />
+      <!-- Phase 10 (found by the CI installation matrix, run 46143838268):
+           the MSI previously shipped ONLY the exe/appsettings/manifest/
+           SumatraPDF/worker - the SELF-CONTAINED publish payload (the ~200
+           .NET runtime + dependency DLLs) was never installed, so the
+           installed PrintShopCompanion.exe could not start (host error
+           0x8000808A, zero DLLs in the install dir). The smoke never caught
+           it because Phase 9 installs always died at 1606/1603 BEFORE the
+           launch step.
+
+           Phase 10 design: the <Files> element below (a ComponentGroup-level
+           child in WiX v5; it auto-creates its component) ships the WHOLE
+           publish output recursively - exe, worker, appsettings.json,
+           manifest, all runtime/dependency DLLs. PDBs are deleted from the
+           publish output by CI before the build (WiX v5's Files element has
+           no Exclude attribute). The exe and worker exe therefore have NO
+           explicit <File> elements here - that also avoids duplicate-target
+           errors. -->
+      <Component Id="AppShortcut" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D43" KeyPath="yes">
+        <!-- Registry keypath component for the non-advertised shortcut:
+             the shortcut does not need to live in the exe's file component
+             because its Target is a literal [INSTALLDIR] path. HKMU resolves
+             to HKLM for this per-machine package (ICE-clean). -->
+        <RegistryKey Root="HKMU" Key="Software\PrintShop\Companion">
+          <RegistryValue Type="integer" Name="StartMenuShortcut" Value="1" />
+        </RegistryKey>
         <!-- Phase 10 correction of the Phase 9 note below: the 1606 failure
-             was NOT caused by shortcut advertisement — the non-advertised
+             was NOT caused by shortcut advertisement - the non-advertised
              shortcut still failed with 1606 in the run-12 package. The real
              root cause was the Property/Directory Id collision (see
              docs/PHASE10_ROOT_CAUSE_1606.md). The non-advertised shortcut is
@@ -122,10 +143,7 @@
                    Target="[INSTALLDIR]PrintShopCompanion.exe"
                    Description="Open PrintShop Companion" />
       </Component>
-      <Component Id="AppSettings" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D32">
-        <File Id="AppSettings.json" Source="$(var.PublishDir)\appsettings.json" />
-        <File Id="AppManifest" Source="$(var.PublishDir)\PrintShopCompanion.exe.manifest" />
-      </Component>
+      <Files Include="$(var.PublishDir)\**" />
     </ComponentGroup>
 
     <ComponentGroup Id="RuntimeComponents" Directory="INSTALLDIR">
@@ -173,12 +191,12 @@
     </ComponentGroup>
 
     <ComponentGroup Id="WorkerComponents" Directory="INSTALLDIR">
-      <Component Id="WorkerExe" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D40">
-        <File Id="PrintShopCompanion.Worker.exe"
-              Source="$(var.PublishDir)\PrintShopCompanion.Worker.exe"
-              KeyPath="yes" />
-      </Component>
-      <Component Id="WorkerServiceInstall" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D41">
+      <!-- Phase 10: the worker exe itself ships via the AppComponents <Files>
+           glob (same publish dir, avoids duplicate file targets). This group
+           keeps only the service-registration registry stub. NOTE: the
+           service is still NOT actually installed (no service custom action -
+           pre-existing Phase 0-9 state, documented in the report). -->
+      <Component Id="WorkerServiceInstall" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D41" KeyPath="yes">
         <!-- Service install / uninstall is done via a deferred custom action (omitted here). -->
         <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\PrintShopCompanionWorker">
           <RegistryValue Type="string" Name="ImagePath" Value="[INSTALLDIR]PrintShopCompanion.Worker.exe" />

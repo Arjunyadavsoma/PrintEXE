@@ -119,6 +119,12 @@ function Assert-InstalledLayout([string]$expectVersion) {
     if (-not (Test-Path (Join-Path $installDir 'appsettings.json'))) { throw "appsettings.json missing" }
     $dllCount = (Get-ChildItem $installDir -Filter '*.dll' -ErrorAction SilentlyContinue).Count
     if ($dllCount -lt 5) { throw "suspiciously few DLLs installed ($dllCount)" }
+    # Phase 10 regression (run 46143838268): the MSI once shipped only 5 files
+    # (exe/worker/appsettings/manifest/SumatraPDF) and the installed app could
+    # not start (host error 0x8000808A). The self-contained publish payload
+    # must be present.
+    $fileCount = (Get-ChildItem $installDir -File -ErrorAction SilentlyContinue).Count
+    if ($fileCount -lt 100) { throw "self-contained payload missing: only $fileCount files installed (expected 100+)" }
 
     $prod = Get-InstalledProduct
     if ($null -eq $prod) { throw "product NOT registered in Windows Installer (Add/Remove Programs)" }
@@ -438,9 +444,10 @@ try {
     $cmdInstall = "$env:SystemDrive\p10-std-install.cmd"
     $cmdLaunch  = "$env:SystemDrive\p10-std-launch.cmd"
     # NOT echoing the password anywhere - it exists only in process args of
-    # this ephemeral runner.
-    net user $stdUser $stdPwd /add | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "failed to create standard user $stdUser" }
+    # this ephemeral runner. Capture net's output but only surface it on
+    # failure (net user output never contains the password).
+    $netOut = net user $stdUser $stdPwd /add 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "failed to create standard user ${stdUser}: $($netOut -join ' ')" }
 
     # Ensure the machine is CLEAN before the standard-user attempt: if the
     # same ProductCode were already installed, the refusal could be for the

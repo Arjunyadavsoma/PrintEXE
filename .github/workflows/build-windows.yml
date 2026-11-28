@@ -850,6 +850,9 @@ jobs:
             -p:BUILD_VERSION=$ver `
             --no-restore `
             -o publish
+          # Phase 10: strip PDBs from the publish output - the WiX v5 <Files>
+          # glob ships the WHOLE publish dir and has no Exclude attribute.
+          Get-ChildItem publish -Recurse -Filter '*.pdb' | Remove-Item -Force
 
       - name: Build MSI
         shell: pwsh
