@@ -78,11 +78,19 @@
         <File Id="PrintShopCompanion.exe"
               Source="$(var.PublishDir)\PrintShopCompanion.exe"
               KeyPath="yes" Checksum="yes" />
+        <!-- Phase 9 (CI evidence, MSI run 1603): ADVERTISED shortcuts make
+             Windows Installer resolve the package SOURCE LOCATION during
+             CostFinalize. On machines where the source is not reachable this
+             fails with error 1606 ("Could not access network location
+             PrintShop") -> fatal 1603 — the install smoke caught it on the
+             Windows runner. Non-advertised shortcuts target the installed exe
+             directly: no source resolution, standard for self-contained apps. -->
         <Shortcut Id="StartMenuShortcut"
                    Directory="STARTMENUFOLDER"
                    Name="PrintShop Companion"
                    WorkingDirectory="INSTALLDIR"
-                   Advertise="yes"
+                   Advertise="no"
+                   Target="[INSTALLDIR]PrintShopCompanion.exe"
                    Description="Open PrintShop Companion" />
       </Component>
       <Component Id="AppSettings" Guid="A7F0B7D2-1A7C-4C9E-9B47-7C0F3B6A7D32">
