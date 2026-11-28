@@ -184,12 +184,11 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          # S6: no plaintext secrets in installer logs. Patterns chosen so a
-          # credential, token value or bearer string cannot hide in verbose
-          # logs. (Filenames like device-token.dat are NOT secrets and do not
-          # match these patterns.)
+          # S6: no plaintext secrets in installer logs. Word boundaries so
+          # benign payload names (e.g. Microsoft.Extensions.Configuration.
+          # UserSecrets.dll - run 46145200195 false positive) cannot match.
           $hits = Get-ChildItem -Path "$env:GITHUB_WORKSPACE\msi-validation-evidence" -Filter '*.log' -ErrorAction SilentlyContinue |
-            Select-String -Pattern '(?i)(password\s*=|secret|apikey|api_key|bearer\s|authorization:)' -ErrorAction SilentlyContinue
+            Select-String -Pattern '(?i)(\bpassword\b|\bsecret\b|api[_-]?key\b|bearer\s+[A-Za-z0-9._-]{10,}|authorization:\s*\S+)' -ErrorAction SilentlyContinue
           if ($hits) {
             Write-Host "SECRET-LIKE STRINGS FOUND IN LOGS:"
             $hits | ForEach-Object { Write-Host "$($_.Path):$($_.LineNumber): $($_.Line)" }

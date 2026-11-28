@@ -179,7 +179,11 @@ function Invoke-AppLaunch([string]$label) {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $proc = Start-Process -FilePath $exePath -PassThru
     $dbCreatedSec = $null
-    for ($i = 0; $i -lt 60; $i++) {
+    # Phase 10 run 46145200195 evidence: on a fresh runner the first launch
+    # spends 80+ s in first-run JIT/Security init before the queue DB
+    # appears (queue.key was created right after a 60 s poll gave up) - poll
+    # up to 240 s.
+    for ($i = 0; $i -lt 240; $i++) {
         Start-Sleep -Seconds 1
         if (-not $proc.HasExited -and (Test-Path $queueDb) -and -not $beforeDb) {
             $dbCreatedSec = [math]::Round($sw.Elapsed.TotalSeconds, 1)
@@ -286,8 +290,20 @@ try {
     $m = Invoke-AppLaunch 'vA-first-launch'
     $metrics['first_launch_db_created_sec'] = $m.QueueDbCreatedAfterSec
     $metrics['app_working_set_mb'] = $m.WorkingSetMb
-    if (-not $m.ProcessAlive) { throw "installed app process was NOT alive 20s after launch: $($m.Shutdown)" }
-    if (-not (Test-Path $queueDb)) { throw "queue.db (SQLCipher) NOT created by the installed app" }
+    if (-not $m.ProcessAlive) { throw "installed app process was NOT alive after launch: $($m.Shutdown)" }
+    if (-not (Test-Path $queueDb)) {
+        # S6 diagnostic dump: what did the app actually do? Never prints
+        # secrets (log content is the app's own redacted-by-design output).
+        Write-Host "     DIAGNOSTIC: app data tree:"
+        if (Test-Path $dataRoot) {
+            Get-ChildItem $dataRoot -Recurse -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host ("       " + $_.FullName.Substring($dataRoot.Length) + " " + $_.Length) }
+        } else { Write-Host "       <data root absent>" }
+        Write-Host "     DIAGNOSTIC: app log tail:"
+        if (Test-Path $appLog) { Get-Content $appLog -Tail 40 | ForEach-Object { Write-Host ("       " + $_) } }
+        else { Write-Host "       <app log absent>" }
+        throw "queue.db (SQLCipher) NOT created by the installed app within the poll window"
+    }
     if (-not (Test-Path $queueKey)) { throw "queue.key (DPAPI-protected SQLCipher key) NOT created" }
     $ev = "process alive 20s+ (WS $($m.WorkingSetMb) MB); queue.db+queue.key created in $($m.QueueDbCreatedAfterSec)s; app log written=$($m.AppLogWritten); shutdown=$($m.Shutdown)"
     $ev += "; DI+config+SQLCipher+MainWindow verified behaviorally: the Phase 9 fail-closed contract makes startup fatal if the encrypted DB cannot be opened, so a living process implies successful DI, config load, SQLCipher init and MainWindow construction"
@@ -444,8 +460,13 @@ try {
     $cmdInstall = "$env:SystemDrive\p10-std-install.cmd"
     $cmdLaunch  = "$env:SystemDrive\p10-std-launch.cmd"
     # NOT echoing the password anywhere - it exists only in process args of
-    # this ephemeral runner. Capture net's output but only surface it on
-    # failure (net user output never contains the password).
+    # this ephemeral runner. 13 chars: 'net user' otherwise prompts about
+    # pre-Windows-2000 compatibility for >14 char passwords (run
+    # 46145200195: the interactive Y/N prompt failed the scenario). Still
+    # complexity-compliant: upper + lower + digit + special.
+    $stdPwd = 'P10v-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '!7'
+    # Capture net's output but only surface it on failure (net user output
+    # never contains the password).
     $netOut = net user $stdUser $stdPwd /add 2>&1
     if ($LASTEXITCODE -ne 0) { throw "failed to create standard user ${stdUser}: $($netOut -join ' ')" }
 
