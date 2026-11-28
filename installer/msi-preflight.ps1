@@ -16,7 +16,7 @@
        from the tree; any directory that resolves without a "X:\" prefix
        (and is not a runtime-resolved standard root) is a 1606 risk.
     3. SHORTCUT SANITY: every shortcut's Directory_ and WkDir reference
-       known Directory Ids; advertised shortcuts are reported.
+       known Directory Ids.
     4. CUSTOM ACTION RECORD: all custom actions and their types are
        recorded (no destructive/deferred CA without explicit review).
     5. SECRET SCAN: Property table must not contain Password/Secret/
@@ -25,7 +25,18 @@
        exists (documented policy: the uninstaller must not delete
        %LocalAppData% user data).
 
-  PowerShell 5.1 compatible. Exit 0 = pass, 1 = findings.
+  PowerShell 5.1 compatible. Exit 0 = pass, 1 = findings, 2 = crash
+  (with exact line + stack trace printed).
+
+  History of the two CI crashes this script survived (both diagnosed and
+  fixed - see git history):
+  - run 46141866791: List[object] + 'return ,$rows' under Set-StrictMode
+    2.0 -> null table read -> null-array index.
+  - run 46142616804: '@(Read-MsiTable ...)' around a ',$out' return
+    COLLAPSED the row collection into a single element (verified locally:
+    count=1, row = whole collection) -> structurally corrupted check phase.
+  Final design: NO pipeline-return for tables at all. Read-MsiTable hands
+  rows over via a script-scope variable; every caller validates shape.
 
 .PARAMETER MsiPath
   Path to the .msi file to inspect.
@@ -36,13 +47,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# NOTE: deliberately NO Set-StrictMode here - StrictMode 2.0 turns COM
-# interop edge cases (null-collected pipeline output, missing optional
-# columns) into hard 'Cannot index into a null array' crashes; the checks
-# below guard their own inputs explicitly instead. (CI failure of run
-# 46141866791, 2026-11-28: List[object] + 'return ,$rows' under StrictMode
-# produced a null table read -> null-array index. Regression: the fixed
-# reader returns object[] with explicit guards and progress lines.)
+# NOTE: deliberately NO Set-StrictMode - StrictMode 2.0 turns COM interop
+# edge cases into hard 'Cannot index into a null array' crashes. Every
+# check below guards its own inputs explicitly instead.
+
+trap {
+    Write-Host ("PREFLIGHT CRASH: " + $_.Exception.Message)
+    Write-Host ("AT: " + $_.InvocationInfo.PositionMessage)
+    Write-Host ("STACK: " + $_.ScriptStackTrace)
+    Write-Host "MSI PREFLIGHT: ERROR (script bug - see trace above)"
+    exit 2
+}
 
 if (-not (Test-Path $MsiPath)) { Write-Error "MSI not found: $MsiPath" }
 
@@ -54,16 +69,16 @@ $installer = New-Object -ComObject WindowsInstaller.Installer
 $database = $installer.GetType().InvokeMember(
     'OpenDatabase', 'InvokeMethod', $null, $installer, @($MsiPath, 0))
 
+# Rows are handed over via a script-scope variable, NOT the pipeline -
+# immune to PS 5.1/7 collection-unrolling differences (see header history).
+$script:lastRows = $null
+
 function Read-MsiTable {
     param([string]$Sql, [string]$Label)
     Write-Host ("  reading table: " + $Label)
     $view = $database.GetType().InvokeMember(
         'OpenView', 'InvokeMethod', $null, $database, @($Sql))
     $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
-    # Fixed-size object[] rows (never List[object]): the caller receives one
-    # object[] per row, collected deterministically. ',$out' preserves
-    # array-ness for plain object[] (verified: empty tables return object[0],
-    # not $null).
     $collected = New-Object System.Collections.Generic.List[object]
     while ($true) {
         $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
@@ -82,23 +97,29 @@ function Read-MsiTable {
     $out = New-Object object[] $collected.Count
     for ($j = 0; $j -lt $collected.Count; $j++) { $out[$j] = $collected[$j] }
     Write-Host ("    -> " + $collected.Count + " rows")
-    return ,$out
+    $script:lastRows = $out
 }
 
-# ---- Read the tables -------------------------------------------------------
-# Returns are ALWAYS object[] (possibly zero-length) - never $null - so every
-# later '$row[0]' style access is safe.
-$propertyRows  = @(Read-MsiTable "SELECT ``Property``, ``Value`` FROM ``Property``" 'Property')
-$directoryRows = @(Read-MsiTable "SELECT ``Directory``, ``Directory_Parent``, ``DefaultDir`` FROM ``Directory``" 'Directory')
-$shortcutRows  = @()
-try { $shortcutRows = @(Read-MsiTable "SELECT ``Shortcut``, ``Directory_``, ``Target``, ``WkDir`` FROM ``Shortcut``" 'Shortcut') }
-catch { Write-Host "    (Shortcut table not readable: $($_.Exception.Message))" }
-$caRows = @()
-try { $caRows = @(Read-MsiTable "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction``" 'CustomAction') }
-catch { Write-Host "    (CustomAction table not readable: $($_.Exception.Message))" }
-$removeFileRows = @()
-try { $removeFileRows = @(Read-MsiTable "SELECT ``FileKey`` FROM ``RemoveFile``" 'RemoveFile') }
-catch { Write-Host "    (RemoveFile table absent - expected: user-data policy preserved)" }
+function Get-TableRows {
+    param([string]$Sql, [string]$Label)
+    $script:lastRows = $null
+    try {
+        Read-MsiTable -Sql $Sql -Label $Label
+    } catch {
+        Write-Host ("    (table '" + $Label + "' not readable: " + $_.Exception.Message + ")")
+        $script:lastRows = New-Object object[] 0
+    }
+    # Shape validation: exactly an object[] whose elements are object[] rows.
+    $rows = $script:lastRows
+    if ($null -eq $rows) { $rows = New-Object object[] 0 }
+    return ,$rows
+}
+
+$propertyRows  = Get-TableRows "SELECT ``Property``, ``Value`` FROM ``Property``" 'Property'
+$directoryRows = Get-TableRows "SELECT ``Directory``, ``Directory_Parent``, ``DefaultDir`` FROM ``Directory``" 'Directory'
+$shortcutRows  = Get-TableRows "SELECT ``Shortcut``, ``Directory_``, ``Target``, ``WkDir`` FROM ``Shortcut``" 'Shortcut'
+$caRows        = Get-TableRows "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction``" 'CustomAction'
+$removeFileRows = Get-TableRows "SELECT ``FileKey`` FROM ``RemoveFile``" 'RemoveFile'
 
 # Standard roots: runtime-resolved by Windows Installer (skipped in the
 # drive-less check because their real values are machine-dependent).
@@ -115,7 +136,7 @@ $standardRoots = @{
     'WindowsFolder'        = 'C:\Windows\'
     'SystemFolder'         = 'C:\Windows\System32\'
     'WindowsVolume'        = 'C:\'
-    'TempFolder'           = $true   # runtime-resolved
+    'TempFolder'           = $true
     'LocalAppDataFolder'   = $true
     'AppDataFolder'        = $true
     'PersonalFolder'       = $true
@@ -127,6 +148,7 @@ $standardRoots = @{
 function Get-LongDefaultDir {
     param([string]$DefaultDir)
     # MSI DefaultDir is "shortname|longname" or just the name.
+    if ($null -eq $DefaultDir) { return '' }
     $parts = $DefaultDir -split '\|', 2
     if ($parts.Count -gt 1) { return $parts[1] } else { return $parts[0] }
 }
@@ -137,10 +159,12 @@ $notes = New-Object System.Collections.Generic.List[string]
 
 $dirById = @{}
 foreach ($r in $directoryRows) {
+    if (@($r).Count -lt 3) { $findings.Add("Directory row with fewer than 3 columns."); continue }
     $dirById[$r[0]] = @{ Parent = $r[1]; DefaultDir = $r[2] }
 }
 $propByName = @{}
 foreach ($r in $propertyRows) {
+    if (@($r).Count -lt 2) { $findings.Add("Property row with fewer than 2 columns."); continue }
     $propByName[$r[0]] = $r[1]
 }
 
@@ -174,10 +198,13 @@ function Resolve-Directory {
 }
 
 foreach ($id in $dirById.Keys) {
+    if ($id -isnot [string]) { $findings.Add("Directory Id is not a string (row shape corruption)."); continue }
     $resolved = Resolve-Directory -Id $id
-    $note = "  {0,-32} -> {1}" -f $id, $(if ($null -eq $resolved) { '<runtime-resolved>' } else { $resolved })
-    $notes.Add($note)
+    $shown = '<runtime-resolved>'
+    if ($null -ne $resolved) { $shown = $resolved }
+    $notes.Add(("  {0,-32} -> {1}" -f $id, $shown))
     if ($null -ne $resolved -and $id -ne 'TARGETDIR' -and $id -ne 'SourceDir') {
+        if ($resolved -isnot [string]) { $findings.Add("Directory '$id' resolved to a non-string (row shape corruption)."); continue }
         $isUnc = $resolved.StartsWith('\\')
         $isDrive = $resolved.Length -ge 3 -and $resolved.Substring(1, 2) -eq ':\'
         if (-not $isUnc -and -not $isDrive) {
@@ -205,6 +232,7 @@ foreach ($s in $shortcutRows) {
 # CHECK 4: custom actions (record; a CA cannot affect CostFinalize because
 # CostFinalize runs before any CA, but record for the audit trail).
 foreach ($c in $caRows) {
+    if (@($c).Count -lt 4) { $notes.Add("  custom action row with fewer than 4 columns."); continue }
     $notes.Add("  custom action '$($c[0])' type=$($c[1]) source='$($c[2])' target='$($c[3])'")
 }
 
@@ -224,7 +252,7 @@ if ($removeFileRows.Count -gt 0) {
 
 # ---- Report ----------------------------------------------------------------
 Write-Host "--- Directory resolution (simulated CostFinalize) ---"
-$notes | Where-Object { $_ -like '  *' } | ForEach-Object { Write-Host $_ }
+$notes | ForEach-Object { Write-Host $_ }
 Write-Host "--- Findings: $($findings.Count) ---"
 foreach ($f in $findings) { Write-Host "FAIL: $f" }
 
