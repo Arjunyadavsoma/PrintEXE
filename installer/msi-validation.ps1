@@ -849,7 +849,7 @@ try {
     if ($g2Ok) {
         Record 'G2' 'Installed application runs under a standard user account' 'VERIFIED' "app ran as $stdUser (CreateProcessWithLogonW, ci-smoke exit=$($g2a.ExitCode) after $($g2a.ElapsedSec)s); the app's OWN readiness result under the standard user's profile: $stdSmoke; per-user DPAPI key created: $stdKey (queue.key under $stdLocalData\Security); per-user data skeleton: $stdDbDir; autostart registration: lnk created=$lnkCreated, unregistered=$lnkCleaned; no admin rights required to RUN the app"
     } else {
-        Record 'G2' 'Installed application runs under a standard user account' 'FAILED' "ci-smoke under $stdUser: timedOut=$($g2a.TimedOut) exit=$($g2a.ExitCode); result file: $stdSmoke; per-user DPAPI key=$stdKey; data skeleton=$stdDbDir; autostart lnk created=$lnkCreated cleaned=$lnkCleaned"
+        Record 'G2' 'Installed application runs under a standard user account' 'FAILED' "ci-smoke under ${stdUser}: timedOut=$($g2a.TimedOut) exit=$($g2a.ExitCode); result file: $stdSmoke; per-user DPAPI key=$stdKey; data skeleton=$stdDbDir; autostart lnk created=$lnkCreated cleaned=$lnkCleaned"
     }
 } catch {
     Record 'G' 'Installation under a standard Windows user account' 'FAILED' $_.Exception.Message
