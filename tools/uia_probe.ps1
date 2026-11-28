@@ -143,6 +143,23 @@ try {
         Write-Host "!! desktop screenshot unavailable in this session: $($_.Exception.Message)"
     }
 
+    # 5. resource snapshot (Phase 8 Stage 9: idle memory + CPU of the real
+    #    interactive process, captured while the window is live)
+    try {
+        $proc.Refresh()
+        $ws = [math]::Round($proc.WorkingSet64 / 1MB, 1)
+        $cpu = [math]::Round($proc.TotalProcessorTime.TotalMilliseconds, 0)
+        $threads = $proc.Threads.Count
+        Write-Host "[PERF] idle process: WorkingSet=${ws}MB, TotalCPU=${cpu}ms, Threads=${threads}"
+        $perfLine = "status=MEASURED workingSetMB=$ws totalCpuMs=$cpu threads=$threads"
+        $outDir2 = Join-Path $env:GITHUB_WORKSPACE "artifacts\startup-logs"
+        New-Item -ItemType Directory -Force -Path $outDir2 | Out-Null
+        Add-Content -Path (Join-Path $outDir2 "perf-snapshot.txt") -Value $perfLine
+        Write-Host "[OK] performance snapshot saved to artifacts/startup-logs/perf-snapshot.txt"
+    } catch {
+        Write-Host "!! performance snapshot failed: $($_.Exception.Message)"
+    }
+
     Write-Host "=== UI AUTOMATION PROBE PASSED (real window, real fields, real interaction) ==="
     exit 0
 }
