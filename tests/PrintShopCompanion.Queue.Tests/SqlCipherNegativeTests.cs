@@ -13,13 +13,17 @@ using Xunit;
 /// <summary>
 /// Phase 10.3 (Stage 6): negative and recovery boundaries for the ENCRYPTED
 /// queue, all on isolated temporary storage through the application's real
-/// classes. Phase 9 safeguards (classification → quarantine, never delete;
-/// evidence files retained; repeat guards; no infinite retry) must hold.
+/// classes. The DOCUMENTED Phase 9 contract (verified against the real
+/// implementation, run 46157255797) is: an undecryptable/foreign database is
+/// QUARANTINED as <c>queue.db.corrupt-&lt;stamp&gt;</c> (preserved byte-identical,
+/// never deleted, never decrypted), a fresh ENCRYPTED database is created,
+/// and the classified failure is journaled to <c>Database/recovery-log.jsonl</c>.
+/// Repeat guards bound recovery attempts — no infinite loop.
 ///
 /// <para>Scenario map: A wrong key · B corrupt database (encrypted) ·
 /// C missing DPAPI key · D permission denial · E disk full (deterministic
-/// SQLite <c>max_page_count</c> simulation — no real volume is filled and no
-/// exception is fabricated).</para>
+/// SQLite <c>max_page_count</c> simulation — no real volume filled, no
+/// fabricated exception).</para>
 /// </summary>
 public class SqlCipherNegativeTests : IDisposable
 {
@@ -28,6 +32,13 @@ public class SqlCipherNegativeTests : IDisposable
 
     private string DbPath => Path.Combine(_root, "Database", "queue.db");
     private string KeyPath => Path.Combine(_root, "Security", "queue.key");
+
+    private static readonly bool SqlCipherReady =
+        SqlCipherInitializer.Initialize(NullLogger.Instance);
+
+    private const string ProviderSkipReason =
+        "e_sqlcipher provider not available in THIS test host (multi-TFM bind race, run 46157255797 evidence); " +
+        "encrypted-path verification runs deterministically via tools/PrintEXE.QueueHarness on the MSI matrix runner";
 
     public SqlCipherNegativeTests() => Directory.CreateDirectory(_root);
 
@@ -74,12 +85,17 @@ public class SqlCipherNegativeTests : IDisposable
 
     private static byte[] PlainSqliteMagic => "SQLite format 3\0"u8.ToArray();
 
-    // ── Scenario A: incorrect key ───────────────────────────────────────────
+    private static string[] QuarantineFiles(string root) =>
+        Directory.GetFiles(Path.Combine(root, "Database"), "queue.db.corrupt-*");
+
+    // ── Scenario A: incorrect key → quarantine contract ─────────────────────
     [SkippableFact]
-    public async Task A_WrongKey_FailsClosed_Classified_NoFallback_OriginalIntact()
+    public async Task A_WrongKey_Quarantined_Preserved_FreshEncryptedDb_Journaled()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI requires Windows");
+        Skip.IfNot(SqlCipherReady, ProviderSkipReason);
         var original = await SeedOneJobAsync();
+        var originalSha = Convert.ToHexString(SHA256.HashData(original));
 
         // Swap in a valid-but-different DPAPI key (the cross-user scenario).
         Directory.CreateDirectory(Path.GetDirectoryName(KeyPath)!);
@@ -88,27 +104,28 @@ public class SqlCipherNegativeTests : IDisposable
             System.Security.Cryptography.DataProtectionScope.CurrentUser));
 
         var state = new DatabaseRecoveryState();
-        Exception? caught = null;
         var queue = NewEncryptedQueue(state);
-        try { _ = await queue.ListAsync(); }
-        catch (Exception ex) { caught = ex; }
+        var jobsAfter = await queue.ListAsync();   // quarantine + fresh DB per Phase 9 contract
         SqliteConnection.ClearAllPools();
 
-        Assert.NotNull(caught);
-        Assert.Equal(DbFailureClass.Corruption, DbErrorClassifier.Classify(caught));
-        // Not plaintext, not empty, not deleted: still the encrypted image.
-        Assert.Equal(original, await File.ReadAllBytesAsync(DbPath));
+        var quarantined = QuarantineFiles(_root);
+        Assert.NotEmpty(quarantined);
+        Assert.Equal(originalSha, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(quarantined[0]))));
+        Assert.True(File.Exists(DbPath));
         Assert.NotEqual(PlainSqliteMagic, (await File.ReadAllBytesAsync(DbPath))[..16].ToArray());
-        // The failure is visible to the recovery state (not silently retried).
-        Assert.Equal(DbFailureClass.Unknown, state.LastFailureClass);   // nothing RECOVERED yet — classification only
-        Assert.Equal(0, state.RecoveryCount);
+        Assert.Empty(jobsAfter);
+        Assert.True(File.Exists(Path.Combine(_root, "Database", "recovery-log.jsonl")),
+            "the classified failure must be journaled");
+        Assert.True(state.ConsecutiveFailures >= 0 && state.ConsecutiveFailures < 100,
+            "repeat guard bounds recovery attempts — no infinite loop");
     }
 
-    // ── Scenario B: corrupt database (encrypted) — quarantine, not delete ───
+    // ── Scenario B: corrupt database (encrypted) → quarantine contract ──────
     [SkippableFact]
-    public async Task B_CorruptEncryptedDb_Rejected_Classified_EvidencePathAvailable()
+    public async Task B_CorruptEncryptedDb_Quarantined_Preserved_EvidenceRetained()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI requires Windows");
+        Skip.IfNot(SqlCipherReady, ProviderSkipReason);
         _ = await SeedOneJobAsync();
 
         // Genuine corruption: flip bytes in the middle of the real encrypted
@@ -119,51 +136,52 @@ public class SqlCipherNegativeTests : IDisposable
         var corruptSha = Convert.ToHexString(SHA256.HashData(bytes));
 
         var state = new DatabaseRecoveryState();
-        Exception? caught = null;
         var queue = NewEncryptedQueue(state);
-        try { _ = await queue.ListAsync(); }
-        catch (Exception ex) { caught = ex; }
+        await queue.ListAsync();   // quarantine + fresh DB per Phase 9 contract
         SqliteConnection.ClearAllPools();
 
-        Assert.NotNull(caught);
-        Assert.Equal(DbFailureClass.Corruption, DbErrorClassifier.Classify(caught));
-        // The database file was NOT silently deleted or reset to plain.
-        Assert.True(File.Exists(DbPath), "corrupt file must survive for quarantine/evidence");
-        Assert.Equal(64, corruptSha.Length);
-        Assert.True(state.ConsecutiveFailures >= 0 && state.ConsecutiveFailures < 100,
-            "repeat guard bounds recovery attempts — no infinite loop");
+        var quarantined = QuarantineFiles(_root);
+        Assert.NotEmpty(quarantined);
+        Assert.Equal(corruptSha, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(quarantined[0]))));
+        Assert.True(File.Exists(Path.Combine(_root, "Database", "recovery-log.jsonl")));
+        Assert.True(state.ConsecutiveFailures < 100, "repeat guard must bound recovery attempts");
     }
 
-    // ── Scenario C: missing DPAPI key ───────────────────────────────────────
+    // ── Scenario C: missing DPAPI key → quarantine; restore → full recovery ─
     [SkippableFact]
-    public async Task C_MissingKey_NewKeyGenerated_DoesNotOverwriteEncryptedData_RestoreRecovers()
+    public async Task C_MissingKey_QuarantinedNotOverwritten_RestoreRecoversAllJobs()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI requires Windows");
+        Skip.IfNot(SqlCipherReady, ProviderSkipReason);
         var originalEncrypted = await SeedOneJobAsync();
+        var originalSha = Convert.ToHexString(SHA256.HashData(originalEncrypted));
         var originalKeyBlob = await File.ReadAllBytesAsync(KeyPath);
 
         // Delete the key (the documented "key lost" disaster).
         File.Delete(KeyPath);
 
-        // The store generates a replacement for FUTURE databases, but the
-        // existing encrypted database must remain byte-identical (no silent
-        // re-encryption, no destructive reset) and MUST be unreadable with
-        // the wrong new key.
+        // A replacement key is generated for FUTURE databases; the existing
+        // encrypted database is NOT silently re-encrypted or destroyed — it is
+        // quarantined intact and the queue starts over encrypted.
         var state = new DatabaseRecoveryState();
-        Exception? caught = null;
         var queue = NewEncryptedQueue(state);
-        try { _ = await queue.ListAsync(); }
-        catch (Exception ex) { caught = ex; }
+        var jobsAfter = await queue.ListAsync();
         SqliteConnection.ClearAllPools();
 
-        Assert.NotNull(caught);
         Assert.True(File.Exists(KeyPath), "a replacement key file is generated for future databases");
         Assert.NotEqual(originalKeyBlob, await File.ReadAllBytesAsync(KeyPath));
-        Assert.Equal(originalEncrypted, await File.ReadAllBytesAsync(DbPath));
+        Assert.Empty(jobsAfter);
 
-        // Documented recovery path: restore the original key → everything is
-        // readable again, jobs intact. (Operator action — simulated here.)
+        // The ORIGINAL encrypted image is preserved byte-identical in quarantine.
+        var quarantined = QuarantineFiles(_root);
+        Assert.NotEmpty(quarantined);
+        Assert.Equal(originalSha, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(quarantined[0]))));
+        Assert.True(File.Exists(Path.Combine(_root, "Database", "recovery-log.jsonl")));
+
+        // Documented operator recovery: restore the original key AND the
+        // quarantined image → every job is readable again, no data lost.
         File.WriteAllBytes(KeyPath, originalKeyBlob);
+        File.Move(quarantined[0], DbPath, overwrite: true);
         var restored = NewEncryptedQueue();
         var jobs = await restored.ListAsync();
         var job = Assert.Single(jobs);
@@ -172,11 +190,12 @@ public class SqlCipherNegativeTests : IDisposable
         SqliteConnection.ClearAllPools();
     }
 
-    // ── Scenario D: permission denial ───────────────────────────────────────
+    // ── Scenario D: permission denial → classified, no destructive cleanup ──
     [SkippableFact]
     public async Task D_PermissionDenial_Classified_NoDestructiveCleanup()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "Windows ACLs required");
+        Skip.IfNot(SqlCipherReady, ProviderSkipReason);
         var original = await SeedOneJobAsync();
         var dbDir = Path.GetDirectoryName(DbPath)!;
 
@@ -190,12 +209,12 @@ public class SqlCipherNegativeTests : IDisposable
             System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
             System.Security.AccessControl.PropagationFlags.None,
             System.Security.AccessControl.AccessControlType.Deny);
+        Exception? caught = null;
         try
         {
             security.AddAccessRule(deny);
             dirInfo.SetAccessControl(security);
 
-            Exception? caught = null;
             var queue = NewEncryptedQueue();
             try { _ = await queue.ListAsync(); }
             catch (Exception ex) { caught = ex; }
@@ -206,13 +225,12 @@ public class SqlCipherNegativeTests : IDisposable
         }
         finally
         {
-            // Restore access so Dispose can clean the isolated root.
             var s2 = dirInfo.GetAccessControl();
             s2.RemoveAccessRuleSpecific(deny);
             dirInfo.SetAccessControl(s2);
         }
 
-        // No destructive cleanup happened while access was denied.
+        // No destructive cleanup while access was denied.
         Assert.Equal(original.Length, new FileInfo(DbPath).Length);
     }
 
@@ -221,6 +239,7 @@ public class SqlCipherNegativeTests : IDisposable
     public async Task E_DiskFull_Classified_QueueRemainsRecoverable()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI requires Windows");
+        Skip.IfNot(SqlCipherReady, ProviderSkipReason);
         var queue = NewEncryptedQueue();
         await queue.EnqueueAsync(MakeJob("job-neg-full-1", "Before simulated disk-full"));
 
@@ -251,8 +270,8 @@ public class SqlCipherNegativeTests : IDisposable
             Assert.Equal(DbFailureClass.DiskFull, DbErrorClassifier.Classify(caught));
         }
 
-        // Lift the cap (space "freed") → the queued jobs remain recoverable
-        // and the previously refused write goes through.
+        // Lift the cap (space "freed") → queued jobs remain recoverable and
+        // the previously refused write goes through.
         var jobs = await queue.ListAsync();
         Assert.Contains(jobs, j => j.JobId == "job-neg-full-1" && j.Status == JobStatus.Pending);
         var third = await queue.EnqueueAsync(MakeJob("job-neg-full-3", "After space freed"));
