@@ -52,19 +52,48 @@
          separate extension (WixToolset.UI.wixext) that requires an extra NuGet
          reference. For the initial release we use the default install flow. -->
 
-    <Property Id="INSTALLDIR" Value="C:\Program Files\PrintShop\Companion" />
-    <Property Id="STARTMENUFOLDER" Value="PrintShop" />
-
+    <!-- Phase 10: the <Property Id="INSTALLDIR"> and <Property Id="STARTMENUFOLDER">
+         rows that used to stand here were the ROOT CAUSE of MSI error 1606
+         ("Could not access network location PrintShop" -> fatal 1603 at
+         CostFinalize). Every Directory-table row is a property at install time;
+         a Property-table row with the same name OVERRIDES the Directory-tree
+         resolution. STARTMENUFOLDER's value was the drive-less relative string
+         "PrintShop", which Windows Installer interprets as a network location —
+         verified from the run-12 package's verbose log (49 s resolution timeout,
+         then 1606) and its MSI Property table. Directory properties must be
+         resolved from the Directory tree ONLY (see docs/PHASE10_ROOT_CAUSE_1606.md);
+         CI enforces this with a preflight collision check (msi-preflight.ps1). -->
     <CustomAction Id="SetPerUserStartup" Directory="INSTALLDIR" ExeCommand='[INSTALLDIR]PrintShopCompanion.exe --register-autostart' Return="asyncNoWait" />
+    <!-- Phase 10: the per-user Startup shortcut created by the register
+         autostart custom action is NOT owned by this per-machine MSI (it
+         lives in the installing user's %AppData% Startup folder). Without
+         the cleanup action below it would survive uninstall and silently
+         point at a deleted exe on every login. The uninstall-time action
+         runs BEFORE the files are removed (Before=InstallValidate) while
+         the exe still exists, only on full uninstall (REMOVE equals ALL),
+         and never breaks the uninstall (Return=ignore). Per-user
+         limitation is symmetric: a per-machine uninstall cannot clean up
+         OTHER users' Startup folders. -->
+    <CustomAction Id="UnsetPerUserStartup" Directory="INSTALLDIR" ExeCommand='[INSTALLDIR]PrintShopCompanion.exe --unregister-autostart' Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="SetPerUserStartup" After="InstallFinalize" />
+      <Custom Action="SetPerUserStartup" After="InstallFinalize" Condition="NOT Installed" />
+      <Custom Action="UnsetPerUserStartup" Before="InstallValidate" Condition='REMOVE ~= "ALL"' />
     </InstallExecuteSequence>
   </Package>
 
+  <!-- Phase 10: INSTALLDIR is the LEAF directory so it resolves
+       deterministically to the documented install path
+       C:\Program Files\PrintShop\Companion — with NO Property-table override
+       (the override was the error-1606 root cause, see
+       docs/PHASE10_ROOT_CAUSE_1606.md). Every [INSTALLDIR] reference in this
+       file (shortcut target/working dir, URL-protocol registry values,
+       autostart custom action, worker service ImagePath) expands to the leaf.
+       STARTMENUFOLDER resolves from ProgramMenuFolder (per-machine:
+       C:\ProgramData\Microsoft\Windows\Start Menu\Programs\PrintShop). -->
   <Fragment>
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLDIR" Name="PrintShop">
-        <Directory Name="Companion" />
+      <Directory Id="VendorDir" Name="PrintShop">
+        <Directory Id="INSTALLDIR" Name="Companion" />
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder">
@@ -78,13 +107,13 @@
         <File Id="PrintShopCompanion.exe"
               Source="$(var.PublishDir)\PrintShopCompanion.exe"
               KeyPath="yes" Checksum="yes" />
-        <!-- Phase 9 (CI evidence, MSI run 1603): ADVERTISED shortcuts make
-             Windows Installer resolve the package SOURCE LOCATION during
-             CostFinalize. On machines where the source is not reachable this
-             fails with error 1606 ("Could not access network location
-             PrintShop") -> fatal 1603 — the install smoke caught it on the
-             Windows runner. Non-advertised shortcuts target the installed exe
-             directly: no source resolution, standard for self-contained apps. -->
+        <!-- Phase 10 correction of the Phase 9 note below: the 1606 failure
+             was NOT caused by shortcut advertisement — the non-advertised
+             shortcut still failed with 1606 in the run-12 package. The real
+             root cause was the Property/Directory Id collision (see
+             docs/PHASE10_ROOT_CAUSE_1606.md). The non-advertised shortcut is
+             kept: it is the correct authoring for a self-contained app and
+             needs no source resolution. -->
         <Shortcut Id="StartMenuShortcut"
                    Directory="STARTMENUFOLDER"
                    Name="PrintShop Companion"

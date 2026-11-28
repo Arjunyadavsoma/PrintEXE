@@ -1,0 +1,206 @@
+# Phase 10: INDEPENDENT MSI validation workflow.
+#
+# Root cause being guarded: MSI error 1606 "Could not access network location
+# PrintShop" -> fatal 1603 at CostFinalize (Property/Directory Id collision;
+# see docs/PHASE10_ROOT_CAUSE_1606.md).
+#
+# This workflow is deliberately SEPARATE from build-windows.yml so installer
+# validation is independent of the app pipeline:
+#   - job 1 builds TWO MSI versions (A = 0.9.<run_number>, B = A+1) on every
+#     push to main, runs the preflight guard on both, uploads them as
+#     artifacts (never a release).
+#   - job 2 runs the full installation matrix (scenarios A-J of the Phase 10
+#     task) plus post-install application launch and operational metrics.
+#   - evidence (results JSON/markdown + verbose MSI logs) is uploaded EVEN
+#     WHEN installation fails (if: always()).
+#
+# Rules honored here: no GitHub release, no tag, no production data, no
+# secrets in logs, success never reported from msiexec exit codes alone.
+name: msi-validation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-msi:
+    name: Build MSI (2 versions) + preflight guard
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install WiX v5 tooling
+        # Pinned to v5: WiX 7 refuses to run in CI until its OSMF EULA is
+        # accepted (WIX7015) and this repo's .wxs sources are WiX v5.
+        run: dotnet tool install --global wix --version 5.*
+        shell: powershell
+
+      - name: Download SumatraPDF (bundled renderer)
+        shell: pwsh
+        run: |
+          $candidates = @(
+            'https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip',
+            'https://files.sumatrapdfreader.org/software/sumatrapdf/rel/3.6.1/SumatraPDF-3.6.1-64.zip',
+            'https://www.sumatrapdfreader.org/dl/Rel/3.5.1/SumatraPDF-3.5.1-64.zip'
+          )
+          $ok = $false
+          foreach ($url in $candidates) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile sumatra.zip `
+                -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' -TimeoutSec 120
+              if ((Get-Item sumatra.zip).Length -gt 1MB) { $ok = $true; Write-Host "Downloaded $url"; break }
+              Write-Host "Suspiciously small download from $url - trying next"
+            } catch { Write-Host "FAILED ${url}: $($_.Exception.Message)" }
+          }
+          if (-not $ok) { Write-Error 'All SumatraPDF download URLs failed'; exit 1 }
+          Expand-Archive sumatra.zip -DestinationPath sumatra -Force
+          $exe = Get-ChildItem -Path sumatra -Filter 'SumatraPDF*.exe' | Select-Object -First 1
+          if (-not $exe) { Write-Error 'SumatraPDF exe not found inside the downloaded zip'; exit 1 }
+          New-Item -ItemType Directory -Force -Path installer/redist | Out-Null
+          Copy-Item $exe.FullName installer/redist/SumatraPDF.exe -Force
+          Write-Host "Bundled $($exe.Name) as installer/redist/SumatraPDF.exe"
+
+      - name: Publish app (win-x64)
+        shell: powershell
+        run: |
+          # Numeric per-run version (Phase 9): 'main' is not a valid WiX
+          # ProductVersion, so fall back to 0.9.<run_number>.
+          $ver = "0.9.$env:GITHUB_RUN_NUMBER"
+          Write-Host "BUILD_VERSION = $ver"
+          dotnet restore src/PrintShopCompanion.App/PrintShopCompanion.App.csproj -r win-x64
+          dotnet publish src/PrintShopCompanion.App/PrintShopCompanion.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:BUILD_VERSION=$ver `
+            --no-restore `
+            -o publish
+          dotnet restore src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj -r win-x64
+          dotnet publish src/PrintShopCompanion.Worker/PrintShopCompanion.Worker.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -f net10.0-windows `
+            -p:BUILD_VERSION=$ver `
+            --no-restore `
+            -o publish
+
+      - name: Build MSI version A (0.9.<run_number>)
+        shell: powershell
+        run: |
+          $ver = "0.9.$env:GITHUB_RUN_NUMBER"
+          wix build -arch x64 `
+            -d PublishDir=publish `
+            -d RepoRoot=$env:GITHUB_WORKSPACE `
+            -d BuildVersion=$ver `
+            -out "PrintShopCompanion-$ver-x64.msi" `
+            installer/PrintShopCompanion.Installer.wxs
+          if ($LASTEXITCODE -ne 0) { Write-Error "wix build failed for version A"; exit 1 }
+
+      - name: Build MSI version B (0.9.<run_number+1>) for the upgrade test
+        shell: powershell
+        run: |
+          # Two DISTINCT versions are required to verify an upgrade honestly
+          # (MajorUpgrade needs vB > vA). Version B is ONLY used inside the
+          # validation job; version A is the shipped artifact. [int] cast is
+          # mandatory: GITHUB_RUN_NUMBER is a string ("254" + 1 = "2541").
+          $ver = "0.9." + ([int]$env:GITHUB_RUN_NUMBER + 1)
+          wix build -arch x64 `
+            -d PublishDir=publish `
+            -d RepoRoot=$env:GITHUB_WORKSPACE `
+            -d BuildVersion=$ver `
+            -out "PrintShopCompanion-$ver-x64.msi" `
+            installer/PrintShopCompanion.Installer.wxs
+          if ($LASTEXITCODE -ne 0) { Write-Error "wix build failed for version B"; exit 1 }
+
+      - name: Preflight guard (error-1606 pattern check on both MSIs)
+        shell: powershell
+        run: |
+          foreach ($msi in Get-ChildItem -Path . -Filter 'PrintShopCompanion-*.msi') {
+            Write-Host "=== preflight: $($msi.Name)"
+            powershell -NoProfile -ExecutionPolicy Bypass -File installer/msi-preflight.ps1 -MsiPath $msi.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Error "PREFLIGHT FAILED for $($msi.Name) - error-1606 authoring pattern present"; exit 1 }
+          }
+
+      - name: Upload MSI artifacts + preflight output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: msi-validation-packages
+          path: |
+            PrintShopCompanion-*.msi
+          retention-days: 30
+
+  validate-install:
+    name: Installation matrix A-J + launch + metrics
+    needs: build-msi
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository (for the validation scripts)
+        uses: actions/checkout@v4
+
+      - name: Download MSI packages
+        uses: actions/download-artifact@v4
+        with:
+          name: msi-validation-packages
+          path: packages
+
+      - name: Locate MSI versions A and B
+        id: msis
+        shell: powershell
+        run: |
+          $all = Get-ChildItem -Path packages -Filter 'PrintShopCompanion-*.msi' |
+                 Sort-Object { [version]($_.BaseName -replace 'PrintShopCompanion-', '' -replace '-x64', '') }
+          if ($all.Count -ne 2) { Write-Error "expected exactly 2 MSIs, found $($all.Count)"; exit 1 }
+          $a = $all[0]; $b = $all[1]
+          Write-Host "Version A: $($a.Name)"
+          Write-Host "Version B: $($b.Name)"
+          Add-Content $env:GITHUB_OUTPUT "msiA=$($a.FullName)"
+          Add-Content $env:GITHUB_OUTPUT "msiB=$($b.FullName)"
+
+      - name: Run the installation matrix (scenarios A-J)
+        timeout-minutes: 55
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File installer/msi-validation.ps1 `
+            -MsiPathA "${{ steps.msis.outputs.msiA }}" `
+            -MsiPathB "${{ steps.msis.outputs.msiB }}" `
+            -ResultsDir "$env:GITHUB_WORKSPACE\msi-validation-evidence"
+
+      - name: Secret scan of all captured MSI logs
+        if: always()
+        shell: powershell
+        run: |
+          # S6: no plaintext secrets in installer logs. Patterns chosen so a
+          # credential, token value or bearer string cannot hide in verbose
+          # logs. (Filenames like device-token.dat are NOT secrets and do not
+          # match these patterns.)
+          $hits = Get-ChildItem -Path "$env:GITHUB_WORKSPACE\msi-validation-evidence" -Filter '*.log' -ErrorAction SilentlyContinue |
+            Select-String -Pattern '(?i)(password\s*=|secret|apikey|api_key|bearer\s|authorization:)' -ErrorAction SilentlyContinue
+          if ($hits) {
+            Write-Host "SECRET-LIKE STRINGS FOUND IN LOGS:"
+            $hits | ForEach-Object { Write-Host "$($_.Path):$($_.LineNumber): $($_.Line)" }
+            Write-Error 'secret scan failed - installer logs contain secret-like strings'
+            exit 1
+          }
+          Write-Host 'secret scan: clean (no password/secret/apikey/bearer strings in MSI logs)'
+
+      - name: Upload validation evidence (even on failure)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: msi-validation-evidence
+          path: |
+            msi-validation-evidence/
+            !msi-validation-evidence/**/p10-std-*.txt
+          retention-days: 90

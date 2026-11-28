@@ -885,13 +885,21 @@ jobs:
           $info = Get-ItemProperty -Path $msi.FullName
           if (-not $info) { Write-Error 'MSI unreadable'; exit 1 }
 
+          Write-Host '── 1b. preflight guard (error-1606 authoring pattern) ──'
+          # Phase 10: fails the build if a Property/Directory Id collision or
+          # a drive-less directory resolution is present (the 1606 root cause).
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer/msi-preflight.ps1 -MsiPath $msi.FullName
+          if ($LASTEXITCODE -ne 0) { Write-Error 'MSI preflight FAILED'; exit 1 }
+
           Write-Host '── 2. clean silent install ──'
           $log1 = "$env:GITHUB_WORKSPACE\install-smoke-install.log"
           $p = Start-Process msiexec -ArgumentList "/i", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$log1`"" -PassThru -Wait
           if ($p.ExitCode -ne 0) { Get-Content $log1 -Tail 30; Write-Error "silent install failed with exit $($p.ExitCode)"; exit 1 }
 
           Write-Host '── 3. installed file layout + registration ──'
-          $installDir = "$env:ProgramFiles\PrintShopCompanion"
+          # Phase 10: the fixed .wxs resolves INSTALLDIR to the LEAF
+          # %ProgramFiles%\PrintShop\Companion (docs/PHASE10_ROOT_CAUSE_1606.md).
+          $installDir = "$env:ProgramFiles\PrintShop\Companion"
           if (-not (Test-Path $installDir)) {
             # discover from the installer log
             $installDir = (Select-String -Path $log1 -Pattern 'INSTALLDIR = (.+)$' |
