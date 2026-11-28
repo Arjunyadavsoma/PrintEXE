@@ -401,6 +401,20 @@ if (-not $queueHarnessReady) {
     Write-Host "     BLOCKED: real-queue scenarios will be classified WITHOUT the harness (documented limitation)"
 }
 
+# Stop every companion-related process (app, worker service host) before the
+# harness touches the data root. Get-Process with an EXACT name misses
+# PrintShopCompanion.Worker - use the wildcard and report what was found.
+function Stop-CompanionProcesses {
+    $found = Get-Process -Name 'PrintShopCompanion*' -ErrorAction SilentlyContinue
+    if ($found) {
+        Write-Host ("     stopping companion processes: " + (($found | ForEach-Object { $_.ProcessName }) -join ', '))
+        $found | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 5
+    } else {
+        Write-Host "     no companion processes running"
+    }
+}
+
 # Queue harness wrapper: bounded run, JSON captured, never prints secrets.
 # Args are passed as an ARRAY (paths may contain spaces - never string-split).
 function Invoke-QueueHarness {
@@ -606,11 +620,9 @@ try {
     # (no secrets - only SHA-256 fingerprints) feeds Stage 5 upgrade verify.
     $qSeedVerdict = '<not run>'
     if ($queueHarnessReady) {
-        # A lingering tray-app instance from LAUNCH1b holds a pooled SQLite
-        # handle on queue.db and blocks the harness (run 46157255871). This
-        # is an ephemeral CI runner - no user apps to disturb.
-        Get-Process PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
+        # Companion processes (incl. the worker service host) persistently
+        # hold queue.db (runs 46157255871, 46160668069, 46163074067).
+        Stop-CompanionProcesses
         $qh = Invoke-QueueHarness -Command 'seed' -HarnessArgs @('--pending', '1', '--completed', '1', '--pdfs-dir', 'x') -OutFile $qSnapshot
         if ($qh.Exit -eq 0) {
             $qSeedVerdict = "REAL encrypted queue DB created via the app's own EnqueueAsync: " +
@@ -620,6 +632,9 @@ try {
         } elseif ($qh.Exit -eq 3) {
             $qSeedVerdict = 'BLOCKED: ' + $qh.Output.Trim()
         } else {
+            # Do not leave error text where F expects JSON (run 46163074067:
+            # 'P' is an invalid start of a value). Remove and report cleanly.
+            Remove-Item $qSnapshot -Force -ErrorAction SilentlyContinue
             throw "QueueHarness seed failed (exit $($qh.Exit)): $($qh.Output)"
         }
     }
@@ -724,8 +739,7 @@ try {
         $metrics['app_working_set_after_upgrade_mb'] = $m.WorkingSetMb
         if (-not $m.ProcessAlive) { throw "upgraded app did NOT stay alive: $($m.Shutdown)" }
         if (-not $queueHarnessReady) { throw 'pre-upgrade snapshot exists but the harness vanished - evidence chain broken' }
-        Get-Process PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
+        Stop-CompanionProcesses
         $qv = Invoke-QueueHarness -Command 'verify' -HarnessArgs @('--expected', $qSnapshot) -OutFile $qVerify
         if ($qv.Exit -ne 0) {
             $failList = ''
