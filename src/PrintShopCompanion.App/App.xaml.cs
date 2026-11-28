@@ -599,6 +599,11 @@ public partial class App : Application
 
     private void WriteCiSmokeResult(string status, string detail)
     {
+        // Semantics (Phase 7.1 review, L1): single result file, LAST WRITER
+        // WINS, deliberately fail-closed — a startup that logged PASS but
+        // crashed later (e.g. during OnExit) gets overwritten with FAIL by
+        // OnDomainUnhandledException, and the CI gate requires status=PASS
+        // plus exit 0, so no late failure can ever be reported as success.
         try
         {
             var logDir = Path.Combine(

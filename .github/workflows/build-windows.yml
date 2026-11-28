@@ -53,6 +53,10 @@ jobs:
   build:
     name: Build, test, package PrintEXE (win-x64)
     runs-on: windows-latest
+    # Phase 7.1 review fix M3: without a job-level timeout a hung step can
+    # burn GitHub's default 360-minute budget; the observed healthy runtime
+    # is ~6 minutes, so 45 is a generous ceiling.
+    timeout-minutes: 45
     # The build job stays least-privilege (read-only). Releases are created
     # by a separate job that depends on this one passing, so a failed
     # build never produces a release.
@@ -131,17 +135,20 @@ jobs:
           # No continue-on-error: a failed test MUST fail the build so a
           # broken release is never published. Test results are uploaded
           # as an artifact for inspection.
-          # NOTE: --logger "trx;LogFileName=tests.trx" is the only flag
-          # needed; the --collector:"XPlat Code Coverage" flag breaks
-          # PowerShell arg parsing (the space in "XPlat Code Coverage"
-          # splits into two MSBuild switches and MSBuild rejects it with
-          # error MSB1001: Unknown switch).
+          # NOTE: the TRX logger uses LogFilePrefix (Phase 7.1 review fix H1):
+          # a fixed LogFileName would make the net10.0-windows run OVERWRITE
+          # the net10.0 leg's results file per project, silently discarding
+          # half the test evidence. LogFilePrefix yields
+          # tests_<tfm>_<timestamp>.trx — unique per TFM and per run.
+          # The --collector:"XPlat Code Coverage" flag breaks PowerShell arg
+          # parsing (the space in "XPlat Code Coverage" splits into two
+          # MSBuild switches and MSBuild rejects it with MSB1001).
           # Stage 4: dotnet test on the SOLUTION runs EVERY test project in
           # BOTH target frameworks (net10.0 AND net10.0-windows) on the
           # Windows runner — the full battery, not just the neutral leg.
           $logDir = "$env:GITHUB_WORKSPACE\artifacts\logs"
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          cmd /c "dotnet test PrintShopCompanion.sln -c Release --no-build --logger \`"trx;LogFileName=tests.trx\`" > `"$logDir\test.log`" 2>&1"
+          cmd /c "dotnet test PrintShopCompanion.sln -c Release --no-build --logger \`"trx;LogFilePrefix=tests\`" > `"$logDir\test.log`" 2>&1"
           $rc = $LASTEXITCODE
           Get-Content "$logDir\test.log" -Tail 20
           if ($rc -ne 0) { Write-Error "Tests failed (rc=$rc) — full log in the build-logs artifact"; exit $rc }
@@ -305,11 +312,18 @@ jobs:
             Remove-Item "$logDir\companion-*.log" -Force -ErrorAction SilentlyContinue
             Remove-Item "$logDir\ci-smoke-result.txt" -Force -ErrorAction SilentlyContinue
           }
-          $p = Start-Process -FilePath $exe -ArgumentList "--ci-smoke" -PassThru
+          # Phase 7.1 review fix M2: -NoNewWindow forces UseShellExecute=false
+          # so $p.ExitCode is deterministic (ShellExecute-launched processes
+          # can return null ExitCode on some PowerShell builds, which would
+          # FALSE-FAIL a healthy startup).
+          $p = Start-Process -FilePath $exe -ArgumentList "--ci-smoke" -PassThru -NoNewWindow
           $timedOut = -not $p.WaitForExit(90000)
           if ($timedOut) {
             Write-Host "!! Startup verification TIMEOUT after 90s — killing (a healthy --ci-smoke run exits on its own)"
-            try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+            # Phase 7.1 review fix M1: kill the whole PROCESS TREE — children
+            # (SumatraPDF renderer, helpers) survive a bare Stop-Process and
+            # would hold file locks on the artifact directories.
+            try { taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {} }
           }
           $exitCode = $null
           if ($p.HasExited) { try { $exitCode = $p.ExitCode } catch {} }
@@ -607,6 +621,7 @@ jobs:
   xaml-audit:
     name: XAML static audit (resource graph)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -639,6 +654,7 @@ jobs:
   msi:
     name: Build MSI (installer, tag only)
     needs: [build, xaml-audit]
+    timeout-minutes: 25
     if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     steps:
@@ -761,6 +777,7 @@ jobs:
   release:
     name: Create GitHub Release (tag only)
     needs: [build, xaml-audit]
+    timeout-minutes: 10
     if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
