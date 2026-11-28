@@ -100,8 +100,14 @@ function Read-MsiTable {
     $script:lastRows = $out
 }
 
-function Get-TableRows {
-    param([string]$Sql, [string]$Label)
+function Get-TableRowsInto {
+    # Materialize a table's rows DIRECTLY into a named script-scope variable.
+    # NO pipeline return anywhere: PS 5.1's '$x = Func' assignment re-enumes
+    # function output, which collapsed/shifted nested arrays in runs
+    # 46141866791 / 46142616804 / 46143275161 even through ','
+    # wrappers. Set-Variable + script scope is assignment-free and
+    # deterministic on both PS 5.1 and pwsh 7.
+    param([string]$VarName, [string]$Sql, [string]$Label, [int]$MinColumns)
     $script:lastRows = $null
     try {
         Read-MsiTable -Sql $Sql -Label $Label
@@ -109,17 +115,31 @@ function Get-TableRows {
         Write-Host ("    (table '" + $Label + "' not readable: " + $_.Exception.Message + ")")
         $script:lastRows = New-Object object[] 0
     }
-    # Shape validation: exactly an object[] whose elements are object[] rows.
     $rows = $script:lastRows
     if ($null -eq $rows) { $rows = New-Object object[] 0 }
-    return ,$rows
+    if ($rows -isnot [System.Array]) {
+        Write-Host ("    SHAPE BUG in '" + $Label + "': lastRows is " + $rows.GetType().FullName + " - forcing empty")
+        $rows = New-Object object[] 0
+    }
+    for ($k = 0; $k -lt $rows.Count; $k++) {
+        $row = $rows[$k]
+        if ($row -isnot [System.Array]) {
+            Write-Host ("    SHAPE BUG in '" + $Label + "' row " + $k + ": element is " +
+                $(if ($null -eq $row) { '<null>' } else { $row.GetType().FullName }) +
+                " (value: " + $(if ($null -eq $row) { '' } else { [string]$row }) + ")")
+            $rows[$k] = ,@()   # replace with a safe empty row; the column
+                               # guards below turn it into a finding
+        }
+    }
+    Set-Variable -Name $VarName -Value $rows -Scope Script
+    Write-Host ("    loaded $" + $VarName + ": " + $rows.Count + " rows")
 }
 
-$propertyRows  = Get-TableRows "SELECT ``Property``, ``Value`` FROM ``Property``" 'Property'
-$directoryRows = Get-TableRows "SELECT ``Directory``, ``Directory_Parent``, ``DefaultDir`` FROM ``Directory``" 'Directory'
-$shortcutRows  = Get-TableRows "SELECT ``Shortcut``, ``Directory_``, ``Target``, ``WkDir`` FROM ``Shortcut``" 'Shortcut'
-$caRows        = Get-TableRows "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction``" 'CustomAction'
-$removeFileRows = Get-TableRows "SELECT ``FileKey`` FROM ``RemoveFile``" 'RemoveFile'
+Get-TableRowsInto -VarName 'propertyRows'  -Sql "SELECT ``Property``, ``Value`` FROM ``Property``" -Label 'Property' -MinColumns 2
+Get-TableRowsInto -VarName 'directoryRows' -Sql "SELECT ``Directory``, ``Directory_Parent``, ``DefaultDir`` FROM ``Directory``" -Label 'Directory' -MinColumns 3
+Get-TableRowsInto -VarName 'shortcutRows'  -Sql "SELECT ``Shortcut``, ``Directory_``, ``Target``, ``WkDir`` FROM ``Shortcut``" -Label 'Shortcut' -MinColumns 4
+Get-TableRowsInto -VarName 'caRows'        -Sql "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction``" -Label 'CustomAction' -MinColumns 4
+Get-TableRowsInto -VarName 'removeFileRows' -Sql "SELECT ``FileKey`` FROM ``RemoveFile``" -Label 'RemoveFile' -MinColumns 1
 
 # Standard roots: runtime-resolved by Windows Installer (skipped in the
 # drive-less check because their real values are machine-dependent).
