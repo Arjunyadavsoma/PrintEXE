@@ -772,22 +772,38 @@ try {
     # log ABSENT - /Run is a silent no-op for a task whose user has no
     # session). Direct CreateProcessWithLogonW instead: deterministic, and
     # the password never touches a command line or any log.
-    $stdMsiLog = "$env:SystemDrive\p10-std-install.log"
-    $g1 = Invoke-ProcessAsStandardUser -Exe "$env:SystemRoot\System32\msiexec.exe" `
-        -Arguments "/i `"$MsiPathA`" /qn /norestart /l*v `"$stdMsiLog`"" `
+    # msiexec hands per-machine installs to the MSI service and its launcher
+    # process can exit immediately; Start-Process -Credential does not
+    # reliably populate ExitCode (run 46152893018: blank exit, 0 s), and a
+    # standard user cannot write an /l*v log to C:\ root (log ABSENT). Wrap
+    # in cmd under the standard user: %ERRORLEVEL% goes to a file in the
+    # USER-WRITABLE %TEMP%, and the refusal is verified DEFINITIVELY by the
+    # absence of a registered product afterwards.
+    $stdTempExit = "$env:SystemDrive\Users\$stdUser\AppData\Local\Temp\p10-std-exit.txt"
+    $stdMsiLog   = "$env:SystemDrive\Users\$stdUser\AppData\Local\Temp\p10-std-install.log"
+    $g1Cmd = "$env:SystemDrive\Users\$stdUser\AppData\Local\Temp\p10-std-install.cmd"
+    Set-Content -Path $g1Cmd -Value "msiexec /i `"$MsiPathA`" /qn /norestart /l*v `"$stdMsiLog`"`r`necho %ERRORLEVEL%> `"$stdTempExit`""
+    $g1 = Invoke-ProcessAsStandardUser -Exe "$env:SystemRoot\System32\cmd.exe" `
+        -Arguments "/c `"`"$g1Cmd`"`"" `
         -StdUser $stdUser -StdPwd $stdPwd -TimeoutSec 180
-    Write-Host "     G1 result: timedOut=$($g1.TimedOut) exit=$($g1.ExitCode) pid=$($g1.Pid) after $($g1.ElapsedSec)s"
-    $g1LogHint = 'msiexec /l*v log ABSENT'
+    Write-Host "     G1 result: timedOut=$($g1.TimedOut) pid=$($g1.Pid) after $($g1.ElapsedSec)s"
+    $g1LogHint = 'msiexec /l*v log ABSENT (not created - consistent with a pre-install privilege refusal)'
     if (Test-Path $stdMsiLog) {
-        $g1Hits = Select-String -Path $stdMsiLog -Pattern 'privilege|elevation|does not have|1925|user is not an administrator' -ErrorAction SilentlyContinue | Select-Object -First 3
+        $g1Hits = Select-String -Path $stdMsiLog -Pattern 'privilege|elevation|does not have|1925|not an administrator' -ErrorAction SilentlyContinue | Select-Object -First 3
         $g1LogHint = "msiexec log exists ($((Get-Item $stdMsiLog).Length) B)" + $(if ($g1Hits) { ': ' + (($g1Hits | ForEach-Object { $_.Line.Trim() }) -join ' | ') })
     }
-    Write-Host "     G1 log: $g1LogHint"
+    $g1ExitRaw = if (Test-Path $stdTempExit) { (Get-Content $stdTempExit -ErrorAction SilentlyContinue | Select-Object -First 1) } else { $null }
+    $g1Exit = if ($null -ne $g1ExitRaw) { "$g1ExitRaw".Trim() } else { 'NO-EXIT-FILE' }
+    $prodAfterG1 = Get-InstalledProduct
+    $registeredAfterG1 = $null -ne $prodAfterG1
+    Write-Host "     G1 exit=$g1Exit; product registered after attempt=$registeredAfterG1; log: $g1LogHint"
     if ($g1.TimedOut) { throw "standard-user msiexec did not finish in 180s (pid $($g1.Pid)); $g1LogHint" }
-    if ($g1.ExitCode -eq 0 -or $g1.ExitCode -eq 3010) {
-        Record 'G' 'Installation under a standard Windows user account' 'FAILED' "PER-MACHINE INSTALL SUCCEEDED UNDER A STANDARD USER (exit $($g1.ExitCode)) - elevation was NOT enforced; per-machine packages must refuse non-admin installs (expected 1925/1603); $g1LogHint"
+    if ($g1Exit -eq '0' -or $g1Exit -eq '3010' -or $registeredAfterG1) {
+        Record 'G' 'Installation under a standard Windows user account' 'FAILED' "PER-MACHINE INSTALL SUCCEEDED UNDER A STANDARD USER (exit $g1Exit, registered=$registeredAfterG1) - elevation was NOT enforced; per-machine packages must refuse non-admin installs (expected 1925/1603); $g1LogHint"
+    } elseif ($g1Exit -eq 'NO-EXIT-FILE' -and -not $registeredAfterG1) {
+        Record 'G' 'Installation under a standard Windows user account' 'PARTIALLY VERIFIED' "no product registered after the standard-user install attempt (refusal behaviour observed) but the cmd exit file never appeared (cmd exited in $($g1.ElapsedSec)s - msiexec hand-off semantics); $g1LogHint; refusal definitively proven only by registration absence"
     } else {
-        Record 'G' 'Installation under a standard Windows user account' 'VERIFIED' "per-machine install correctly refused for a standard user: msiexec exit $($g1.ExitCode) in $($g1.ElapsedSec)s (expected 1925/1603 elevation refusal); $g1LogHint; documented design: per-machine MSI (ALLUSERS=1) requires elevation"
+        Record 'G' 'Installation under a standard Windows user account' 'VERIFIED' "per-machine install correctly refused for a standard user: msiexec exit $g1Exit in $($g1.ElapsedSec)s (expected 1925/1603 elevation refusal); product registered after attempt=$registeredAfterG1; $g1LogHint; documented design: per-machine MSI (ALLUSERS=1) requires elevation"
     }
 
     # G2: the INSTALLED app runs for a standard user (its data goes to that
@@ -808,7 +824,10 @@ try {
     $g2a = Invoke-ProcessAsStandardUser -Exe $exePath -Arguments '--ci-smoke' -StdUser $stdUser -StdPwd $stdPwd -TimeoutSec 240
     Write-Host "     G2 ci-smoke: timedOut=$($g2a.TimedOut) exit=$($g2a.ExitCode) after $($g2a.ElapsedSec)s"
     $stdSmoke = 'absent'
-    if (Test-Path $stdSmokeResult) { $stdSmoke = (Get-Content $stdSmokeResult | Select-Object -First 1, 4) -join ' | ' }
+    if (Test-Path $stdSmokeResult) {
+        $lines2 = Get-Content $stdSmokeResult -ErrorAction SilentlyContinue
+        $stdSmoke = @($lines2[0], $lines2[3]) -join ' | '
+    }
     Write-Host "     G2 standard-user ci-smoke result: $stdSmoke"
     $stdKey = Test-Path (Join-Path $stdLocalData 'Security\queue.key')
     $stdDbDir = Test-Path (Join-Path $stdLocalData 'Database')
