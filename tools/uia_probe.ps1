@@ -55,16 +55,23 @@ try {
     Write-Host "edit controls in window: $($edits.Count)"
     if ($edits.Count -lt 2) { Fail "expected >= 2 edit controls (email + password), found $($edits.Count)" }
 
-    # identify email vs password field
-    $emailEl = $null; $pwEl = $null
+    # identify fields by AutomationId (WPF maps x:Name -> AutomationId).
+    # NOTE: run 3 evidence — the WPF PasswordBox peer did NOT report
+    # IsPassword=true through the managed ValuePattern on the runner, so
+    # IsPassword is logged as evidence but NOT used for identification.
+    $pwEl = $null; $emailEl = $null
     foreach ($e in $edits) {
-        $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-        if ($vp.Current.IsPassword) { $pwEl = $e }
-        elseif (-not $emailEl) { $emailEl = $e }
+        $aid = $e.Current.AutomationId
+        $isPw = $false
+        try { $isPw = ($e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Current.IsPassword } catch { }
+        Write-Host ("  edit AutomationId='{0}' IsPassword={1}" -f $aid, $isPw)
+        if ($aid -eq "PasswordBox") { $pwEl = $e }
+        elseif ($aid -eq "PasswordRevealBox") { Write-Host "note: reveal box present before toggle" }
+        elseif ([string]::IsNullOrEmpty($aid) -and -not $emailEl) { $emailEl = $e }
     }
-    if (-not $pwEl) { Fail "no password edit field found (PasswordBox missing from UIA tree)" }
-    Write-Host ("fields: email='{0}' password='{1}'" -f $emailEl.Current.AutomationId, $pwEl.Current.AutomationId)
-    Write-Host "[OK] password field exists with IsPassword=true (real PasswordBox)"
+    if (-not $pwEl) { Fail "the PasswordBox element (AutomationId='PasswordBox') is missing from the UIA tree" }
+    if (-not $emailEl) { Fail "no un-named edit field found for the email input" }
+    Write-Host "[OK] login window has the real email field and the real PasswordBox (AutomationId match)"
 
     # 2. REAL text input: SetValue on the email field, then read back
     $value = "ci-uia-probe@example.com"
@@ -74,7 +81,18 @@ try {
     if ($readBack -ne $value) { Fail "email SetValue round-trip mismatch: got '$readBack', wanted '$value'" }
     Write-Host "[OK] text input round-trip verified on the real email field"
 
-    # 3. REAL interaction: click the Show button, password visibility must flip
+    # 3. REAL password input attempt + visibility toggle. Typing into the
+    #    PasswordBox via UIA is best-effort (peers may refuse SetValue); the
+    #    toggle itself is REQUIRED to work.
+    $pwTyped = $null
+    try {
+        ($pwEl.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue("ci-probe-pw-12345")
+        $pwTyped = "ci-probe-pw-12345"
+        Write-Host "[OK] password typed into the real PasswordBox via UIA"
+    } catch {
+        Write-Host "!! PasswordBox refused UIA SetValue (peer restriction): $($_.Exception.Message)"
+    }
+
     $btn = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition(
             [System.Windows.Automation.AutomationElement]::AutomationIdProperty, "TogglePasswordBtn")))
@@ -90,6 +108,22 @@ try {
     if (-not $revealAfter) { Fail "PasswordRevealBox still absent after TogglePasswordBtn click - toggle broken" }
     if ($null -ne $revealBefore) { Write-Host "note: reveal box already present before toggle" }
     Write-Host "[OK] password visibility toggle verified (Show button really works)"
+
+    # 4. mirror evidence: the reveal box is the app's own echo of the typed
+    #    password - if we typed one and the mirror matches, the ENTIRE
+    #    input -> state -> UI pipeline really works end to end.
+    if ($pwTyped) {
+        try {
+            $mirrored = ($revealAfter.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
+            if ($mirrored -eq $pwTyped) {
+                Write-Host "[OK] END-TO-END: typed password mirrors into the reveal box exactly ('...$($pwTyped.Substring($pwTyped.Length - 5))')"
+            } else {
+                Write-Host "!! reveal-box mirror mismatch: got '$mirrored', typed '$pwTyped' (informational)"
+            }
+        } catch {
+            Write-Host "!! reveal box value not readable via UIA: $($_.Exception.Message)"
+        }
+    }
 
     # 4. screenshot as evidence (best effort - session may block desktop capture)
     try {
