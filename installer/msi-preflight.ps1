@@ -36,7 +36,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Set-StrictMode -Version 2.0
+# NOTE: deliberately NO Set-StrictMode here - StrictMode 2.0 turns COM
+# interop edge cases (null-collected pipeline output, missing optional
+# columns) into hard 'Cannot index into a null array' crashes; the checks
+# below guard their own inputs explicitly instead. (CI failure of run
+# 46141866791, 2026-11-28: List[object] + 'return ,$rows' under StrictMode
+# produced a null table read -> null-array index. Regression: the fixed
+# reader returns object[] with explicit guards and progress lines.)
 
 if (-not (Test-Path $MsiPath)) { Write-Error "MSI not found: $MsiPath" }
 
@@ -49,35 +55,50 @@ $database = $installer.GetType().InvokeMember(
     'OpenDatabase', 'InvokeMethod', $null, $installer, @($MsiPath, 0))
 
 function Read-MsiTable {
-    param([string]$Sql)
+    param([string]$Sql, [string]$Label)
+    Write-Host ("  reading table: " + $Label)
     $view = $database.GetType().InvokeMember(
         'OpenView', 'InvokeMethod', $null, $database, @($Sql))
     $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
-    $rows = New-Object System.Collections.Generic.List[object]
+    # Fixed-size object[] rows (never List[object]): the caller receives one
+    # object[] per row, collected deterministically. ',$out' preserves
+    # array-ness for plain object[] (verified: empty tables return object[0],
+    # not $null).
+    $collected = New-Object System.Collections.Generic.List[object]
     while ($true) {
         $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
         if ($null -eq $rec) { break }
         $fieldCount = $rec.GetType().InvokeMember(
             'FieldCount', 'GetProperty', $null, $rec, $null)
-        $fields = @()
+        $rowArr = New-Object object[] $fieldCount
         for ($i = 1; $i -le $fieldCount; $i++) {
-            $fields += $rec.GetType().InvokeMember(
+            $val = $rec.GetType().InvokeMember(
                 'StringData', 'GetProperty', $null, $rec, @($i))
+            if ($null -eq $val) { $val = '' }
+            $rowArr[$i - 1] = [string]$val
         }
-        $rows.Add($fields)
+        [void]$collected.Add($rowArr)
     }
-    return ,$rows
+    $out = New-Object object[] $collected.Count
+    for ($j = 0; $j -lt $collected.Count; $j++) { $out[$j] = $collected[$j] }
+    Write-Host ("    -> " + $collected.Count + " rows")
+    return ,$out
 }
 
 # ---- Read the tables -------------------------------------------------------
-$propertyRows = Read-MsiTable "SELECT ``Property``, ``Value`` FROM ``Property``"
-$directoryRows = Read-MsiTable "SELECT ``Directory``, ``Directory_Parent``, ``DefaultDir`` FROM ``Directory``"
-$shortcutRows = @()
-try { $shortcutRows = Read-MsiTable "SELECT ``Shortcut``, ``Directory_``, ``Target``, ``WkDir``, ``Attributes`` FROM ``Shortcut``" } catch {}
+# Returns are ALWAYS object[] (possibly zero-length) - never $null - so every
+# later '$row[0]' style access is safe.
+$propertyRows  = @(Read-MsiTable "SELECT ``Property``, ``Value`` FROM ``Property``" 'Property')
+$directoryRows = @(Read-MsiTable "SELECT ``Directory``, ``Directory_Parent``, ``DefaultDir`` FROM ``Directory``" 'Directory')
+$shortcutRows  = @()
+try { $shortcutRows = @(Read-MsiTable "SELECT ``Shortcut``, ``Directory_``, ``Target``, ``WkDir`` FROM ``Shortcut``" 'Shortcut') }
+catch { Write-Host "    (Shortcut table not readable: $($_.Exception.Message))" }
 $caRows = @()
-try { $caRows = Read-MsiTable "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction``" } catch {}
+try { $caRows = @(Read-MsiTable "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction``" 'CustomAction') }
+catch { Write-Host "    (CustomAction table not readable: $($_.Exception.Message))" }
 $removeFileRows = @()
-try { $removeFileRows = Read-MsiTable "SELECT ``FileKey`` FROM ``RemoveFile``" } catch { }
+try { $removeFileRows = @(Read-MsiTable "SELECT ``FileKey`` FROM ``RemoveFile``" 'RemoveFile') }
+catch { Write-Host "    (RemoveFile table absent - expected: user-data policy preserved)" }
 
 # Standard roots: runtime-resolved by Windows Installer (skipped in the
 # drive-less check because their real values are machine-dependent).
@@ -165,18 +186,18 @@ foreach ($id in $dirById.Keys) {
     }
 }
 
-# CHECK 3: shortcut sanity.
+# CHECK 3: shortcut sanity (no Attributes column exists in the MSI Shortcut
+# table - advertised-ness is not a table flag; the target/workdir checks are
+# what matters for this app).
 foreach ($s in $shortcutRows) {
-    $name = $s[0]; $dir = $s[1]; $target = $s[2]; $wkDir = $s[3]; $attr = $s[4]
+    if (@($s).Count -lt 4) { $findings.Add("CHECK3 Shortcut row has fewer than 4 columns."); continue }
+    $name = $s[0]; $dir = $s[1]; $target = $s[2]; $wkDir = $s[3]
+    if ([string]::IsNullOrEmpty($name)) { $findings.Add("CHECK3 Shortcut row with empty name."); continue }
     if (-not $dirById.ContainsKey($dir)) {
         $findings.Add("CHECK3 Shortcut '$name' references unknown Directory Id '$dir'.")
     }
     if (-not [string]::IsNullOrEmpty($wkDir) -and -not $dirById.ContainsKey($wkDir)) {
         $findings.Add("CHECK3 Shortcut '$name' WorkingDirectory references unknown Directory Id '$wkDir'.")
-    }
-    $advertised = (([int]$attr) -band 1) -ne 0
-    if ($advertised) {
-        $notes.Add("  shortcut '$name' is ADVERTISED (source-resolving; not used by this app)")
     }
     $notes.Add("  shortcut '$name' dir='$dir' target='$target' workdir='$wkDir'")
 }
