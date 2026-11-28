@@ -137,13 +137,15 @@ public sealed class SelfHealContractTests : IDisposable
             "no token file → nothing was rejected → auto re-pair must not run");
     }
 
-    [Fact]
+    // Phase 7 (Stage 4): guard became a SKIP — an unexecuted test must never
+    // show up as "passed" in the neutral net10.0 leg.
+    [SkippableFact]
     public async Task RestoreAsync_with_rejected_saved_token_sets_rejection_flag()
     {
         // DPAPI is Windows-only; on Linux the Unprotect would throw
         // PlatformNotSupportedException, which classifies as NOT a rejection —
         // so the meaningful branch of this test only exists on Windows CI.
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only; executed on windows-latest CI");
 
         var root = Path.Combine(_root, "win-only");
         var layout = new LocalStorageLayout(

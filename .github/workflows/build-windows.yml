@@ -112,10 +112,20 @@ jobs:
         run: dotnet restore PrintShopCompanion.sln
 
       - name: Build solution (Release)
+        id: build
         shell: pwsh
-        run: dotnet build PrintShopCompanion.sln -c Release --no-restore
+        run: |
+          # Stage 5: the native build log ships as an artifact (cmd /c keeps
+          # exit codes intact regardless of $ErrorActionPreference).
+          $logDir = "$env:GITHUB_WORKSPACE\artifacts\logs"
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          cmd /c "dotnet build PrintShopCompanion.sln -c Release --no-restore > `"$logDir\build.log`" 2>&1"
+          $rc = $LASTEXITCODE
+          Get-Content "$logDir\build.log" -Tail 15
+          if ($rc -ne 0) { Write-Error "Build failed (rc=$rc) — full log in the build-logs artifact"; exit $rc }
 
       - name: Run tests
+        id: test
         shell: pwsh
         run: |
           # No continue-on-error: a failed test MUST fail the build so a
@@ -126,10 +136,18 @@ jobs:
           # PowerShell arg parsing (the space in "XPlat Code Coverage"
           # splits into two MSBuild switches and MSBuild rejects it with
           # error MSB1001: Unknown switch).
-          dotnet test PrintShopCompanion.sln -c Release --no-build `
-            --logger "trx;LogFileName=tests.trx"
+          # Stage 4: dotnet test on the SOLUTION runs EVERY test project in
+          # BOTH target frameworks (net10.0 AND net10.0-windows) on the
+          # Windows runner — the full battery, not just the neutral leg.
+          $logDir = "$env:GITHUB_WORKSPACE\artifacts\logs"
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          cmd /c "dotnet test PrintShopCompanion.sln -c Release --no-build --logger \`"trx;LogFileName=tests.trx\`" > `"$logDir\test.log`" 2>&1"
+          $rc = $LASTEXITCODE
+          Get-Content "$logDir\test.log" -Tail 20
+          if ($rc -ne 0) { Write-Error "Tests failed (rc=$rc) — full log in the build-logs artifact"; exit $rc }
 
       - name: Publish app (folder distribution, self-contained, win-x64)
+        id: publish
         shell: pwsh
         run: |
           # Folder distribution (NOT single-file) — preserves SQLCipher +
@@ -144,6 +162,7 @@ jobs:
             -o ./artifacts/app
 
       - name: Validate published output
+        id: validate
         shell: pwsh
         run: |
           # Verify the publish directory has the EXE + the native
@@ -254,28 +273,109 @@ jobs:
           if (-not (Test-Path $dst)) { Write-Error "Copy to $dst failed"; exit 1 }
           Write-Host "✓ Bundled SumatraPDF into the ZIP distribution: $dst ($([math]::Round((Get-Item $dst).Length / 1MB, 2)) MB)"
 
-      - name: Startup smoke test (Windows)
+      - name: Startup verification (real WPF launch, --ci-smoke)
+        id: smoke
         shell: pwsh
+        timeout-minutes: 5
         run: |
-          # Phase 5: actually START the published EXE on the Windows runner.
-          # A missing native DLL, bad DI composition, or crash-on-startup would
-          # surface here instead of on a user's machine. The app is a WPF tray
-          # application: unpaired, it shows the login screen and STAYS ALIVE —
-          # exiting early means something failed.
+          # Phase 7: replaces the v0.7.4 liveness-only smoke test, which read
+          # "process alive after 20s" as success — and PASSED for v0.7.15,
+          # v0.7.16 and v0.7.17, three releases that died at startup on user
+          # machines behind a modal error MessageBox (a blocked process is
+          # "alive"). The new gate launches the REAL published EXE with
+          # --ci-smoke and requires ALL of:
+          #   1. exit code 0 within a strict 90s timeout (the app shuts itself
+          #      down after MainWindow Loaded; it never opens a modal dialog
+          #      in this mode, so a broken startup EXITS instead of blocking)
+          #   2. log marker '=== CI-SMOKE: DI HOST BUILT ==='  (DI graph
+          #      constructed AND started)
+          #   3. log marker '=== CI-SMOKE: MAINWINDOW LOADED ==='  (real
+          #      MainWindow completed the WPF Loaded lifecycle — the layer
+          #      where both field crashes died)
+          #   4. log marker '=== Startup complete ==='
+          #   5. zero [FTL] lines / no 'Startup failed' since launch
+          #   6. ci-smoke-result.txt says status=PASS
           $exe = "$env:GITHUB_WORKSPACE\artifacts\app\PrintShopCompanion.exe"
           if (-not (Test-Path $exe)) { Write-Error "EXE missing for smoke test"; exit 1 }
-          $p = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 20
-          if ($p.HasExited) {
-            Write-Error "Smoke test FAILED: PrintShopCompanion.exe exited prematurely with code $($p.ExitCode)"
+          # Kill any lingering instance from an earlier retry — a forwarded
+          # mutex handoff would exit 0 WITHOUT running the real startup path.
+          Get-Process -Name PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $logDir = Join-Path $env:APPDATA "PrintShop\Companion\logs"
+          if (Test-Path $logDir) {
+            Remove-Item "$logDir\companion-*.log" -Force -ErrorAction SilentlyContinue
+            Remove-Item "$logDir\ci-smoke-result.txt" -Force -ErrorAction SilentlyContinue
+          }
+          $p = Start-Process -FilePath $exe -ArgumentList "--ci-smoke" -PassThru
+          $timedOut = -not $p.WaitForExit(90000)
+          if ($timedOut) {
+            Write-Host "!! Startup verification TIMEOUT after 90s — killing (a healthy --ci-smoke run exits on its own)"
+            try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+          }
+          $exitCode = $null
+          if ($p.HasExited) { try { $exitCode = $p.ExitCode } catch {} }
+          # ── Collect diagnostics (ALWAYS — pass or fail they ship as artifacts) ──
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts\startup-logs" | Out-Null
+          if (Test-Path $logDir) {
+            Copy-Item "$logDir\*" "$env:GITHUB_WORKSPACE\artifacts\startup-logs\" -Force -ErrorAction SilentlyContinue
+          }
+          $logText = ""
+          $newestLog = Get-ChildItem -Path $logDir -Filter "companion-*.log" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime | Select-Object -Last 1
+          if ($newestLog) { $logText = Get-Content $newestLog.FullName -Raw -ErrorAction SilentlyContinue }
+          $resultText = ""
+          if (Test-Path "$logDir\ci-smoke-result.txt") { $resultText = Get-Content "$logDir\ci-smoke-result.txt" -Raw }
+          # ── Gate evaluation (fail-closed: any missing signal = failure) ──
+          $fail = @()
+          if ($timedOut) { $fail += "process did not exit within 90s (modal dialog or hang)" }
+          elseif ($exitCode -ne 0) { $fail += "exit code $exitCode (nonzero = fatal startup path)" }
+          if ($logText -notmatch '=== CI-SMOKE: DI HOST BUILT ===') { $fail += "marker missing: DI HOST BUILT (dependency injection initialization)" }
+          if ($logText -notmatch '=== CI-SMOKE: MAINWINDOW LOADED ===') { $fail += "marker missing: MAINWINDOW LOADED (MainWindow Loaded lifecycle)" }
+          if ($logText -notmatch '=== Startup complete ===') { $fail += "marker missing: '=== Startup complete ==='" }
+          if ($logText -match '\[FTL\]' -or $logText -match 'Startup failed') { $fail += "fatal log entries ([FTL] / 'Startup failed') present since launch" }
+          if ($resultText -notmatch 'status=PASS') { $fail += "ci-smoke-result.txt does not say status=PASS" }
+          Write-Host "── startup verification diagnostics ──"
+          Write-Host "exit code: $(if ($p.HasExited) { $exitCode } else { 'TIMEOUT (killed)' })"
+          Write-Host "markers: DI=$(($logText -match 'CI-SMOKE: DI HOST BUILT')) LOADED=$(($logText -match 'CI-SMOKE: MAINWINDOW LOADED')) COMPLETE=$(($logText -match '=== Startup complete ==='))"
+          if ($resultText) { Write-Host "result file: $($resultText.Trim())" }
+          if ($fail.Count -gt 0) {
+            Write-Host "── log tail (last 40 lines) ──"
+            if ($logText) { $logText -split "`n" | Select-Object -Last 40 | Write-Host }
+            Write-Error ("Startup verification FAILED: " + ($fail -join '; '))
             exit 1
           }
-          Write-Host "✓ Smoke test passed: process alive after 20s (PID $($p.Id))"
-          try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
-          # v0.7.4: also kill any SumatraPDF.exe the smoke test may have
-          # spawned — a lingering renderer process would block the upload
-          # step's file handles on the publish directory.
+          Write-Host "✓ Startup verification PASSED: exit 0, DI host built and started, MainWindow Loaded lifecycle completed, startup-complete marker present, zero fatal log entries"
+          # v0.7.4: also kill any SumatraPDF.exe the run may have spawned — a
+          # lingering renderer process would block the upload step's file
+          # handles on the publish directory.
           try { Get-Process -Name SumatraPDF -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+
+      - name: Verification gate summary
+        if: always()
+        shell: pwsh
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+        run: |
+          # Stage 5: native build, tests, publish, output validation, startup
+          # verification and packaging are reported SEPARATELY on the run
+          # summary page — "green build" can never again be read as "working
+          # app" without the startup row being green too.
+          $gates = [ordered]@{
+            "native Windows build (net10.0 + net10.0-windows)" = $env:BUILD_OUTCOME
+            "tests (both target frameworks)"                   = $env:TEST_OUTCOME
+            "self-contained win-x64 publish"                   = $env:PUBLISH_OUTCOME
+            "publish output validation (native DLLs)"          = $env:VALIDATE_OUTCOME
+            "startup verification (real WPF launch)"           = $env:SMOKE_OUTCOME
+            "packaging (ZIP + SHA-256)"                        = $env:PACKAGE_OUTCOME
+          }
+          $lines = @("| Gate | Result |", "|---|---|")
+          foreach ($k in $gates.Keys) { $lines += ("| {0} | {1} |" -f $k, $gates[$k]) }
+          ($lines -join "`n") | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          Write-Host ($lines -join "`n")
 
       - name: Write version metadata (BUILD-INFO.txt)
         shell: pwsh
@@ -333,6 +433,7 @@ jobs:
           Get-Content artifacts/README.txt
 
       - name: Package publish directory into PrintEXE-vX.Y.Z-win-x64.zip
+        id: package
         shell: pwsh
         run: |
           $ver = $env:BUILD_VERSION
@@ -452,6 +553,7 @@ jobs:
             artifacts/BUILD-INFO.txt
             artifacts/README.txt
           if-no-files-found: error
+          retention-days: 90
 
       - name: Upload test results
         if: always()
@@ -459,6 +561,28 @@ jobs:
         with:
           name: test-results
           path: '**/TestResults/*.trx'
+          retention-days: 30
+
+      - name: Upload startup logs + smoke diagnostics
+        # Stage 5: the startup verification's own evidence — Serilog log of
+        # the real launch, ci-smoke-result.txt — ships on EVERY run, pass or
+        # fail, so a failed startup is diagnosable without re-running.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-logs
+          path: 'artifacts/startup-logs/**'
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload build + test console logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: 'artifacts/logs/**'
+          if-no-files-found: ignore
+          retention-days: 14
 
   # ──────────────────────────────────────────────────────────────────────
   # Release job — runs ONLY on tag pushes (or manual dispatch with a tag).
@@ -472,9 +596,49 @@ jobs:
   # assets; this job exercises them on tags. SumatraPDF.exe is downloaded from the
   # official release (GPL-3.0, invoked as a separate process only — see
   # docs/THIRD_PARTY_NOTICES.md).
+  # ──────────────────────────────────────────────────────────────────────
+  # XAML static audit (Phase 7 / Stage 3) — runs in seconds on ubuntu and
+  # catches the defect classes that shipped broken releases: missing
+  # StaticResource keys (v0.7.15 NavItem), Style TargetType vs element
+  # mismatches (v0.7.19 InputField/PasswordBox), broken BasedOn chains,
+  # duplicate resource keys, missing converter classes, malformed merged
+  # dictionaries. It is a REQUIRED gate for the msi + release jobs below.
+  # ──────────────────────────────────────────────────────────────────────
+  xaml-audit:
+    name: XAML static audit (resource graph)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run XAML resource audit
+        run: |
+          mkdir -p artifacts
+          python3 tools/xaml_audit.py src/PrintShopCompanion.App --report artifacts/xaml-audit-report.txt
+          cat artifacts/xaml-audit-report.txt
+
+      - name: Run XAML audit regression tests (v0.7.18 / v0.7.19 defect fixtures)
+        # The detector itself is tested: fixtures reproducing both field
+        # crashes MUST be flagged, a clean fixture MUST pass.
+        run: python3 -m unittest discover -s tools -p "test_xaml_audit*.py" -v
+
+      - name: Upload XAML audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xaml-audit-report
+          path: artifacts/xaml-audit-report.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
   msi:
     name: Build MSI (installer, tag only)
-    needs: build
+    needs: [build, xaml-audit]
     if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     steps:
@@ -591,11 +755,12 @@ jobs:
         with:
           name: PrintShopCompanion-msi
           path: PrintShopCompanion-*.msi
+          retention-days: 90
         if: always()
 
   release:
     name: Create GitHub Release (tag only)
-    needs: build
+    needs: [build, xaml-audit]
     if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
@@ -614,6 +779,26 @@ jobs:
           if [ -z "$TAG" ]; then TAG="${{ github.ref_name }}"; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved tag: $TAG"
+
+      - name: Verify the tag exists and points at this commit (no auto-tagging)
+        shell: bash
+        run: |
+          # Stage 6: releases are created ONLY for tags a human pushed after
+          # the full verification pipeline was green. CI never creates a tag:
+          # if the workflow_dispatch input names a tag that does not exist,
+          # or exists at a different commit, fail loudly instead of letting
+          # the release action create one implicitly.
+          TAG="${{ steps.tag.outputs.tag }}"
+          if ! git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
+            echo "::error::Tag $TAG does not exist in the repository. Push the tag manually (git push origin $TAG) only after build + tests + XAML audit + startup verification are green; CI never creates tags."
+            exit 1
+          fi
+          TAG_SHA=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}")
+          if [ "$TAG_SHA" != "${{ github.sha }}" ]; then
+            echo "::error::Tag $TAG points at $TAG_SHA, not at this run's commit ${{ github.sha }} — refusing to release a mismatched commit."
+            exit 1
+          fi
+          echo "✓ Tag $TAG exists and matches commit ${{ github.sha }}"
 
       - name: Check release does not already exist
         id: check

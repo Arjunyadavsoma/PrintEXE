@@ -78,10 +78,12 @@ public sealed class WindowsRuntimeSecurityTests
     };
 
     // ── 1. DPAPI credential round trip (Windows-only) ──────────────────
-    [Fact]
+    // Phase 7 (Stage 4): guards became SKIPS — an unexecuted test must never
+    // show up as "passed" in the neutral net10.0 leg.
+    [SkippableFact]
     public async Task DPAPI_Credential_Persist_Restore_RoundTrip()
     {
-        if (!OperatingSystem.IsWindows()) return; // executed on windows-latest CI
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only; executed on windows-latest CI");
         var root = NewTempDir();
         var layout = NewLayout(root);
         var handler = new StubHandler();
@@ -103,10 +105,10 @@ public sealed class WindowsRuntimeSecurityTests
     }
 
     // ── 2. Rotation persists the new credential (Windows-only) ─────────
-    [Fact]
+    [SkippableFact]
     public async Task Rotation_Persists_New_Credential_And_Uses_It()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only; executed on windows-latest CI");
         var root = NewTempDir();
         var layout = NewLayout(root);
         var handler = new StubHandler();
@@ -138,10 +140,10 @@ public sealed class WindowsRuntimeSecurityTests
     }
 
     // ── 3. Revocation deletes the local credential (Windows-only) ──────
-    [Fact]
+    [SkippableFact]
     public async Task RevokeDevice_Removes_Credential_File()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only; executed on windows-latest CI");
         var root = NewTempDir();
         var layout = NewLayout(root);
         var backend = NewBackend(new HttpClient(new StubHandler()), layout);

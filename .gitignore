@@ -43,3 +43,7 @@ scripts/syntax-check.csx
 .env.local
 .env.*.local
 core
+
+# Python bytecode
+tools/__pycache__/
+__pycache__/

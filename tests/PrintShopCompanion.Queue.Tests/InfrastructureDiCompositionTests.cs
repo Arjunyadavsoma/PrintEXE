@@ -96,46 +96,52 @@ public class InfrastructureDiCompositionTests : IDisposable
     }
 #endif
 
-    [Fact]
+    [SkippableFact]
     public void SqliteJobQueue_resolves_by_concrete_type()
     {
 #if WINDOWS
-        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
         // The exact resolution that threw in v0.7.3.
         var queue = _provider.GetRequiredService<SqliteJobQueue>();
         queue.Should().NotBeNull();
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
 #endif
     }
 
-    [Fact]
+    [SkippableFact]
     public void DurableCommandStore_is_resolvable()
     {
 #if WINDOWS
-        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
         // DurableCommandStore(SqliteJobQueue queue, ILogger logger) — this is
         // the constructor that failed to activate in v0.7.3.
         var store = _provider.GetRequiredService<DurableCommandStore>();
         store.Should().NotBeNull();
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
 #endif
     }
 
-    [Fact]
+    [SkippableFact]
     public void CommandPoller_is_resolvable()
     {
 #if WINDOWS
-        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
         // The poller sits behind StartCloudConnectionAsync's first line
         // (GetRequiredService<CommandPoller>) — it activates the command
         // execution chain (executor + durable store + queue).
         _provider.GetRequiredService<CommandPoller>().Should().NotBeNull();
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
 #endif
     }
 
-    [Fact]
+    [SkippableFact]
     public void IJobQueue_and_concrete_registration_share_one_singleton()
     {
 #if WINDOWS
-        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
         // Both registrations must resolve to the SAME instance, mirroring the
         // JobProcessor/IQueueController pattern. Two separate singletons would
         // fork queue state (one DB gate, two connection strings is survivable,
@@ -144,18 +150,22 @@ public class InfrastructureDiCompositionTests : IDisposable
         var byConcrete = _provider.GetRequiredService<SqliteJobQueue>();
         ReferenceEquals(byInterface, byConcrete).Should().BeTrue(
             "the interface mapping must return the same singleton as the concrete registration");
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
 #endif
     }
 
-    [Fact]
+    [SkippableFact]
     public void SqlitePendingOpsQueue_resolves_by_concrete_type()
     {
 #if WINDOWS
-        if (!_encryptionAvailable) return; // SQLCipher native unavailable in this testhost
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
         // SqlitePendingOpsQueue is also registered interface-only today, but
         // nothing currently requests the concrete type — pin the composition
         // we actually ship: IPendingOpsQueue must resolve.
         _provider.GetRequiredService<IPendingOpsQueue>().Should().NotBeNull();
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
 #endif
     }
 
@@ -166,5 +176,41 @@ public class InfrastructureDiCompositionTests : IDisposable
 #endif
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { if (_tempDir.Length > 0) Directory.Delete(_tempDir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+    // ── Phase 7 (Stage 4): lifecycle coverage — startup/shutdown semantics ──
+    // These complement the composition tests above: a graph that RESOLVES is
+    // necessary but not sufficient; the host must also BUILD, START and
+    // DISPOSE cleanly (the app's OnExit path disposes this same provider).
+
+    [SkippableFact]
+    public void Host_builds_and_disposes_cleanly()
+    {
+#if WINDOWS
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
+        // Double-dispose is explicitly tolerated here: ServiceProvider.Dispose
+        // is idempotent, and OnExit must never throw on a second dispose path.
+        Action dispose = () => _provider.Dispose();
+        dispose.Should().NotThrow();
+        dispose.Should().NotThrow();
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
+#endif
+    }
+
+    [SkippableFact]
+    public async System.Threading.Tasks.Task JobProcessor_starts_and_stops_cleanly()
+    {
+#if WINDOWS
+        Skip.IfNot(_encryptionAvailable, "SQLCipher native provider unavailable in this testhost");
+        // Background-service coverage (Stage 4): the REAL JobProcessor must
+        // start on an empty queue and stop gracefully within the timeout.
+        var processor = _provider.GetRequiredService<JobProcessor>();
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await processor.StartAsync(cts.Token);
+        var stop = async () => await processor.StopAsync(System.Threading.CancellationToken.None);
+        await stop.Should().NotThrowAsync();
+#else
+        Skip.If(true, "Requires the net10.0-windows TFM (real DI graph with IPrinterService, DPAPI key store and SQLCipher native); exercised on windows-latest CI.");
+#endif
     }
 }

@@ -154,16 +154,17 @@ public class SqliteConnectionPragmasSafetyTests
     }
 
     // ── 6. SQLCipher: encrypted queue DB is NOT readable as plaintext ───
-    [Fact]
+    // Phase 7 (Stage 4): guards became SKIPS — never pass as empty bodies.
+    [SkippableFact]
     public async Task SqlCipher_Queue_Db_Cannot_Be_Opened_As_Plaintext()
     {
-        if (!OperatingSystem.IsWindows()) return; // DPAPI + e_sqlcipher are Windows-only here
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI + e_sqlcipher are Windows-only here; executed on windows-latest CI");
         // The invariant this test verifies requires the SQLCipher provider to
         // actually be loadable. If the native bundle is unavailable in this
         // environment, the production constructor fails closed (that is the
         // correct behavior) — skip instead of testing the wrong thing.
-        if (!PrintShopCompanion.Infrastructure.Storage.SqlCipherInitializer.IsEncryptionAvailable)
-            return;
+        Skip.IfNot(PrintShopCompanion.Infrastructure.Storage.SqlCipherInitializer.IsEncryptionAvailable,
+            "SQLCipher native provider unavailable in this testhost");
         var root = NewTempDir();
         var layout = new PrintShopCompanion.Infrastructure.Storage.LocalStorageLayout(
             Microsoft.Extensions.Options.Options.Create(new PrintShopCompanion.Core.Options.StorageOptions()), root);

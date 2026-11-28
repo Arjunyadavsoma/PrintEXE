@@ -223,20 +223,25 @@
 
     <!-- ==================== INPUTS ==================== -->
     <!-- v0.7.15: focus ring + hover affordance + disabled state. -->
-    <!-- v0.7.19 CRASH FIX: TargetType was TextBox, but LoginView.xaml applies
-         this style to a PasswordBox (sibling type, NOT derived from TextBox).
-         WPF throws InvalidOperationException at the Style assignment during
+    <!-- v0.7.19 ATTEMPTED FIX (RETARGET TO TextBoxBase) WAS WRONG: the commit
+         message claimed PasswordBox derives from TextBoxBase — it does NOT.
+         WPF ancestry: TextBox -> TextBoxBase -> Control, but
+         PasswordBox -> Control (a SIBLING of TextBoxBase). A TargetType=
+         TextBoxBase style applied to a PasswordBox still throws
+         InvalidOperationException at the Style assignment during
          InitializeComponent → XamlParseException "Set property
-         'System.Windows.FrameworkElement.Style' threw an exception" → the app
-         dies at startup with "PrintShop Companion could not start."
-         (Masked in v0.7.15–v0.7.18 because the MainWindow ctor crashed EARLIER,
-         on the removed NavItem style keys, before navigation created LoginView.)
-         Retargeted to TextBoxBase — the common base of TextBox and PasswordBox —
-         so one input style serves both. Every setter property below (Padding,
-         FontSize, Background, Foreground, BorderBrush, BorderThickness,
-         VerticalContentAlignment) lives on Control/TextBoxBase; no TextBox-only
-         property is used, so all TextBox usages are unaffected. -->
-    <Style x:Key="InputField" TargetType="{x:Type TextBoxBase}">
+         'System.Windows.FrameworkElement.Style' threw an exception" →
+         "PrintShop Companion could not start." — the second startup-crash
+         layer was never actually fixed by v0.7.19.
+         Phase 7 (v0.7.19-fix2): retargeted to {x:Type Control} — the REAL
+         minimal common ancestor of TextBox and PasswordBox. Every setter
+         (Padding, FontSize, Background, Foreground, BorderBrush,
+         BorderThickness, VerticalContentAlignment) and every trigger
+         property (IsMouseOver, IsKeyboardFocused, IsEnabled) is a
+         Control/FrameworkElement-level property, so all TextBox usages
+         behave identically. Caught by the new tools/xaml_audit.py
+         (XAML_TARGETTYPE_MISMATCH) + the CI startup verification gate. -->
+    <Style x:Key="InputField" TargetType="{x:Type Control}">
         <Setter Property="Padding" Value="14,12" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeH2}" />
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />

@@ -1,5 +1,43 @@
 # HONEST STATUS — Read This First
 
+> **⚠ PHASE 7 UPDATE 2026-11-27** (production-grade CI + startup verification):
+> (1) **The v0.7.19 "fix" was wrong and the second startup-crash layer was STILL
+> LIVE in HEAD.** The v0.7.19 commit message claimed PasswordBox derives from
+> TextBoxBase — WPF ancestry is actually TextBox → TextBoxBase → Control while
+> **PasswordBox → Control** (a SIBLING of TextBoxBase), so the retarget to
+> `{x:Type TextBoxBase}` still threw on `<PasswordBox Style="{StaticResource
+> InputField}"/>` at LoginView load. The earlier "full static sweep" validated
+> against that same false model, which is how a wrong fix got a green sweep.
+> Real fix (this commit): `InputField` TargetType = **`{x:Type Control}`** — the
+> actual common ancestor; every setter and trigger is a Control-level property.
+> Caught by the new `tools/xaml_audit.py` (`XAML_TARGETTYPE_MISMATCH`) whose
+> ancestry model is now regression-tested.
+> (2) **CI startup verification replaced the liveness-only smoke test** that
+> passed v0.7.15–v0.7.17 (a modal error dialog blocks forever = "alive"). The
+> app gained `--ci-smoke` (real DI host + real MainWindow, structured markers
+> `CI-SMOKE: DI HOST BUILT` / `CI-SMOKE: MAINWINDOW LOADED`, `ci-smoke-result.txt`,
+> NO modal dialogs in this mode, graceful self-shutdown). The CI gate requires
+> exit 0 within 90s + all markers + zero `[FTL]`/`Startup failed` lines, and
+> uploads the startup logs on every run. This gate would have FAILED
+> v0.7.15, v0.7.16 and v0.7.17's tag runs.
+> (3) **XAML static audit is now a required CI job** (ubuntu, seconds) with 14
+> detector regression tests (v0.7.18 NavItem missing-key fixture, v0.7.19
+> TextBoxBase-on-PasswordBox fixture, BasedOn chains, dup keys, merged-dict
+> integrity, converter existence). msi + release jobs now `needs: [build,
+> xaml-audit]`.
+> (4) **Tests can no longer pass as empty bodies**: the 5 neutral-leg
+> DI-composition placeholders and the 5 DPAPI/SQLCipher runtime guards now
+> SKIP with reasons (Xunit.SkippableFact 1.5.85) instead of always-green
+> passing. New coverage: DI host build/dispose lifecycle, JobProcessor
+> start/stop, storage-layout idempotency + device-token writability
+> (both legs).
+> (5) **Evidence + release protection**: build/test console logs, TRX, startup
+> logs, XAML audit report, ZIP and MSI all ship as artifacts with explicit
+> `retention-days`; six gates (build, tests, publish, validate, startup,
+> packaging) are reported separately in the run summary; the release job
+> verifies the tag exists AT THIS COMMIT before creating anything — CI never
+> creates tags. No stable tag/release until this full pipeline is green.
+
 > **⚠ v0.7.2 UPDATE 2026-11-26** (real-machine failure + contract sync):
 > (1) **SQLCipher**: a real Windows machine could not open the encrypted queue
 > ("SQLCipher native provider is not available"). Root cause: the initializer

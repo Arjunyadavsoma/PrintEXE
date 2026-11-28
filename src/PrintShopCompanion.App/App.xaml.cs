@@ -45,6 +45,15 @@ public partial class App : Application
     private System.Threading.Timer? _heartbeatTimer;
     private System.Threading.Timer? _commandPollTimer;
 
+    // Phase 7 (CI startup verification): set by the `--ci-smoke` argument.
+    // The app then runs the REAL startup path (real DI host, real MainWindow,
+    // real XAML resource resolution) but (a) logs structured markers the CI
+    // gate asserts on, (b) writes ci-smoke-result.txt next to the Serilog
+    // logs, (c) NEVER opens a modal dialog — the exact mechanism that let
+    // v0.7.15-v0.7.17 pass the old liveness-only smoke test while dead — and
+    // (d) shuts itself down gracefully once MainWindow completes Loaded.
+    private bool _ciSmoke;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -70,6 +79,13 @@ public partial class App : Application
                 Console.WriteLine(AppVersion.Short);
                 Shutdown(0);
                 return;
+            }
+            // Phase 7: dedicated CI startup-verification mode. Detected before
+            // the Serilog init so fatal pre-log failures still exit without a
+            // modal dialog blocking the runner.
+            if (Array.IndexOf(e.Args, "--ci-smoke") >= 0)
+            {
+                _ciSmoke = true;
             }
         }
 
@@ -184,6 +200,10 @@ public partial class App : Application
             // StartAsync is synchronous-safe (it doesn't use the Dispatcher)
             _host.StartAsync().Wait();
             Log.Information("DI host started");
+            // Phase 7: structured marker — the full DI graph was constructed
+            // AND started. A failure anywhere in AddPrintShopCompanionInfrastructure
+            // throws before this line and lands in the startup catch below.
+            if (_ciSmoke) Log.Information("=== CI-SMOKE: DI HOST BUILT ===");
 
             // CHECK for saved credentials SYNCHRONOUSLY (no async, no .Result, no deadlock)
             // Check BOTH the current DeviceTokenStore path (%LocalAppData%\...\Security\device.dat)
@@ -241,6 +261,16 @@ public partial class App : Application
             var main = _host.Services.GetRequiredService<MainWindow>();
             main.Show();
             Log.Information("Main window shown");
+            if (_ciSmoke)
+            {
+                // Phase 7: assert the REAL MainWindow completes the WPF Loaded
+                // lifecycle (visual tree built, merged dictionaries applied,
+                // bindings evaluated) — the layer markup compilation cannot
+                // validate and where both field crashes (v0.7.15 NavItem,
+                // v0.7.19 InputField) died. On success the handler shuts the
+                // app down gracefully; CI never has to kill a healthy app.
+                main.Loaded += OnCiSmokeMainWindowLoaded;
+            }
 
             // ALL ASYNC WORK happens AFTER the window is shown.
             // We capture the Task so OnExit can WaitAsync for it before disposing.
@@ -447,17 +477,20 @@ public partial class App : Application
                         if (failureReason is not null)
                         {
                             Log.Warning("Previous update failed: {Reason}", failureReason);
-                            Dispatcher.Invoke(() =>
+                            if (!_ciSmoke)
                             {
-                                MessageBox.Show(
-                                    $"A previous auto-update failed ({failureReason}).\n\n" +
-                                    "The app rolled back to the previous version. " +
-                                    "You can retry from the in-app banner, or download manually from\n" +
-                                    "https://github.com/Arjunyadavsoma/PrintEXE/releases/latest",
-                                    "Previous update failed",
-                                    MessageBoxButton.OK,
-                                    MessageBoxImage.Warning);
-                            });
+                                Dispatcher.Invoke(() =>
+                                {
+                                    MessageBox.Show(
+                                        $"A previous auto-update failed ({failureReason}).\n\n" +
+                                        "The app rolled back to the previous version. " +
+                                        "You can retry from the in-app banner, or download manually from\n" +
+                                        "https://github.com/Arjunyadavsoma/PrintEXE/releases/latest",
+                                        "Previous update failed",
+                                        MessageBoxButton.OK,
+                                        MessageBoxImage.Warning);
+                                });
+                            }
                         }
                     }
 
@@ -476,6 +509,16 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Fatal(ex, "Startup failed");
+            if (_ciSmoke)
+            {
+                // Phase 7: in CI mode a fatal startup must NEVER open a modal
+                // MessageBox — the dialog blocks the unattended runner forever
+                // and a liveness-only smoke test reads it as "pass" (the exact
+                // v0.7.15-v0.7.17 release incident). Log + result file + hard
+                // exit instead; the CI gate treats exit 1 as failure.
+                WriteCiSmokeResult("FAIL", "Startup failed: " + ex);
+                Environment.Exit(1);
+            }
             MessageBox.Show($"PrintShop Companion could not start.\n\n{ex.Message}\n\nLogs: {logDir}",
                 "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
@@ -487,6 +530,17 @@ public partial class App : Application
     private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Error(e.Exception, "Unhandled UI-thread exception");
+        if (_ciSmoke)
+        {
+            // Phase 7: an unhandled UI-thread exception during a CI smoke run
+            // is fatal by definition (a Loaded-handler or binding crash killed
+            // v0.7.15 in the field). Exit hard — no dialog, e.Handled stays
+            // false — so the gate cannot confuse "survived with dialog" with
+            // "healthy startup".
+            Log.Fatal(e.Exception, "=== CI-SMOKE: FATAL (unhandled UI-thread exception) ===");
+            WriteCiSmokeResult("FAIL", "Unhandled UI-thread exception: " + e.Exception);
+            Environment.Exit(2);
+        }
         try
         {
             MessageBox.Show(
@@ -508,6 +562,11 @@ public partial class App : Application
             Log.Fatal(ex, "Unhandled non-UI-thread exception (CLR terminating={IsTerminating})", e.IsTerminating);
         else
             Log.Fatal("Unhandled non-UI-thread exception object: {ExceptionObject}", e.ExceptionObject);
+        // Phase 7: record the failure for the CI gate even if the process is
+        // already terminating — the marker file is the runner-independent
+        // diagnostic the workflow uploads on every run.
+        if (_ciSmoke && e.ExceptionObject is Exception ciEx)
+            WriteCiSmokeResult("FAIL", "Unhandled non-UI-thread exception: " + ciEx);
         // Domain-level exceptions on terminating paths cannot be converted to
         // survivable state — but they are now at least captured with a full
         // stack trace in the rolling log for diagnosis.
@@ -518,6 +577,39 @@ public partial class App : Application
         Log.Error(e.Exception, "Unobserved task exception ({Count} inner exception(s))",
             e.Exception.InnerExceptions.Count);
         e.SetObserved(); // observed → the CLR will not tear the process down for it
+    }
+
+    // ── Phase 7: CI startup verification (--ci-smoke) ────────────────────
+
+    private void OnCiSmokeMainWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        // The REAL MainWindow has completed the WPF Loaded lifecycle: the
+        // visual tree is built, the merged dictionaries applied, bindings
+        // evaluated. This is the strongest startup signal an unattended
+        // runner can get — the v0.7.15 (NavItem) and v0.7.19 (InputField)
+        // defect classes both died before this point, inside XAML resource
+        // resolution that markup compilation cannot validate.
+        Log.Information("=== CI-SMOKE: MAINWINDOW LOADED ===");
+        WriteCiSmokeResult("PASS", "MainWindow Loaded lifecycle completed; DI host started");
+        // Auto-shutdown after a successful smoke run — the graceful OnExit
+        // path (host dispose, timers, tray) is exercised as part of the test,
+        // and CI never has to kill a healthy process.
+        Dispatcher.BeginInvoke(new Action(() => Shutdown(0)));
+    }
+
+    private void WriteCiSmokeResult(string status, string detail)
+    {
+        try
+        {
+            var logDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "PrintShop", "Companion", "logs");
+            Directory.CreateDirectory(logDir);
+            File.WriteAllText(
+                Path.Combine(logDir, "ci-smoke-result.txt"),
+                $"status={status}\nutc={DateTime.UtcNow:O}\nversion={AppVersion.Short}\n{detail}\n");
+        }
+        catch { /* diagnostics only — never crash the smoke path itself */ }
     }
 
     /// <summary>

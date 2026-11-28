@@ -77,7 +77,11 @@
     </Style>
 
     <!-- Input field -->
-    <Style x:Key="InputField" TargetType="TextBox">
+    <!-- NOT merged into App.xaml (design reference) — kept consistent with
+         Components.xaml's runtime InputField: TargetType=Control covers BOTH
+         TextBox and PasswordBox (PasswordBox derives from Control, NOT
+         TextBoxBase — see the Phase 7 comment in Components.xaml). -->
+    <Style x:Key="InputField" TargetType="Control">
         <Setter Property="Padding" Value="12,10" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
