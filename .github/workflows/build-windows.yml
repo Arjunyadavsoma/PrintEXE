@@ -398,7 +398,12 @@ jobs:
           if (-not (Test-Path $exe)) { Write-Error "EXE missing for fatal-path test"; exit 1 }
           Get-Process -Name PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           $logDir = Join-Path $env:APPDATA "PrintShop\Companion\logs"
-          $dbDir = Join-Path $env:APPDATA "PrintShop\Companion\Database"
+          # Run-4 evidence: the queue DB lives under %LOCALAPPDATA% (run 1
+          # log: 'SQLCipher encryption enabled for queue.db at
+          # ...AppData\Local\PrintShop\Companion\Database\queue.db'),
+          # NOT %APPDATA%. The DB is opened during DI host start, so a corrupt
+          # file at the REAL path must fail startup fail-closed.
+          $dbDir = Join-Path $env:LOCALAPPDATA "PrintShop\Companion\Database"
           New-Item -ItemType Directory -Force -Path $dbDir | Out-Null
           # garbage that is definitely not a SQLite/SQLCipher database file
           Set-Content -Path (Join-Path $dbDir "queue.db") -Value ("NOTADB-" * 500) -NoNewline
