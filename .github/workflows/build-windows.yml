@@ -29,6 +29,11 @@ on:
         description: 'Tag to publish as a GitHub Release (e.g. v0.6.0). Leave empty to skip release.'
         required: false
         default: ''
+      build-msi:
+        description: 'Also build the MSI installer on this run (artifact ONLY — never publishes a release)'
+        required: false
+        default: false
+        type: boolean
 
 # Least-privilege permissions at workflow level (read-only). The release
 # job below declares `contents: write` explicitly.
@@ -296,12 +301,15 @@ jobs:
           #      in this mode, so a broken startup EXITS instead of blocking)
           #   2. log marker '=== CI-SMOKE: DI HOST BUILT ==='  (DI graph
           #      constructed AND started)
-          #   3. log marker '=== CI-SMOKE: MAINWINDOW LOADED ==='  (real
-          #      MainWindow completed the WPF Loaded lifecycle — the layer
-          #      where both field crashes died)
-          #   4. log marker '=== Startup complete ==='
-          #   5. zero [FTL] lines / no 'Startup failed' since launch
-          #   6. ci-smoke-result.txt says status=PASS
+          #   3. log marker '=== Startup complete ==='
+          #   4. zero [FTL] lines / no 'Startup failed' since launch
+          #   5. ci-smoke-result.txt says status=PASS or status=RENDER-
+          #      UNVERIFIED. Run 46117422005 evidence: the hosted runner's
+          #      session does not always complete a WPF render pass, so the
+          #      Loaded event may never fire there — the app then reports
+          #      RENDER-UNVERIFIED honestly. Liveness alone can NEVER pass:
+          #      the REQUIRED UIA probe step that follows proves real UI
+          #      interaction on the real window, or the job fails.
           $exe = "$env:GITHUB_WORKSPACE\artifacts\app\PrintShopCompanion.exe"
           if (-not (Test-Path $exe)) { Write-Error "EXE missing for smoke test"; exit 1 }
           # Kill any lingering instance from an earlier retry — a forwarded
@@ -343,12 +351,20 @@ jobs:
           if ($timedOut) { $fail += "process did not exit within 90s (modal dialog or hang)" }
           elseif ($exitCode -ne 0) { $fail += "exit code $exitCode (nonzero = fatal startup path)" }
           if ($logText -notmatch '=== CI-SMOKE: DI HOST BUILT ===') { $fail += "marker missing: DI HOST BUILT (dependency injection initialization)" }
-          if ($logText -notmatch '=== CI-SMOKE: MAINWINDOW LOADED ===') { $fail += "marker missing: MAINWINDOW LOADED (MainWindow Loaded lifecycle)" }
+          # Loaded is the UI-render SIGNAL, not a hard gate: run 46117422005
+          # proved the hosted-runner session may never complete a WPF render
+          # pass. The REQUIRED UIA probe step verifies real UI interaction —
+          # so a liveness-only pass is impossible.
+          if ($logText -match 'CI-SMOKE: MAINWINDOW LOADED') {
+            Write-Host "✓ UI render CONFIRMED: MainWindow Loaded lifecycle completed"
+          } else {
+            Write-Host "!! UI render NOT confirmed via Loaded (non-interactive session suspected) — the UIA probe step is the UI-verifying gate"
+          }
           if ($logText -notmatch '=== Startup complete ===') { $fail += "marker missing: '=== Startup complete ==='" }
           if ($logText -match '\[FTL\]' -or $logText -match 'Startup failed') { $fail += "fatal log entries ([FTL] / 'Startup failed') present since launch" }
-          if ($resultText -notmatch 'status=PASS') { $fail += "ci-smoke-result.txt does not say status=PASS" }
+          if ($resultText -notmatch 'status=PASS' -and $resultText -notmatch 'status=RENDER-UNVERIFIED') { $fail += "ci-smoke-result.txt says neither PASS nor RENDER-UNVERIFIED" }
           Write-Host "── startup verification diagnostics ──"
-          Write-Host "exit code: $(if ($p.HasExited) { $exitCode } else { 'TIMEOUT (killed)' })"
+          Write-Host "exit code: $(if ($timedOut) { 'TIMEOUT (tree-killed after 90s; taskkill reports its own code)' } elseif ($p.HasExited) { $exitCode } else { 'UNKNOWN' })"
           Write-Host "markers: DI=$(($logText -match 'CI-SMOKE: DI HOST BUILT')) LOADED=$(($logText -match 'CI-SMOKE: MAINWINDOW LOADED')) COMPLETE=$(($logText -match '=== Startup complete ==='))"
           if ($resultText) { Write-Host "result file: $($resultText.Trim())" }
           if ($fail.Count -gt 0) {
@@ -357,11 +373,66 @@ jobs:
             Write-Error ("Startup verification FAILED: " + ($fail -join '; '))
             exit 1
           }
-          Write-Host "✓ Startup verification PASSED: exit 0, DI host built and started, MainWindow Loaded lifecycle completed, startup-complete marker present, zero fatal log entries"
+          Write-Host "✓ Startup verification PASSED: exit 0, DI host built and started, startup-complete marker present, zero fatal log entries; UI confirmation = PASS (Loaded fired) or RENDER-UNVERIFIED (UIA probe decides)"
           # v0.7.4: also kill any SumatraPDF.exe the run may have spawned — a
           # lingering renderer process would block the upload step's file
           # handles on the publish directory.
           try { Get-Process -Name SumatraPDF -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+
+      - name: UI automation probe (real login-window interaction)
+        id: uia
+        shell: powershell
+        timeout-minutes: 4
+        run: tools/uia_probe.ps1 -ExePath "$env:GITHUB_WORKSPACE\artifacts\app\PrintShopCompanion.exe"
+
+      - name: Fatal-path verification (corrupt database must fail closed)
+        id: fatal
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          # Phase 8 Stage 3: deliberately corrupt the SQLCipher queue database
+          # and verify the app FAILS CLOSED: nonzero exit, fatal diagnostics,
+          # no dialog, ci-smoke-result status=FAIL. A silent recovery, a
+          # reported PASS, or a hang here is a critical reliability defect.
+          $exe = "$env:GITHUB_WORKSPACE\artifacts\app\PrintShopCompanion.exe"
+          if (-not (Test-Path $exe)) { Write-Error "EXE missing for fatal-path test"; exit 1 }
+          Get-Process -Name PrintShopCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $logDir = Join-Path $env:APPDATA "PrintShop\Companion\logs"
+          $dbDir = Join-Path $env:APPDATA "PrintShop\Companion\Database"
+          New-Item -ItemType Directory -Force -Path $dbDir | Out-Null
+          # garbage that is definitely not a SQLite/SQLCipher database file
+          Set-Content -Path (Join-Path $dbDir "queue.db") -Value ("NOTADB-" * 500) -NoNewline
+          Remove-Item "$logDir\companion-*.log" -Force -ErrorAction SilentlyContinue
+          Remove-Item "$logDir\ci-smoke-result.txt" -Force -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath $exe -ArgumentList "--ci-smoke" -PassThru -NoNewWindow
+          $timedOut = -not $p.WaitForExit(90000)
+          if ($timedOut) { try { taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { } }
+          $exitCode = $null
+          if ($p.HasExited) { try { $exitCode = $p.ExitCode } catch { } }
+          $newestLog = Get-ChildItem -Path $logDir -Filter "companion-*.log" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime | Select-Object -Last 1
+          $logText = ""
+          if ($newestLog) { $logText = Get-Content $newestLog.FullName -Raw -ErrorAction SilentlyContinue }
+          $resultText = ""
+          if (Test-Path "$logDir\ci-smoke-result.txt") { $resultText = Get-Content "$logDir\ci-smoke-result.txt" -Raw }
+          # ship the evidence even on failure
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\artifacts\startup-logs\fatal-path" | Out-Null
+          if ($newestLog) { Copy-Item $newestLog.FullName "$env:GITHUB_WORKSPACE\artifacts\startup-logs\fatal-path\" -Force -ErrorAction SilentlyContinue }
+          if ($resultText) { Set-Content "$env:GITHUB_WORKSPACE\artifacts\startup-logs\fatal-path\ci-smoke-result.txt" -Value $resultText }
+          $bad = @()
+          if ($timedOut) { $bad += "process hung on corrupt DB (no fail-closed exit within 90s)" }
+          elseif ($exitCode -eq 0) { $bad += "exit code 0 — corrupt database did NOT fail closed" }
+          if ($logText -notmatch '\[FTL\]' -and $logText -notmatch 'Startup failed') { $bad += "no fatal diagnostics logged ([FTL]/Startup failed missing)" }
+          if ($resultText -match 'status=PASS') { $bad += "result file says PASS — corrupt DB reported as a healthy startup" }
+          Write-Host "exit code: $(if ($p.HasExited) { $exitCode } else { 'TIMEOUT' })"
+          if ($resultText) { Write-Host "result: $($resultText.Trim())" }
+          if ($bad.Count -gt 0) {
+            Write-Host "── log tail ──"
+            if ($logText) { $logText -split "`n" | Select-Object -Last 40 | Write-Host }
+            Write-Error ("FATAL-PATH VERIFICATION FAILED: " + ($bad -join '; '))
+            exit 1
+          }
+          Write-Host "✓ Fatal-path verification PASSED: corrupt database → exit $exitCode, fatal diagnostics logged, status=FAIL (fail-closed)"
 
       - name: Verification gate summary
         if: always()
@@ -373,6 +444,8 @@ jobs:
           VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
           PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          UIA_OUTCOME: ${{ steps.uia.outcome }}
+          FATAL_OUTCOME: ${{ steps.fatal.outcome }}
         run: |
           # Stage 5: native build, tests, publish, output validation, startup
           # verification and packaging are reported SEPARATELY on the run
@@ -385,6 +458,8 @@ jobs:
             "publish output validation (native DLLs)"          = $env:VALIDATE_OUTCOME
             "startup verification (real WPF launch)"           = $env:SMOKE_OUTCOME
             "packaging (ZIP + SHA-256)"                        = $env:PACKAGE_OUTCOME
+            "UI automation (real login interaction)"           = $env:UIA_OUTCOME
+            "fatal-path fail-closed (corrupt DB)"              = $env:FATAL_OUTCOME
           }
           $lines = @("| Gate | Result |", "|---|---|")
           foreach ($k in $gates.Keys) { $lines += ("| {0} | {1} |" -f $k, $gates[$k]) }
@@ -655,7 +730,11 @@ jobs:
     name: Build MSI (installer, tag only)
     needs: [build, xaml-audit]
     timeout-minutes: 25
-    if: ${{ github.event.inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    # Phase 8 Stage 7: build-msi=true (manual dispatch) builds the MSI as an
+    # uploaded artifact for installer validation WITHOUT any release. Releases
+    # remain gated to tags a human pushed (the release job's condition below
+    # intentionally does NOT include build-msi).
+    if: ${{ github.event.inputs.release-tag != '' || github.event.inputs.build-msi == 'true' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     steps:
       - name: Checkout repository

@@ -51,8 +51,13 @@ public partial class App : Application
     // gate asserts on, (b) writes ci-smoke-result.txt next to the Serilog
     // logs, (c) NEVER opens a modal dialog — the exact mechanism that let
     // v0.7.15-v0.7.17 pass the old liveness-only smoke test while dead — and
-    // (d) shuts itself down gracefully once MainWindow completes Loaded.
+    // (d) shuts itself down gracefully once MainWindow completes Loaded —
+    // or reports RENDER-UNVERIFIED if the session never completes a WPF
+    // render pass (run 46117422005 evidence: GitHub's hosted Windows runner
+    // may not), in which case the REQUIRED UIA probe step verifies real UI
+    // interaction. Liveness alone can never pass the pipeline.
     private bool _ciSmoke;
+    private bool _ciSmokeLoadedConfirmed;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -270,6 +275,10 @@ public partial class App : Application
                 // v0.7.19 InputField) died. On success the handler shuts the
                 // app down gracefully; CI never has to kill a healthy app.
                 main.Loaded += OnCiSmokeMainWindowLoaded;
+                // Phase 8: Loaded may be UNREACHABLE on a non-interactive CI
+                // session (no render pass) — the watchdog reports that
+                // honestly instead of hanging the runner for 90s.
+                StartCiSmokeRenderWatchdog();
             }
 
             // ALL ASYNC WORK happens AFTER the window is shown.
@@ -589,12 +598,37 @@ public partial class App : Application
         // runner can get — the v0.7.15 (NavItem) and v0.7.19 (InputField)
         // defect classes both died before this point, inside XAML resource
         // resolution that markup compilation cannot validate.
+        _ciSmokeLoadedConfirmed = true;
         Log.Information("=== CI-SMOKE: MAINWINDOW LOADED ===");
         WriteCiSmokeResult("PASS", "MainWindow Loaded lifecycle completed; DI host started");
         // Auto-shutdown after a successful smoke run — the graceful OnExit
         // path (host dispose, timers, tray) is exercised as part of the test,
         // and CI never has to kill a healthy process.
         Dispatcher.BeginInvoke(new Action(() => Shutdown(0)));
+    }
+
+    private void StartCiSmokeRenderWatchdog()
+    {
+        // Phase 8 (run 46117422005 evidence): the DI host, tray, dispatcher,
+        // network and startup-complete markers were all healthy, but Loaded
+        // never fired in 90s — the hosted-runner session does not complete a
+        // WPF render pass. Fail-closed redesign: the app reports RENDER-
+        // UNVERIFIED after a 10s grace period and shuts down gracefully;
+        // the REQUIRED UIA probe step then proves real UI interaction on the
+        // real window, or the job goes red. Liveness alone can never pass.
+        var watchdog = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle)
+        { Interval = TimeSpan.FromSeconds(10) };
+        watchdog.Tick += (s, args) =>
+        {
+            watchdog.Stop();
+            if (_ciSmokeLoadedConfirmed) return;
+            Log.Warning("=== CI-SMOKE: RENDER NOT CONFIRMED — MainWindow.Loaded did not fire within 10s (non-interactive CI session suspected); UI verification delegated to the UIA probe step ===");
+            WriteCiSmokeResult("RENDER-UNVERIFIED",
+                "Startup completed (DI host built, startup-complete marker logged) but the WPF Loaded lifecycle did not fire within 10s; UI verification delegated to the UIA probe");
+            Dispatcher.BeginInvoke(new Action(() => Shutdown(0)));
+        };
+        watchdog.Start();
     }
 
     private void WriteCiSmokeResult(string status, string detail)
