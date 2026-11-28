@@ -1,4 +1,4 @@
-# tools/uia_probe.ps1 — Phase 8 Stage 4: real UI automation feasibility probe.
+# tools/uia_probe.ps1 - Phase 8 Stage 4: real UI automation feasibility probe.
 #
 # Launches the REAL PrintEXE exe (normal mode, not --ci-smoke), attaches the
 # Windows UI Automation framework to the actual login window and verifies
@@ -10,8 +10,13 @@
 #      (PasswordRevealBox absent -> present in the UIA tree)
 #   5. a desktop screenshot is captured as evidence (best effort)
 #
+# IMPORTANT: this file is ASCII-ONLY on purpose. Windows PowerShell 5.1 reads
+# BOM-less files as Windows-1252, and multi-byte UTF-8 characters end with
+# bytes that decode to smart quotes (0x93/0x94), which are STRING DELIMITERS
+# to the PS 5.1 tokenizer - run 46118630184 died on exactly that parse error.
+#
 # Exit codes: 0 = all assertions passed; nonzero = the UI is broken or
-# unreachable — the CI gate treats this as a failed startup-verification
+# unreachable - the CI gate treats this as a failed startup-verification
 # layer. Runs under Windows PowerShell 5.1 (UIAutomation assemblies).
 param([Parameter(Mandatory = $true)][string]$ExePath)
 
@@ -32,7 +37,7 @@ try {
     while ($true) {
         $proc.Refresh()
         if ($proc.MainWindowHandle -ne 0) { break }
-        if ($proc.HasExited) { Fail "app exited prematurely (code $($proc.ExitCode)) — no main window" }
+        if ($proc.HasExited) { Fail "app exited prematurely (code $($proc.ExitCode)) - no main window" }
         if ((Get-Date) -gt $deadline) { Fail "no main window within 40s (UIA probe)" }
         Start-Sleep -Milliseconds 500
     }
@@ -59,7 +64,7 @@ try {
     }
     if (-not $pwEl) { Fail "no password edit field found (PasswordBox missing from UIA tree)" }
     Write-Host ("fields: email='{0}' password='{1}'" -f $emailEl.Current.AutomationId, $pwEl.Current.AutomationId)
-    Write-Host "✓ password field exists with IsPassword=true (real PasswordBox)"
+    Write-Host "[OK] password field exists with IsPassword=true (real PasswordBox)"
 
     # 2. REAL text input: SetValue on the email field, then read back
     $value = "ci-uia-probe@example.com"
@@ -67,7 +72,7 @@ try {
     Start-Sleep -Milliseconds 300
     $readBack = ($emailEl.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
     if ($readBack -ne $value) { Fail "email SetValue round-trip mismatch: got '$readBack', wanted '$value'" }
-    Write-Host "✓ text input round-trip verified on the real email field"
+    Write-Host "[OK] text input round-trip verified on the real email field"
 
     # 3. REAL interaction: click the Show button, password visibility must flip
     $btn = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
@@ -82,11 +87,11 @@ try {
     $revealAfter = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition(
             [System.Windows.Automation.AutomationElement]::AutomationIdProperty, "PasswordRevealBox")))
-    if (-not $revealAfter) { Fail "PasswordRevealBox still absent after TogglePasswordBtn click — toggle broken" }
+    if (-not $revealAfter) { Fail "PasswordRevealBox still absent after TogglePasswordBtn click - toggle broken" }
     if ($null -ne $revealBefore) { Write-Host "note: reveal box already present before toggle" }
-    Write-Host "✓ password visibility toggle verified (Show button really works)"
+    Write-Host "[OK] password visibility toggle verified (Show button really works)"
 
-    # 4. screenshot as evidence (best effort — session may block desktop capture)
+    # 4. screenshot as evidence (best effort - session may block desktop capture)
     try {
         Add-Type -AssemblyName System.Windows.Forms
         Add-Type -AssemblyName System.Drawing
@@ -98,7 +103,7 @@ try {
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
         $bmp.Save((Join-Path $outDir "uia-probe.png"), [System.Drawing.Imaging.ImageFormat]::Png)
         $g.Dispose(); $bmp.Dispose()
-        Write-Host "✓ desktop screenshot saved to artifacts/startup-logs/uia-probe.png"
+        Write-Host "[OK] desktop screenshot saved to artifacts/startup-logs/uia-probe.png"
     }
     catch {
         Write-Host "!! desktop screenshot unavailable in this session: $($_.Exception.Message)"
@@ -108,6 +113,6 @@ try {
     exit 0
 }
 finally {
-    # never leave the app running — kill the whole tree
+    # never leave the app running - kill the whole tree
     try { $proc.Refresh(); if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F 2>$null | Out-Null } } catch { }
 }
